@@ -7,7 +7,7 @@ import {
   OneToMany,
   Relation,
 } from 'typeorm';
-import type { Product } from './product.entity';
+import type { Inventory } from './inventory.entity';
 
 @Entity('inventory_locations')
 export class InventoryLocation {
@@ -28,6 +28,6 @@ export class InventoryLocation {
   updated_at: Date;
 
   // Relations - using Relation type with type-only import
-  @OneToMany('Product', 'inventoryLocation')
-  products: Relation<Product[]>;
+  @OneToMany('Inventory', 'inventoryLocation')
+  inventory: Relation<Inventory[]>;
 }

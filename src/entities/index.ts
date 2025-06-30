@@ -4,3 +4,4 @@ export { Station } from './station.entity';
 export { GtpLocation, GtpLocationStatus } from './gtp-location.entity';
 export { Order, OrderStatus } from './order.entity';
 export { OrderItem, OrderItemStatus } from './order-item.entity';
+export { Inventory } from './inventory.entity';
