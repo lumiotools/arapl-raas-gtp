@@ -22,7 +22,7 @@ export const getDBConfig = (
     username: dbCredentials[dbEnv]?.username || dbCredentials.local.username,
     password: dbCredentials[dbEnv]?.password || dbCredentials.local.password,
     database: dbCredentials[dbEnv]?.database || dbCredentials.local.database,
-    // ssl: dbCredentials[dbEnv]?.ssl || false, // Add SSL configuration if needed
+    ssl: dbCredentials[dbEnv]?.ssl || false,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'],
     synchronize: true, // Set to false in production
     logging: true, // Enable logging for debugging
