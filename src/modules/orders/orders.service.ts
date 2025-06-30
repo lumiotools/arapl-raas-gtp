@@ -177,18 +177,14 @@ export class OrdersService {
           processedItems++;
         }
       } catch (error) {
-        // Re-throw any errors immediately
         throw error;
       }
     }
 
-    // Simple response logic
     if (processedOrders.size === 0 && skippedOrders.size > 0) {
-      // All orders were skipped
-      const skippedOrdersList = Array.from(skippedOrders);
       return {
         success: true,
-        message: `All ${skippedOrders.size} orders already exist: ${skippedOrdersList.join(', ')}`,
+        message: `All ${skippedOrders.size} orders already exist`,
         processedOrders: 0,
         processedItems: 0,
         errors: undefined,
