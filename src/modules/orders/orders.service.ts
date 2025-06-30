@@ -57,7 +57,6 @@ export class OrdersService {
       stream
         .pipe(csv())
         .on('data', (data) => {
-          // Convert string quantity to number
           const processedData = {
             ...data,
             Qty: parseInt(data['Qty'], 10),
@@ -88,12 +87,10 @@ export class OrdersService {
     const skippedOrders = new Set<string>();
     let processedItems = 0;
 
-    // Validate data structure first
     if (data.length === 0) {
       throw new BadRequestException('No valid data found in file');
     }
 
-    // Check if required columns exist
     const firstItem = data[0];
     const requiredColumns = [
       'Order ID',
@@ -109,40 +106,52 @@ export class OrdersService {
       );
     }
 
-    // Group items by order ID
     const orderGroups = this.groupByOrderId(data);
 
     for (const [orderId, items] of orderGroups) {
       try {
-        // Validate order ID
         if (!orderId || orderId.trim() === '') {
           throw new BadRequestException('Invalid Order ID found in data');
         }
 
-        // Check if order already exists
         const existingOrder = await this.orderRepository.findOne({
           where: { order_id: orderId },
         });
 
         if (existingOrder) {
-          // Skip this order completely if it already exists
-          skippedOrders.add(orderId);
-          continue;
+          let hasNewItems = false;
+
+          for (const item of items) {
+            const existingOrderItem = await this.orderItemRepository.findOne({
+              where: {
+                order_id: orderId,
+                product_id: item['Product Id'],
+                license_plate_id: item['License Plate ID'],
+              },
+            });
+
+            if (!existingOrderItem) {
+              hasNewItems = true;
+              break;
+            }
+          }
+
+          if (!hasNewItems) {
+            skippedOrders.add(orderId);
+            continue;
+          }
+        } else {
+          const order = this.orderRepository.create({
+            order_id: orderId,
+            order_date: new Date(),
+            total_items: items.reduce((sum, item) => sum + item['Qty'], 0),
+            order_status: OrderStatus.PENDING,
+          });
+          await this.orderRepository.save(order);
+          processedOrders.add(orderId);
         }
 
-        // Create new order
-        const order = this.orderRepository.create({
-          order_id: orderId,
-          order_date: new Date(),
-          total_items: items.reduce((sum, item) => sum + item['Qty'], 0),
-          order_status: OrderStatus.PENDING,
-        });
-        await this.orderRepository.save(order);
-        processedOrders.add(orderId);
-
-        // Process order items only for new orders
         for (const item of items) {
-          // Validate item data - throw error immediately for wrong data
           if (
             !item['Product Id'] ||
             !item['License Plate ID'] ||
@@ -153,7 +162,18 @@ export class OrdersService {
             );
           }
 
-          // Check if product exists - throw error immediately
+          const existingOrderItem = await this.orderItemRepository.findOne({
+            where: {
+              order_id: orderId,
+              product_id: item['Product Id'],
+              license_plate_id: item['License Plate ID'],
+            },
+          });
+
+          if (existingOrderItem) {
+            continue;
+          }
+
           const product = await this.productRepository.findOne({
             where: { product_id: item['Product Id'] },
           });
@@ -164,7 +184,6 @@ export class OrdersService {
             );
           }
 
-          // Create order item
           const orderItem = this.orderItemRepository.create({
             order_id: orderId,
             product_id: item['Product Id'],
