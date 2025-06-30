@@ -1,4 +1,4 @@
-# WMS API Layer
+# WMS GTP
 
 This project is a **NestJS** backend service that connects to a **PostgreSQL** database.
 
@@ -19,8 +19,8 @@ DB_SSL=true
 
 You can either:
 
-* Add them directly to the `docker-compose.yml`, or
-* Create a `.env` file and reference it in the compose file (recommended for security and reusability).
+- Add them directly to the `docker-compose.yml`, or
+- Create a `.env` file and reference it in the compose file (recommended for security and reusability).
 
 ---
 
