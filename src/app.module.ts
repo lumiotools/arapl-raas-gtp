@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { getDBConfig } from './config/db.config';
+import { OrdersModule } from './modules/orders/orders.module';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { getDBConfig } from './config/db.config';
       useFactory: (configService: ConfigService) => getDBConfig(configService),
       inject: [ConfigService],
     }),
+    OrdersModule,
   ],
   controllers: [],
   providers: [],
