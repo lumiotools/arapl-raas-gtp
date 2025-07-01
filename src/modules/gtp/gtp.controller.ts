@@ -9,8 +9,8 @@ export class GtpController {
   constructor(private readonly gtpService: GtpService) {}
 
   @Post()
-  create(@Body() createGtpDto: GtpLocation) {
-    return this.gtpService.create(createGtpDto);
+  async create(@Body() createGtpDto: GtpLocation) {
+    return await this.gtpService.create(createGtpDto);
   }
 
   @Get()
@@ -19,13 +19,13 @@ export class GtpController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.gtpService.findOne(id);
+  async findOne(@Param('id') id: string) {
+    return await this.gtpService.findOne(id);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateGtpDto: GtpLocation) {
-    return this.gtpService.update(id, updateGtpDto);
+  async update(@Param('id') id: string, @Body() updateGtpDto: GtpLocation) {
+    return await this.gtpService.update(id, updateGtpDto);
   }
 
   @Delete(':id')

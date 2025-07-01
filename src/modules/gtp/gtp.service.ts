@@ -1,38 +1,75 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateGtpDto } from './dto/create-gtp.dto';
 import { UpdateGtpDto } from './dto/update-gtp.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GtpLocation } from 'src/entities/gtp-location.entity'; // Assuming you have a Gtp entity defined
+import { Station } from 'src/entities/station.entity';
 
 @Injectable()
 export class GtpService {
   constructor(
     @InjectRepository(GtpLocation)
     private readonly gtpRepository: Repository<GtpLocation>,
+    @InjectRepository(Station)
+    private readonly stationRepository: Repository<Station>,
   ) {}
-  create(createGtpDto: GtpLocation) {
+  async create(createGtpDto: GtpLocation) {
+    // Check if station_id exists in Station repository
+    const station = await this.stationRepository.findOne({ where: { station_id: createGtpDto.station_id } });
+    if (!station) {
+      throw new NotFoundException(`Station with id ${createGtpDto.station_id} not found`);
+    }
+    const existingGtp = await this.gtpRepository.findOne({ where: { gtp_location_id: createGtpDto.gtp_location_id} });
+    if (existingGtp) {
+      throw new BadRequestException(`GTP location for id ${createGtpDto.gtp_location_id} already exists`);
+    }
     const newGtp = this.gtpRepository.create(createGtpDto);
     return this.gtpRepository.save(newGtp);
   }
 
   findAll() {
-    return `This action returns all gtp`;
-  }
-
-  findOne(id: string) {
-    return this.gtpRepository.findOne({where: { gtp_location_id: id}});
-    // return `This action returns a #${id} gtp`;
-  }
-
-  update(id: string, updateGtpDto: GtpLocation) {
-    return this.gtpRepository.update(id, updateGtpDto).then(() => {
-      return this.gtpRepository.findOne({where: { gtp_location_id: id}});
+    return this.gtpRepository.find({
+      relations: ['station'], // Assuming GTP has a relation with Station
     });
-    // return `This action updates a #${id} gtp`;
+    // return `This action returns all gtp`;
   }
 
-  remove(id: string) {
+  async findOne(id: string) {
+    const existing = await  this.gtpRepository.findOne({where: { gtp_location_id: id}});
+    if (!existing){
+      throw new NotFoundException(`GTP with id ${id} not found`);
+    }
+    return existing;
+  }
+
+  async update(id: string, updateGtpDto: GtpLocation) {
+    const existing = await this.gtpRepository.findOne({ where: { gtp_location_id: id } });
+    if (!existing) {
+      throw new NotFoundException(`GTP with id ${id} not found`);
+    }
+    if (updateGtpDto.station_id) {
+      const station = await this.stationRepository.findOne({ where: { station_id: updateGtpDto.station_id } });
+      if (!station) {
+        throw new NotFoundException(`Station with id ${updateGtpDto.station_id} not found`);
+      }
+      const existingGtp = await this.gtpRepository.findOne({ where: { gtp_location_id: updateGtpDto.gtp_location_id } });
+      if (existingGtp && existingGtp.gtp_location_id !== id) {
+        throw new BadRequestException(`GTP location with id ${updateGtpDto.gtp_location_id} already exists`);
+      }
+    }
+    await this.gtpRepository.update(id, updateGtpDto);
+    if (updateGtpDto.station_id) {
+      id = updateGtpDto.gtp_location_id; // Use the updated gtp_location_id if provided
+    }
+    return await this.gtpRepository.findOne({where: { gtp_location_id: updateGtpDto.gtp_location_id}});
+  }
+
+  async remove(id: string) {
+    const existing = await this.gtpRepository.findOne({ where: { gtp_location_id: id } });
+    if (!existing) {
+      throw new NotFoundException(`GTP with id ${id} not found`);
+    }
     return this.gtpRepository.delete(id).then(() => {
       return { message: `GTP with id ${id} has been removed` };
     });
