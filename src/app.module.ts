@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { getDBConfig } from './config/db.config';
 import { OrdersModule } from './modules/orders/orders.module';
+import { GtpModule } from './modules/gtp/gtp.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { OrdersModule } from './modules/orders/orders.module';
       inject: [ConfigService],
     }),
     OrdersModule,
+    GtpModule,
   ],
   controllers: [],
   providers: [],
