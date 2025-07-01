@@ -5,6 +5,7 @@ import { getDBConfig } from './config/db.config';
 import { OrdersModule } from './modules/orders/orders.module';
 import { GtpModule } from './modules/gtp/gtp.module';
 import { StationsModule } from './modules/stations/stations.module';
+import { ProductsModule } from './modules/products/products.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { StationsModule } from './modules/stations/stations.module';
     OrdersModule,
     GtpModule,
     StationsModule,
+    ProductsModule,
   ],
   controllers: [],
   providers: [],
