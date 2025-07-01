@@ -29,7 +29,7 @@ export class GtpController {
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.gtpService.remove(id);
+  async remove(@Param('id') id: string) {
+    return await  this.gtpService.remove(id);
   }
 }
