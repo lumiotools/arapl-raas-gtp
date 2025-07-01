@@ -7,6 +7,7 @@ import { Readable } from 'stream';
 import { Order, OrderStatus } from '../../entities/order.entity';
 import { OrderItem, OrderItemStatus } from '../../entities/order-item.entity';
 import { Product } from '../../entities/product.entity';
+import { GtpLocation } from '../../entities/gtp-location.entity';
 import {
   UploadOrderItemDto,
   ProcessedOrderItemDto,
@@ -22,6 +23,8 @@ export class OrdersService {
     private orderItemRepository: Repository<OrderItem>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
+    @InjectRepository(GtpLocation)
+    private gtpLocationRepository: Repository<GtpLocation>,
   ) {}
 
   async processFile(file: Express.Multer.File): Promise<UploadResponseDto> {
@@ -204,8 +207,6 @@ export class OrdersService {
       return {
         success: true,
         message: `All ${skippedOrders.size} orders already exist`,
-        processedOrders: 0,
-        processedItems: 0,
         errors: undefined,
       };
     }
@@ -213,8 +214,6 @@ export class OrdersService {
     return {
       success: true,
       message: `Successfully processed ${processedOrders.size} orders and ${processedItems} items`,
-      processedOrders: processedOrders.size,
-      processedItems,
       errors: undefined,
     };
   }
@@ -233,5 +232,102 @@ export class OrdersService {
     }
 
     return groups;
+  }
+
+  async processAssignmentsFile(file: Express.Multer.File): Promise<UploadResponseDto> {
+    try {
+      const csvData = file.buffer.toString('utf8');
+      const lines = csvData.split('\n').filter(line => line.trim());
+      
+      if (lines.length === 0) {
+        throw new BadRequestException('CSV file is empty');
+      }
+
+      // Parse header
+      const headers = lines[0].split(',').map(h => h.trim());
+      const expectedHeaders = ['GTP Location', 'LP ID', 'Stop ID'];
+      
+      // Validate headers
+      if (!expectedHeaders.every(header => headers.includes(header))) {
+        throw new BadRequestException(`Invalid CSV format. Expected headers: ${expectedHeaders.join(', ')}`);
+      }
+
+      const results = {
+        successful: 0,
+        failed: 0,
+        errors: [] as string[]
+      };
+
+      // Process each row (skip header)
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        
+        if (values.length < 3) {
+          results.failed++;
+          results.errors.push(`Row ${i + 1}: Invalid number of columns`);
+          continue;
+        }
+
+        const gtpLocation = values[0]; // GTP Location
+        const lpId = values[1];        // LP ID (License Plate ID)
+        const stopId = values[2];      // Stop ID (not used for now)
+
+        if (!gtpLocation || !lpId) {
+          results.failed++;
+          results.errors.push(`Row ${i + 1}: Missing required fields (GTP Location or LP ID)`);
+          continue;
+        }
+
+        try {
+          // Validate that GTP Location exists
+          const gtpLocationEntity = await this.gtpLocationRepository.findOne({ 
+            where: { gtp_location_id: gtpLocation } 
+          });
+
+          if (!gtpLocationEntity) {
+            results.failed++;
+            results.errors.push(`Row ${i + 1}: GTP Location ${gtpLocation} does not exist`);
+            continue;
+          }
+
+          // Find order items with matching license plate ID
+          const orderItems = await this.orderItemRepository.find({
+            where: { license_plate_id: lpId }
+          });
+
+          if (orderItems.length === 0) {
+            results.failed++;
+            results.errors.push(`Row ${i + 1}: No order items found with License Plate ID ${lpId}`);
+            continue;
+          }
+
+          // Update all matching order items with the GTP location
+          for (const orderItem of orderItems) {
+            await this.orderItemRepository.update(
+              { order_item_id: orderItem.order_item_id },
+              { 
+                assigned_gtp_location: gtpLocation,
+                status: OrderItemStatus.ASSIGNED 
+              }
+            );
+          }
+
+          results.successful++;
+
+        } catch (error) {
+          results.failed++;
+          results.errors.push(`Row ${i + 1}: ${error.message}`);
+        }
+      }
+
+      return {
+        success: results.failed === 0,
+        message: `Processed ${results.successful + results.failed} assignments`,
+        errors: results.errors.length > 0 ? results.errors : undefined
+      };
+
+    } catch (error) {
+      throw new BadRequestException(`Failed to process assignments CSV file: ${error.message}`);
+    }
   }
 }

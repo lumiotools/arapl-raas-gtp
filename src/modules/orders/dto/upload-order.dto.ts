@@ -81,18 +81,6 @@ export class UploadResponseDto {
   message: string;
 
   @ApiProperty({
-    description: 'Number of orders processed',
-    example: 24,
-  })
-  processedOrders: number;
-
-  @ApiProperty({
-    description: 'Number of order items processed',
-    example: 28,
-  })
-  processedItems: number;
-
-  @ApiProperty({
     description: 'Array of error messages if any occurred',
     example: ['Product PRD999 not found for order ORD025'],
     required: false,
