@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import * as XLSX from 'xlsx';
 import * as csv from 'csv-parser';
 import { Readable } from 'stream';
@@ -328,6 +328,91 @@ export class OrdersService {
 
     } catch (error) {
       throw new BadRequestException(`Failed to process assignments CSV file: ${error.message}`);
+    }
+  }
+
+  async getAvailableLicensePlates() {
+    try {
+      // Find all order items where assigned_gtp_location is null
+      const orderItems = await this.orderItemRepository.find({
+        where: { 
+          assigned_gtp_location: IsNull() 
+        },
+        select: ['license_plate_id']
+      });
+
+      // Extract unique license plate IDs and filter out nulls
+      const licensePlateIds = orderItems
+        .map(item => item.license_plate_id)
+        .filter(lpId => lpId !== null && lpId !== undefined)
+        .filter((lpId, index, arr) => arr.indexOf(lpId) === index); // Remove duplicates
+
+      return {
+        success: true,
+        message: `Found ${licensePlateIds.length} available license plates`,
+        data: licensePlateIds
+      };
+    } catch (error) {
+      throw new BadRequestException(`Failed to get available license plates: ${error.message}`);
+    }
+  }
+
+  async mapLicensePlateToGtpLocation(licensePlateId: string, gtpLocationId: string) {
+    try {
+      // Validate that the GTP location exists
+      const gtpLocation = await this.gtpLocationRepository.findOne({
+        where: { gtp_location_id: gtpLocationId }
+      });
+
+      if (!gtpLocation) {
+        throw new BadRequestException(`GTP Location ${gtpLocationId} does not exist`);
+      }
+
+      // Check if the GTP location is already assigned to a different license plate
+      const existingAssignment = await this.orderItemRepository.findOne({
+        where: { 
+          assigned_gtp_location: gtpLocationId
+        },
+        select: ['license_plate_id']
+      });
+
+      if (existingAssignment && existingAssignment.license_plate_id !== licensePlateId) {
+        throw new ForbiddenException(`GTP Location ${gtpLocationId} is already assigned to license plate ${existingAssignment.license_plate_id}`);
+      }
+
+      // Find order items with the given license_plate_id
+      const orderItems = await this.orderItemRepository.find({
+        where: { 
+          license_plate_id: licensePlateId
+        }
+      });
+
+      if (orderItems.length === 0) {
+        throw new BadRequestException(`No order items found with license plate ${licensePlateId}`);
+      }
+
+      // Update all matching order items
+      const updateResult = await this.orderItemRepository.update(
+        { 
+          license_plate_id: licensePlateId
+        },
+        { 
+          assigned_gtp_location: gtpLocationId,
+          status: OrderItemStatus.ASSIGNED
+        }
+      );
+
+      return {
+        success: true,
+        message: `Successfully mapped license plate ${licensePlateId} to GTP location ${gtpLocationId} for ${updateResult.affected} order items`,
+        data: {
+          licensePlateId,
+          gtpLocationId,
+          affectedItems: updateResult.affected
+        }
+      };
+    } catch (error) {
+      throw new BadRequestException(`Failed to map license plate to GTP location: ${error.message}`);
     }
   }
 }

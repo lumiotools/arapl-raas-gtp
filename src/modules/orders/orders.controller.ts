@@ -1,11 +1,15 @@
 import {
   Controller,
   Post,
+  Get,
+  Put,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
   HttpStatus,
   HttpCode,
+  Param,
+  Body,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -141,6 +145,20 @@ export class OrdersController {
     return await this.ordersService.processAssignmentsFile(file);
   }
 
-  // get available lps
-  // one for doing lp mapping
+  @Get('available-license-plates')
+  @HttpCode(HttpStatus.OK)
+  async getAvailableLicensePlates() {
+    return await this.ordersService.getAvailableLicensePlates();
+  }
+
+  @Put('license-plate-mapping')
+  @HttpCode(HttpStatus.OK)
+  async mapLicensePlateToGtpLocation(
+    @Body() mappingData: { licensePlateId: string; gtpLocationId: string }
+  ) {
+    return await this.ordersService.mapLicensePlateToGtpLocation(
+      mappingData.licensePlateId,
+      mappingData.gtpLocationId
+    );
+  }
 }
