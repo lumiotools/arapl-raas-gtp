@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { getDBConfig } from './config/db.config';
 import { OrdersModule } from './modules/orders/orders.module';
 import { GtpModule } from './modules/gtp/gtp.module';
+import { StationsModule } from './modules/stations/stations.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { GtpModule } from './modules/gtp/gtp.module';
     }),
     OrdersModule,
     GtpModule,
+    StationsModule,
   ],
   controllers: [],
   providers: [],
