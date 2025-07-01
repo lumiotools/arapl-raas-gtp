@@ -17,6 +17,9 @@ export class Station {
   @Column({ type: 'varchar', length: 100 })
   station_name: string;
 
+  @Column({ type: 'integer' })
+  priority: number;
+
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
