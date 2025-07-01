@@ -140,4 +140,7 @@ export class OrdersController {
 
     return await this.ordersService.processAssignmentsFile(file);
   }
+
+  // get available lps
+  // one for doing lp mapping
 }

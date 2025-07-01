@@ -16,15 +16,24 @@ export class GtpService {
   ) {}
   async create(createGtpDto: GtpLocation) {
     // Check if station_id exists in Station repository
-    const station = await this.stationRepository.findOne({ where: { station_id: createGtpDto.station_id } });
-    if (!station) {
-      throw new NotFoundException(`Station with id ${createGtpDto.station_id} not found`);
+    if (createGtpDto.station_id !== undefined){
+      const station = await this.stationRepository.findOne({ where: { station_id: createGtpDto.station_id } });
+      if (!station) {
+        throw new NotFoundException(`Station with id ${createGtpDto.station_id} not found`);
+      }
     }
     const existingGtp = await this.gtpRepository.findOne({ where: { gtp_location_id: createGtpDto.gtp_location_id} });
     if (existingGtp) {
       throw new BadRequestException(`GTP location for id ${createGtpDto.gtp_location_id} already exists`);
     }
     const newGtp = this.gtpRepository.create(createGtpDto);
+    if (createGtpDto.station_id) {
+      const station = await this.stationRepository.findOne({ where: { station_id: createGtpDto.station_id } });
+      if (station) {
+        station.gtp_locations_array.push(newGtp.gtp_location_id);
+        await this.stationRepository.save(station);
+      }
+    }
     return this.gtpRepository.save(newGtp);
   }
 

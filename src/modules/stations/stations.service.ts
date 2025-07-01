@@ -4,12 +4,15 @@ import { UpdateStationDto } from './dto/update-station.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Station } from 'src/entities/station.entity';
+import { GtpLocation } from 'src/entities';
 
 @Injectable()
 export class StationsService {
   constructor(
     @InjectRepository(Station)
     private readonly stationRepository: Repository<Station>,
+    @InjectRepository(GtpLocation)
+    private readonly gtpLocation: Repository<GtpLocation> // Assuming GtpLocation is an entity
   ) {}
 
   async create(createStationDto: CreateStationDto) {
@@ -20,7 +23,16 @@ export class StationsService {
       throw new BadRequestException(`Station with id ${createStationDto.station_id} already exists`);
     }
     const newStation = this.stationRepository.create(createStationDto);
-    return await this.stationRepository.save(newStation);
+    const saved = await this.stationRepository.save(newStation);
+    for (const gtp_location_id of createStationDto.gtp_locations_array || []) {
+      const gtpLocation = await this.gtpLocation.findOne({ where: { gtp_location_id } });
+      if (gtpLocation){
+        gtpLocation.station_id = newStation.station_id; // Set the station_id in GtpLocation
+        await this.gtpLocation.save(gtpLocation); // Save the updated GtpLocation
+      }
+    }
+    return saved;
+    
   }
 
   findAll() {
