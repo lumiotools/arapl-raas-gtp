@@ -1,6 +1,6 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   Column,
   CreateDateColumn,
   UpdateDateColumn,
@@ -12,8 +12,11 @@ import type { Product } from './product.entity';
 
 @Entity('inventory')
 export class Inventory {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryColumn({ type: 'varchar', length: 10 })
+  id: string;
+
+  @Column({ type: 'varchar', length: 10 })
+  product_id: string;
 
   @Column({ type: 'int', default: 0 })
   quantity: number;

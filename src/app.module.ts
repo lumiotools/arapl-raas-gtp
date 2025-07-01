@@ -6,6 +6,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { GtpModule } from './modules/gtp/gtp.module';
 import { StationsModule } from './modules/stations/stations.module';
 import { ProductsModule } from './modules/products/products.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { ProductsModule } from './modules/products/products.module';
     GtpModule,
     StationsModule,
     ProductsModule,
+    InventoryModule,
   ],
   controllers: [],
   providers: [],
