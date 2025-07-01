@@ -1,6 +1,20 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Put } from '@nestjs/common';
+import { 
+  Controller, 
+  Get, 
+  Post, 
+  Body, 
+  Patch, 
+  Param, 
+  Delete, 
+  Put, 
+  UseInterceptors, 
+  UploadedFile, 
+  BadRequestException 
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { InventoryService } from './inventory.service';
 import { Inventory } from 'src/entities/inventory.entity';
+import { UploadInventoryResponseDto } from './dto/upload-inventory-response.dto';
 
 @Controller('inventory')
 export class InventoryController {
@@ -9,6 +23,23 @@ export class InventoryController {
   @Post()
   async create(@Body() createInventoryDto: Inventory) {
     return await this.inventoryService.create(createInventoryDto);
+  }
+
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadInventory(@UploadedFile() file: Express.Multer.File): Promise<UploadInventoryResponseDto> {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const allowedExtensions = ['csv'];
+    const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
+
+    if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
+      throw new BadRequestException('Invalid file format. Please upload a CSV file (.csv)');
+    }
+
+    return await this.inventoryService.processInventoryFile(file);
   }
 
   @Get()

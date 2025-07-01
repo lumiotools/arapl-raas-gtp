@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Product } from 'src/entities/product.entity';
+import { UploadInventoryResponseDto } from './dto/upload-inventory-response.dto';
 
 @Injectable()
 export class InventoryService {
@@ -126,5 +127,93 @@ export class InventoryService {
       where: { id },
       relations: ['product']
     });
+  }
+
+  async processInventoryFile(file: Express.Multer.File): Promise<UploadInventoryResponseDto> {
+    try {
+      const csvData = file.buffer.toString('utf8');
+      const lines = csvData.split('\n').filter(line => line.trim());
+      
+      if (lines.length === 0) {
+        throw new BadRequestException('CSV file is empty');
+      }
+
+      // Parse header
+      const headers = lines[0].split(',').map(h => h.trim());
+      const expectedHeaders = ['Inv Locations', 'Product ID', 'Qty'];
+      
+      // Validate headers
+      if (!expectedHeaders.every(header => headers.includes(header))) {
+        throw new BadRequestException(`Invalid CSV format. Expected headers: ${expectedHeaders.join(', ')}`);
+      }
+
+      const results = {
+        successful: 0,
+        failed: 0,
+        errors: [] as string[]
+      };
+
+      // Process each row (skip header)
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        
+        if (values.length < 3) {
+          results.failed++;
+          results.errors.push(`Row ${i + 1}: Invalid number of columns`);
+          continue;
+        }
+
+        const invLocation = values[0]; // Inv Locations
+        const productId = values[1];   // Product ID
+        const qty = parseInt(values[2]); // Qty
+
+        if (!invLocation || !productId || isNaN(qty)) {
+          results.failed++;
+          results.errors.push(`Row ${i + 1}: Missing required fields (Inv Locations, Product ID, or Qty)`);
+          continue;
+        }
+
+        try {
+          // Try to update existing inventory first
+          const existingInventory = await this.inventoryRepository.findOne({ 
+            where: { id: invLocation } 
+          });
+
+          if (existingInventory) {
+            // Update existing inventory
+            const inventoryData = {
+              product_id: productId,
+              quantity: qty
+            } as Inventory;
+
+            await this.update(invLocation, inventoryData);
+            results.successful++;
+          } else {
+            // Create new inventory entry if it doesn't exist
+            const inventoryData = {
+              id: invLocation,
+              product_id: productId,
+              quantity: qty
+            } as Inventory;
+
+            await this.create(inventoryData);
+            results.successful++;
+          }
+        } catch (error) {
+          results.failed++;
+          results.errors.push(`Row ${i + 1}: ${error.message}`);
+        }
+      }
+
+      return {
+        message: `Processed ${results.successful + results.failed} rows`,
+        successful: results.successful,
+        failed: results.failed,
+        errors: results.errors
+      };
+
+    } catch (error) {
+      throw new BadRequestException(`Failed to process CSV file: ${error.message}`);
+    }
   }
 }
