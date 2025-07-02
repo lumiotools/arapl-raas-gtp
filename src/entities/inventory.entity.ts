@@ -9,6 +9,7 @@ import {
   Relation,
 } from 'typeorm';
 import type { Product } from './product.entity';
+import { LocationStatus } from './station.entity'
 
 @Entity('inventory')
 export class Inventory {
@@ -20,6 +21,13 @@ export class Inventory {
 
   @Column({ type: 'int', default: 0 })
   quantity: number;
+
+  @Column({
+    type: 'enum',
+    enum: LocationStatus,
+    default: LocationStatus.AVAILABLE,
+  })
+  status: LocationStatus;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

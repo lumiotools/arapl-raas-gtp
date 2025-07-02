@@ -9,6 +9,12 @@ import {
 } from 'typeorm';
 import type { GtpLocation } from './gtp-location.entity';
 
+export enum LocationStatus{
+  AVAILABLE = 'AVAILABLE',
+  OCCUPIED = 'OCCUPIED',
+  RESERVED = 'RESERVED'
+}
+
 @Entity('stations')
 export class Station {
   @PrimaryColumn({ type: 'varchar', length: 10 })
@@ -16,6 +22,9 @@ export class Station {
 
   @Column({ type: 'varchar', length: 100 })
   station_name: string;
+
+  @Column({ type: 'enum', enum: LocationStatus, default: LocationStatus.AVAILABLE })
+  status: LocationStatus;
 
   @Column({ type: 'integer' })
   priority: number;
