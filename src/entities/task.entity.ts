@@ -65,6 +65,9 @@ export class Task {
   @Column({ type: 'int' })
   sequence_order: number;
 
+  @Column({ type: 'int', nullable: true })
+  task_dependency: number;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

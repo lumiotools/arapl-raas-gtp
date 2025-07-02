@@ -56,14 +56,11 @@ export class OrchestratorService {
       const productRequirements = await this.calculateProductRequirements(assignedItems);
       
       // Step 5-9: Process each product and create tasks
-      const batchId = await this.generateBatchId();
-      await this.createBatch(batchId, productRequirements);
-
       for (const requirement of productRequirements) {
-        await this.processProductRequirement(requirement, batchId);
+        await this.processProductRequirement(requirement);
       }
 
-      this.logger.log(`Orchestrator process completed. Created batch: ${batchId}`);
+      this.logger.log(`Orchestrator process completed successfully`);
       
     } catch (error) {
       this.logger.error('Error in orchestrator process:', error);
@@ -120,7 +117,7 @@ export class OrchestratorService {
     );
   }
 
-  private async processProductRequirement(requirement: ProductRequirement, batchId: string) {
+  private async processProductRequirement(requirement: ProductRequirement) {
     // Step 5: Get all inventories for this product
     const inventories = await this.inventoryService.findAllByProductId(requirement.productId);
     
@@ -140,18 +137,23 @@ export class OrchestratorService {
     // Step 7: Get stations sorted by priority (ascending order)
     const sortedStations = await this.getStationsSortedByPriority(Array.from(requirement.stationRequirements.keys()));
 
-    // Step 8: Create batch tasks for each inventory
-    let sequenceOrder = 1;
+    // Step 8: Create separate batch for each inventory
     const remainingRequirements = new Map(requirement.stationRequirements);
 
     for (const inventory of selectedInventories) {
-      sequenceOrder = await this.createBatchTasksForInventory(
+      // Create a separate batch for this inventory
+      const batchId = await this.generateBatchId();
+      await this.createBatch(batchId, inventory, requirement.productId);
+      
+      // Create batch tasks for this specific inventory
+      await this.createBatchTasksForInventory(
         inventory,
         sortedStations,
         remainingRequirements,
-        batchId,
-        sequenceOrder
+        batchId
       );
+      
+      this.logger.log(`Created batch ${batchId} for inventory ${inventory.id}`);
     }
   }
 
@@ -191,13 +193,12 @@ export class OrchestratorService {
     inventory: Inventory,
     sortedStations: Station[],
     remainingRequirements: Map<string, number>,
-    batchId: string,
-    startSequenceOrder: number
-  ): Promise<number> {
-    let sequenceOrder = startSequenceOrder;
+    batchId: string
+  ): Promise<void> {
+    let sequenceOrder = 1; // Start fresh for each batch
     let availableQuantity = inventory.quantity;
     let lastLocation = `inventory:${inventory.id}`; // Track current location
-    const inventoryUpdates: number[] = []; // Track quantity changes for final update
+    let previousTaskId: number | null = null; // Track previous task ID for dependencies
 
     // Create path: inventory → station1 → station2 → ... → stationN → inventory
     for (const station of sortedStations) {
@@ -210,51 +211,58 @@ export class OrchestratorService {
       const deliveryQuantity = Math.min(availableQuantity, stationRequirement);
 
       // Create task to move from current location to this station
+      let taskId: number;
       if (lastLocation.startsWith('inventory:')) {
         // Task: inventory → station
-        await this.createTask({
+        taskId = await this.createTask({
           batchId,
           productId: inventory.product_id,
           sourceInventoryId: inventory.id,
           destinationStationId: station.station_id,
           quantity: availableQuantity, // Move entire available quantity
           taskType: TaskType.INVENTORY_TO_STATION,
-          sequenceOrder: sequenceOrder++
+          sequenceOrder: sequenceOrder++,
+          taskDependency: previousTaskId // First task has no dependency (null)
         });
       } else {
         // Task: previous station → current station
         const previousStationId = lastLocation.replace('station:', '');
-        await this.createTask({
+        taskId = await this.createTask({
           batchId,
           productId: inventory.product_id,
           sourceStationId: previousStationId,
           destinationStationId: station.station_id,
           quantity: availableQuantity,
           taskType: TaskType.STATION_TO_STATION,
-          sequenceOrder: sequenceOrder++
+          sequenceOrder: sequenceOrder++,
+          taskDependency: previousTaskId // Depends on previous task
         });
       }
 
-      // Update quantities
+      // Update quantities and tracking
       availableQuantity -= deliveryQuantity;
       remainingRequirements.set(station.station_id, stationRequirement - deliveryQuantity);
       lastLocation = `station:${station.station_id}`;
+      previousTaskId = taskId; // Set this task as dependency for next task
 
-      this.logger.log(`Inventory ${inventory.id} delivers ${deliveryQuantity} to station ${station.station_id}`);
+      this.logger.log(`Inventory ${inventory.id} delivers ${deliveryQuantity} to station ${station.station_id} (Task ${taskId})`);
     }
 
     // Return remaining quantity to inventory if not at inventory
     if (!lastLocation.startsWith('inventory:') && availableQuantity >= 0) {
       const sourceStationId = lastLocation.replace('station:', '');
-      await this.createTask({
+      const finalTaskId = await this.createTask({
         batchId,
         productId: inventory.product_id,
         sourceStationId: sourceStationId,
         destinationInventoryId: inventory.id,
         quantity: availableQuantity,
         taskType: TaskType.STATION_TO_INVENTORY,
-        sequenceOrder: sequenceOrder++
+        sequenceOrder: sequenceOrder++,
+        taskDependency: previousTaskId // Depends on previous task
       });
+      
+      this.logger.log(`Return task created (Task ${finalTaskId}) - depends on Task ${previousTaskId}`);
     }
 
     // Update inventory quantity in database
@@ -265,7 +273,6 @@ export class OrchestratorService {
     );
 
     this.logger.log(`Inventory ${inventory.id} final quantity: ${finalQuantity}`);
-    return sequenceOrder;
   }
 
   private async createTask(taskData: {
@@ -278,7 +285,8 @@ export class OrchestratorService {
     quantity: number;
     taskType: TaskType;
     sequenceOrder: number;
-  }) {
+    taskDependency?: number | null;
+  }): Promise<number> {
     const task = this.taskRepository.create({
       batch_id: taskData.batchId,
       product_id: taskData.productId,
@@ -289,11 +297,14 @@ export class OrchestratorService {
       quantity: taskData.quantity,
       task_type: taskData.taskType,
       sequence_order: taskData.sequenceOrder,
+      task_dependency: taskData.taskDependency || undefined,
       status: TaskStatus.PENDING
     });
 
-    await this.taskRepository.save(task);
-    this.logger.log(`Created task: ${taskData.taskType} - ${taskData.quantity} units of ${taskData.productId}`);
+    const savedTask = await this.taskRepository.save(task);
+    this.logger.log(`Created task ${savedTask.task_id}: ${taskData.taskType} - ${taskData.quantity} units of ${taskData.productId}${taskData.taskDependency ? ` (depends on task ${taskData.taskDependency})` : ''}`);
+    
+    return savedTask.task_id;
   }
 
   private async generateBatchId(): Promise<string> {
@@ -301,9 +312,8 @@ export class OrchestratorService {
     return `B${timestamp.toString().slice(-10)}`;
   }
 
-  private async createBatch(batchId: string, requirements: ProductRequirement[]) {
-    const totalProducts = requirements.length;
-    const description = `Batch for ${totalProducts} products: ${requirements.map(r => r.productId).join(', ')}`;
+  private async createBatch(batchId: string, inventory: Inventory, productId: string) {
+    const description = `Batch for inventory ${inventory.id} - Product ${productId} (Qty: ${inventory.quantity})`;
 
     const batch = this.batchRepository.create({
       batch_id: batchId,
