@@ -15,6 +15,7 @@ import type { GtpLocation } from './gtp-location.entity';
 export enum OrderItemStatus {
   PENDING = 'PENDING',
   ASSIGNED = 'ASSIGNED',
+  IN_PROGRESS = 'IN_PROGRESS',
   COMPLETED = 'COMPLETED',
 }
 

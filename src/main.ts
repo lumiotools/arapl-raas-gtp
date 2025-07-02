@@ -46,6 +46,7 @@ async function bootstrap() {
     .addTag('Stations', 'Station management and GTP location assignments')
     .addTag('Products', 'Product catalog management')
     .addTag('Inventory', 'Inventory tracking, management, and bulk operations')
+    .addTag('Orchestrator', 'Task orchestration and batch processing for warehouse operations')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

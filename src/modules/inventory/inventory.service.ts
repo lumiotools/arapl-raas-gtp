@@ -86,6 +86,19 @@ export class InventoryService {
     return inventory;
   }
 
+  async findAllByProductId(productId: string) {
+    const inventories = await this.inventoryRepository.find({ 
+      where: { product_id: productId },
+      relations: ['product']
+    });
+    
+    if (!inventories || inventories.length === 0) {
+      throw new NotFoundException(`No inventories found for product ${productId}`);
+    }
+    
+    return inventories;
+  }
+
   async update(id: string, updateInventoryDto: Inventory) {
     const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
     
