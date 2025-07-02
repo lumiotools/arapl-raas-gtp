@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { GtpService } from './gtp.service';
 import { CreateGtpDto } from './dto/create-gtp.dto';
@@ -99,6 +99,13 @@ export class GtpController {
     type: ValidationErrorResponseDto
   })
   async update(@Param('id') id: string, @Body() updateGtpDto: UpdateGtpDto) {
+    // Validate that URL parameter ID matches DTO ID if provided
+    if (updateGtpDto.gtp_location_id && updateGtpDto.gtp_location_id !== id) {
+      throw new BadRequestException(
+        `URL parameter ID (${id}) must match the ID in request body (${updateGtpDto.gtp_location_id})`
+      );
+    }
+    
     return await this.gtpService.update(id, updateGtpDto as any);
   }
 

@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   HttpStatus,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { StationsService } from './stations.service';
@@ -108,6 +109,13 @@ export class StationsController {
     type: ValidationErrorResponseDto
   })
   async update(@Param('id') id: string, @Body() updateStationDto: UpdateStationDto) {
+    // Validate that URL parameter ID matches DTO ID if provided
+    if (updateStationDto.station_id && updateStationDto.station_id !== id) {
+      throw new BadRequestException(
+        `URL parameter ID (${id}) must match the ID in request body (${updateStationDto.station_id})`
+      );
+    }
+    
     return await this.stationsService.update(id, updateStationDto);
   }
 

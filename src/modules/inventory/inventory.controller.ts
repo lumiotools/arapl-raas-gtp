@@ -184,6 +184,13 @@ export class InventoryController {
     type: ValidationErrorResponseDto
   })
   async update(@Param('id') id: string, @Body() updateInventoryDto: UpdateInventoryDto) {
+    // Validate that URL parameter ID matches DTO ID if provided
+    if (updateInventoryDto.id && updateInventoryDto.id !== id) {
+      throw new BadRequestException(
+        `URL parameter ID (${id}) must match the ID in request body (${updateInventoryDto.id})`
+      );
+    }
+    
     return await this.inventoryService.update(id, updateInventoryDto as any);
   }
 

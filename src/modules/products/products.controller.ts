@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
 import { Product } from 'src/entities/product.entity';
@@ -99,6 +99,13 @@ export class ProductsController {
     type: ValidationErrorResponseDto
   })
   async update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto) {
+    // Validate that URL parameter ID matches DTO ID if provided
+    if (updateProductDto.product_id && updateProductDto.product_id !== id) {
+      throw new BadRequestException(
+        `URL parameter ID (${id}) must match the ID in request body (${updateProductDto.product_id})`
+      );
+    }
+    
     return await this.productsService.update(id, updateProductDto as any);
   }
 
