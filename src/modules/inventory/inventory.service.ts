@@ -26,13 +26,28 @@ export class InventoryService {
       throw new NotFoundException(`Product with id ${createInventoryDto.product_id} not found`);
     }
 
-    // Check if inventory already exists for this product
+    // Check if inventory already exists for this location
     const existingInventory = await this.inventoryRepository.findOne({ 
       where: { id: createInventoryDto.id } 
     });
     
     if (existingInventory) {
-      throw new BadRequestException(`Inventory with id ${existingInventory.id} already exists`);
+      throw new BadRequestException(`Inventory with id ${createInventoryDto.id} already exists`);
+    }
+
+    const newInventory = this.inventoryRepository.create(createInventoryDto);
+    return await this.inventoryRepository.save(newInventory);
+  }
+
+  // Helper method for CSV upload - creates inventory without strict product validation
+  private async createInventoryForUpload(createInventoryDto: Inventory) {
+    // Check if inventory already exists for this location
+    const existingInventory = await this.inventoryRepository.findOne({ 
+      where: { id: createInventoryDto.id } 
+    });
+    
+    if (existingInventory) {
+      throw new BadRequestException(`Inventory with id ${createInventoryDto.id} already exists`);
     }
 
     const newInventory = this.inventoryRepository.create(createInventoryDto);
@@ -174,6 +189,20 @@ export class InventoryService {
         }
 
         try {
+          // Check if product exists, create if not
+          let product = await this.productRepository.findOne({ 
+            where: { product_id: productId } 
+          });
+          
+          if (!product) {
+            // Create product with sample name if it doesn't exist
+            const newProduct = this.productRepository.create({
+              product_id: productId,
+              product_name: `Product ${productId}` // Sample name format
+            });
+            product = await this.productRepository.save(newProduct);
+          }
+
           // Try to update existing inventory first
           const existingInventory = await this.inventoryRepository.findOne({ 
             where: { id: invLocation } 
@@ -196,7 +225,7 @@ export class InventoryService {
               quantity: qty
             } as Inventory;
 
-            await this.create(inventoryData);
+            await this.createInventoryForUpload(inventoryData);
             results.successful++;
           }
         } catch (error) {
