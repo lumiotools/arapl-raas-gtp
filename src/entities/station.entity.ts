@@ -37,7 +37,4 @@ export class Station {
   @OneToMany('GtpLocation', 'station')
   gtpLocations: Relation<GtpLocation[]>;
 
-  // Store an array of gtp location IDs (or objects) directly in the table
-  @Column({ type: 'simple-json', nullable: true })
-  gtp_locations_array: string[];
 }

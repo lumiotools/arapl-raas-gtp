@@ -54,15 +54,56 @@ export class StationsService {
   }
 
   async update(id: string, updateStationDto: UpdateStationDto) {
-    const existing = await this.stationRepository.findOne({ where: { station_id: id } });
+    const existing = await this.stationRepository.findOne({
+      where: { station_id: id },
+      relations: ['gtpLocations'],
+    });
+    console.log('Existing Station:', existing);
     if (!existing) {
       throw new NotFoundException(`Station with id ${id} not found`);
     }
-    return this.stationRepository.update(id, updateStationDto).then(() => {
-      return this.stationRepository.findOne({
-        where: { station_id: id },
-        relations: ['gtpLocations']
-      });
+
+    // Remove GtpLocations that are no longer associated
+    const existingGtpLocationIds = existing.gtpLocations?.map(loc => loc.gtp_location_id) || [];
+    const updatedGtpLocationIds = updateStationDto.gtp_locations_array || [];
+
+    console.log('Existing GTP Location IDs:', existingGtpLocationIds);
+    console.log('Updated GTP Location IDs:', updatedGtpLocationIds);
+    // Remove associations for GtpLocations not in the update DTO
+    for (const gtpLocationId of existingGtpLocationIds) {
+      if (!updatedGtpLocationIds.includes(gtpLocationId)) {
+        const gtpLocation = await this.gtpLocation.findOne({ where: { gtp_location_id: gtpLocationId } });
+        if (gtpLocation) {
+          gtpLocation.station_id = undefined;
+          await this.gtpLocation.save(gtpLocation);
+          existing.gtpLocations = existing.gtpLocations.filter(loc => loc.gtp_location_id !== gtpLocationId);
+        }
+      }
+    }
+    await this.stationRepository.save(existing); // Save the updated Station to clear gtpLocations
+    console.log('Updated GTP Location IDs:', updatedGtpLocationIds);
+    // Add or update associations for new GtpLocations
+    for (const gtpLocationId of updatedGtpLocationIds) {
+      const gtpLocation = await this.gtpLocation.findOne({ where: { gtp_location_id: gtpLocationId } });
+      if (gtpLocation && gtpLocation.station_id !== id) {
+        gtpLocation.station_id = id;
+        await this.gtpLocation.save(gtpLocation);
+      }
+      else if (!gtpLocation){
+        if (updateStationDto.gtp_locations_array)
+          updateStationDto.gtp_locations_array = updateStationDto.gtp_locations_array.filter(loc => loc !== gtpLocationId);
+      }
+    }
+    console.log('Updated GTP Location IDs 2:', updatedGtpLocationIds);
+    delete updateStationDto.gtp_locations_array;
+    await this.stationRepository.update(id, updateStationDto);
+
+
+    console.log("completed update");
+
+    return await  this.stationRepository.findOne({
+      where: { station_id: id },
+      relations: ['gtpLocations'],
     });
   }
 
@@ -71,6 +112,15 @@ export class StationsService {
     if (!existing) {
       throw new NotFoundException(`Station with id ${id} not found`);
     }
+    for (const gtpLocationarray in existing.gtpLocations) {
+      const gtpLocation = await this.gtpLocation.findOne({ where: { gtp_location_id: gtpLocationarray } });
+      if (gtpLocation) {
+        gtpLocation.station_id = ''; // Clear the station_id in GtpLocation
+        await this.gtpLocation.save(gtpLocation); // Save the updated GtpLocation
+      }
+    }
+    existing.gtpLocations = [];
+    await this.stationRepository.save(existing); // Save the updated Station to clear gtpLocations
     return this.stationRepository.delete(id).then(() => {
       return { message: `Station with id ${id} has been removed` };
     });

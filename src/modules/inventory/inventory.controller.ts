@@ -9,24 +9,89 @@ import {
   Put, 
   UseInterceptors, 
   UploadedFile, 
-  BadRequestException 
+  BadRequestException,
+  HttpStatus 
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InventoryService } from './inventory.service';
 import { Inventory } from 'src/entities/inventory.entity';
 import { UploadInventoryResponseDto } from './dto/upload-inventory-response.dto';
+import { CreateInventoryDto } from './dto/create-inventory.dto';
+import { UpdateInventoryDto } from './dto/update-inventory.dto';
+import { InventoryResponseDto } from './dto/inventory-response.dto';
+import { 
+  SuccessResponseDto, 
+  NotFoundResponseDto, 
+  ValidationErrorResponseDto, 
+  ConflictResponseDto 
+} from 'src/common/dto/common-responses.dto';
 
+@ApiTags('Inventory')
 @Controller('inventory')
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
   @Post()
-  async create(@Body() createInventoryDto: Inventory) {
-    return await this.inventoryService.create(createInventoryDto);
+  @ApiOperation({ 
+    summary: 'Create a new inventory entry',
+    description: 'Create a new inventory entry for a product. Inventory ID must be unique and product must exist.'
+  })
+  @ApiBody({ type: CreateInventoryDto })
+  @ApiResponse({ 
+    status: HttpStatus.CREATED, 
+    description: 'Inventory created successfully',
+    type: InventoryResponseDto
+  })
+  @ApiResponse({ 
+    status: HttpStatus.BAD_REQUEST, 
+    description: 'Invalid input data, validation errors, or inventory already exists',
+    type: ValidationErrorResponseDto
+  })
+  @ApiResponse({ 
+    status: HttpStatus.NOT_FOUND, 
+    description: 'Product not found',
+    type: NotFoundResponseDto
+  })
+  @ApiResponse({ 
+    status: HttpStatus.CONFLICT, 
+    description: 'Inventory with this ID already exists',
+    type: ConflictResponseDto
+  })
+  async create(@Body() createInventoryDto: CreateInventoryDto) {
+    return await this.inventoryService.create(createInventoryDto as any);
   }
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ 
+    summary: 'Upload inventory data from CSV file',
+    description: 'Bulk upload inventory data from a CSV file. Supports upsert logic - updates existing entries or creates new ones.'
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'CSV file with columns: Inv Locations, Product ID, Qty'
+        }
+      },
+      required: ['file']
+    }
+  })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'File processed successfully', 
+    type: UploadInventoryResponseDto 
+  })
+  @ApiResponse({ 
+    status: HttpStatus.BAD_REQUEST, 
+    description: 'Invalid file format or processing error',
+    type: ValidationErrorResponseDto
+  })
   async uploadInventory(@UploadedFile() file: Express.Multer.File): Promise<UploadInventoryResponseDto> {
     if (!file) {
       throw new BadRequestException('No file uploaded');
@@ -43,31 +108,114 @@ export class InventoryController {
   }
 
   @Get()
+  @ApiOperation({ 
+    summary: 'Get all inventory entries',
+    description: 'Retrieve a list of all inventory entries in the system.'
+  })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'List of all inventory entries',
+    type: [InventoryResponseDto]
+  })
   async findAll() {
     return await this.inventoryService.findAll();
   }
 
   @Get(':id')
+  @ApiOperation({ 
+    summary: 'Get an inventory entry by ID',
+    description: 'Retrieve a specific inventory entry by its unique identifier.'
+  })
+  @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Inventory entry found',
+    type: InventoryResponseDto
+  })
+  @ApiResponse({ 
+    status: HttpStatus.NOT_FOUND, 
+    description: 'Inventory entry not found',
+    type: NotFoundResponseDto
+  })
   async findOne(@Param('id') id: string) {
     return await this.inventoryService.findOne(id);
   }
 
   @Get('product/:productId')
+  @ApiOperation({ 
+    summary: 'Get inventory entries by product ID',
+    description: 'Retrieve all inventory entries for a specific product.'
+  })
+  @ApiParam({ name: 'productId', description: 'Product ID', example: 'PRD001' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Inventory entries found for the product',
+    type: [InventoryResponseDto]
+  })
+  @ApiResponse({ 
+    status: HttpStatus.NOT_FOUND, 
+    description: 'No inventory found for the product',
+    type: NotFoundResponseDto
+  })
   async findByProductId(@Param('productId') productId: string) {
     return await this.inventoryService.findByProductId(productId);
   }
 
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() updateInventoryDto: Inventory) {
-    return await this.inventoryService.update(id, updateInventoryDto);
+  @ApiOperation({ 
+    summary: 'Update an inventory entry',
+    description: 'Update an existing inventory entry with new details. Only provided fields will be updated.'
+  })
+  @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })
+  @ApiBody({ type: UpdateInventoryDto })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Inventory updated successfully',
+    type: InventoryResponseDto
+  })
+  @ApiResponse({ 
+    status: HttpStatus.NOT_FOUND, 
+    description: 'Inventory entry not found',
+    type: NotFoundResponseDto
+  })
+  @ApiResponse({ 
+    status: HttpStatus.BAD_REQUEST, 
+    description: 'Invalid input data or validation errors',
+    type: ValidationErrorResponseDto
+  })
+  async update(@Param('id') id: string, @Body() updateInventoryDto: UpdateInventoryDto) {
+    return await this.inventoryService.update(id, updateInventoryDto as any);
   }
 
   @Put(':id/quantity')
+  @ApiOperation({ summary: 'Update inventory quantity' })
+  @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        quantity: {
+          type: 'number',
+          description: 'New quantity value',
+          example: 150,
+          minimum: 0,
+        }
+      },
+      required: ['quantity']
+    }
+  })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Inventory quantity updated successfully' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Inventory entry not found' })
+  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Invalid quantity value' })
   async updateQuantity(@Param('id') id: string, @Body() body: { quantity: number }) {
     return await this.inventoryService.updateQuantity(id, body.quantity);
   }
 
   @Delete(':id')
+  @ApiOperation({ summary: 'Delete an inventory entry' })
+  @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Inventory deleted successfully' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Inventory entry not found' })
   async remove(@Param('id') id: string) {
     return await this.inventoryService.remove(id);
   }

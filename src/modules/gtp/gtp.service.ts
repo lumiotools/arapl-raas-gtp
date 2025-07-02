@@ -27,14 +27,7 @@ export class GtpService {
       throw new BadRequestException(`GTP location for id ${createGtpDto.gtp_location_id} already exists`);
     }
     const newGtp = this.gtpRepository.create(createGtpDto);
-    if (createGtpDto.station_id) {
-      const station = await this.stationRepository.findOne({ where: { station_id: createGtpDto.station_id } });
-      if (station) {
-        station.gtp_locations_array.push(newGtp.gtp_location_id);
-        await this.stationRepository.save(station);
-      }
-    }
-    return this.gtpRepository.save(newGtp);
+    return await this.gtpRepository.save(newGtp);
   }
 
   findAll() {

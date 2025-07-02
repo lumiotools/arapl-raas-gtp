@@ -23,7 +23,7 @@ export class GtpLocation {
   gtp_location_id: string;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
-  station_id: string;
+  station_id?: string;
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
