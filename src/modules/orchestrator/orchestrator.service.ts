@@ -189,6 +189,42 @@ export class OrchestratorService {
     return stations.sort((a, b) => a.priority - b.priority);
   }
 
+  private async findLastTaskFromSameInventory(inventoryId: string): Promise<number | null> {
+    // Find the most recently created batch that starts from the same inventory
+    // and is not fully completed
+    const batches = await this.batchRepository
+      .createQueryBuilder('batch')
+      .leftJoinAndSelect('batch.tasks', 'task')
+      .where('task.source_inventory_id = :inventoryId', { inventoryId })
+      .andWhere('task.sequence_order = 1') // First task of batch
+      .orderBy('batch.created_at', 'DESC')
+      .getMany();
+
+    for (const batch of batches) {
+      // Check if this batch is fully completed
+      const allTasks = await this.taskRepository.find({
+        where: { batch_id: batch.batch_id }
+      });
+
+      const allCompleted = allTasks.every(task => task.status === TaskStatus.COMPLETED);
+      
+      if (!allCompleted) {
+        // Found a non-completed batch, get its last task (highest sequence_order)
+        const lastTask = await this.taskRepository.findOne({
+          where: { batch_id: batch.batch_id },
+          order: { sequence_order: 'DESC' }
+        });
+        
+        if (lastTask) {
+          this.logger.log(`Found dependency: New batch should depend on task ${lastTask.task_id} from batch ${batch.batch_id}`);
+          return lastTask.task_id;
+        }
+      }
+    }
+
+    return null; // No dependency found
+  }
+
   private async createBatchTasksForInventory(
     inventory: Inventory,
     sortedStations: Station[],
@@ -199,6 +235,13 @@ export class OrchestratorService {
     let availableQuantity = inventory.quantity;
     let lastLocation = `inventory:${inventory.id}`; // Track current location
     let previousTaskId: number | null = null; // Track previous task ID for dependencies
+
+    // Check for cross-batch inventory dependency (for the first task only)
+    const dependencyTaskId = await this.findLastTaskFromSameInventory(inventory.id);
+    if (dependencyTaskId) {
+      previousTaskId = dependencyTaskId;
+      this.logger.log(`First task of batch ${batchId} will depend on task ${dependencyTaskId} from previous batch`);
+    }
 
     // Create path: inventory → station1 → station2 → ... → stationN → inventory
     for (const station of sortedStations) {
@@ -220,9 +263,9 @@ export class OrchestratorService {
           sourceInventoryId: inventory.id,
           destinationStationId: station.station_id,
           quantity: availableQuantity, // Move entire available quantity
-          taskType: TaskType.INVENTORY_TO_STATION,
+          taskType: TaskType.GOODS_TO_PERSON,
           sequenceOrder: sequenceOrder++,
-          taskDependency: previousTaskId // First task has no dependency (null)
+          taskDependency: previousTaskId // First task may depend on previous batch
         });
       } else {
         // Task: previous station → current station
@@ -233,7 +276,7 @@ export class OrchestratorService {
           sourceStationId: previousStationId,
           destinationStationId: station.station_id,
           quantity: availableQuantity,
-          taskType: TaskType.STATION_TO_STATION,
+          taskType: TaskType.GOODS_TO_PERSON,
           sequenceOrder: sequenceOrder++,
           taskDependency: previousTaskId // Depends on previous task
         });
@@ -257,7 +300,7 @@ export class OrchestratorService {
         sourceStationId: sourceStationId,
         destinationInventoryId: inventory.id,
         quantity: availableQuantity,
-        taskType: TaskType.STATION_TO_INVENTORY,
+        taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: sequenceOrder++,
         taskDependency: previousTaskId // Depends on previous task
       });

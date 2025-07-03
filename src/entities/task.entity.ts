@@ -11,9 +11,10 @@ import {
 import type { Batch } from './batch.entity';
 
 export enum TaskType {
-  INVENTORY_TO_STATION = 'INVENTORY_TO_STATION',
-  STATION_TO_STATION = 'STATION_TO_STATION',
-  STATION_TO_INVENTORY = 'STATION_TO_INVENTORY',
+  CROSSDOCK = 'Crossdock',
+  PUTAWAY = 'Putaway', 
+  PICKING = 'Picking',
+  GOODS_TO_PERSON = 'GoodsToPerson',
 }
 
 export enum TaskStatus {

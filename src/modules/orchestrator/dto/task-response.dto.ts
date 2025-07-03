@@ -57,7 +57,7 @@ export class TaskResponseDto {
   @ApiProperty({
     description: 'Type of task',
     enum: TaskType,
-    example: TaskType.INVENTORY_TO_STATION,
+    example: TaskType.GOODS_TO_PERSON,
   })
   task_type: TaskType;
 
