@@ -17,12 +17,12 @@ export enum FallbackAction {
 
 export interface Wait {
   wait_type: string;
-  wait_condition: string | null;
+  wait_condition?: string | null;
   start_location_wait_time?: number;
   end_location_wait_time?: number;
   start_location_available_wait?: boolean;
   end_location_available_wait?: boolean;
-  wait_status: string;
-  timeout: number;
-  fallback_action: string;
+  wait_status?: string;
+  timeout?: number;
+  fallback_action?: string;
 }

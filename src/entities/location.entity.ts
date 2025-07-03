@@ -32,6 +32,7 @@ export interface LocationDimension {
 
 export interface LocationAttribute {
   attribute_name: string;
+  attribute_value: string;
 }
 
 export interface Location {

@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 import { OrderItem, OrderItemStatus } from 'src/entities/order-item.entity';
 import { Task, TaskType, TaskStatus } from 'src/entities/task.entity';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
@@ -37,10 +38,9 @@ export class OrchestratorService {
     @InjectRepository(GtpLocation)
     private readonly gtpLocationRepository: Repository<GtpLocation>,
     private readonly inventoryService: InventoryService,
+    private readonly httpService: HttpService,
   ) {}
 
-  // Run every 30 seconds
-  @Cron('*/30 * * * * *')
   async processAssignedOrderItems() {
     this.logger.log('Starting orchestrator process...');
     
@@ -155,6 +155,9 @@ export class OrchestratorService {
         remainingRequirements,
         batchId
       );
+      
+      // Send batch to WMS API layer
+      await this.sendBatchToWmsApi(batchId);
       
       this.logger.log(`Created batch ${batchId} for inventory ${inventory.id}`);
     }
@@ -385,22 +388,17 @@ export class OrchestratorService {
       location_id: locationId,
       location_type: LocationType.ZONE,
       location_action: locationAction,
-      location_dimension: { length: 0, height: 0, width: 0 },
-      location_attribute: { attribute_name: locationType }
+      location_dimension: { length: 1, height: 1, width: 1 },
+      location_attribute: { 
+        attribute_name: 'location_type',
+        attribute_value: locationType
+      }
     };
   }
 
   private createWaitObject(): Wait {
     return {
-      wait_type: WaitType.TRIGGER,
-      wait_condition: null,
-      start_location_wait_time: 0,
-      end_location_wait_time: 0,
-      start_location_available_wait: false,
-      end_location_available_wait: false,
-      wait_status: WaitStatus.NOT_STARTED,
-      timeout: 1800, // 30 minutes default
-      fallback_action: FallbackAction.ERROR
+      wait_type: WaitType.TRIGGER
     };
   }
 
@@ -408,9 +406,9 @@ export class OrchestratorService {
     return [{
       cargo_code: productId,
       cargo_type: 'Pallet',
-      cargo_dimension: { length: 0, width: 0, height: 0 },
+      cargo_dimension: { length: 1, width: 1, height: 1 },
       cargo_attributes: null,
-      cargo_weight: 0
+      cargo_weight: 1
     }];
   }
 
@@ -448,6 +446,64 @@ export class OrchestratorService {
     });
 
     await this.batchRepository.save(batch);
+  }
+
+  private async sendBatchToWmsApi(batchId: string) {
+    try {
+      // Get the batch with all its tasks
+      const batch = await this.batchRepository.findOne({
+        where: { batch_id: batchId },
+        relations: ['tasks']
+      });
+
+      if (!batch || !batch.tasks || batch.tasks.length === 0) {
+        this.logger.warn(`Batch ${batchId} not found or has no tasks`);
+        return;
+      }
+
+      // Prepare the request body according to WMS API format
+      const requestBody = {
+        batch_job_id: batchId,
+        batch_priority: 5, // Default priority
+        batch_type: 'Discrete', // Default type
+        tasks: batch.tasks.map(task => ({
+          task_id: task.task_id.toString(),
+          task_type: task.task_type,
+          task_dependency: task.task_dependency?.toString() || null,
+          start_location: task.start_location,
+          end_location: task.end_location,
+          wait: task.wait,
+          cargos: task.cargos
+        }))
+      };
+
+      // Log the request for reference
+      console.log('=== WMS API Request ===');
+      console.log('URL: http://localhost:3000/robot-job/cli/tasks');
+      console.log('Method: POST');
+      console.log('Headers: { authorization: "operator_key" }');
+      console.log('Body:', JSON.stringify(requestBody, null, 2));
+      console.log('=====================');
+
+      // Send the request to WMS API layer
+      const response = await firstValueFrom(
+        this.httpService.post('http://localhost:3000/robot-job/cli/tasks', requestBody, {
+          headers: {
+            'authorization': 'operator_key',
+            'Content-Type': 'application/json'
+          }
+        })
+      );
+
+      this.logger.log(`Successfully sent batch ${batchId} to WMS API layer. Response received.`);
+      
+    } catch (error) {
+      this.logger.error(`Failed to send batch ${batchId} to WMS API layer:`, error.message);
+      if (error.response) {
+        this.logger.error(`Response status: ${error.response.status}`);
+        this.logger.error(`Response data:`, error.response.data);
+      }
+    }
   }
 
   // Manual trigger method for testing

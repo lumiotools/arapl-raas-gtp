@@ -12,8 +12,9 @@ export class WaitResponseDto {
     description: 'The condition for waiting',
     example: null,
     nullable: true,
+    required: false,
   })
-  wait_condition: string | null;
+  wait_condition?: string | null;
 
   @ApiProperty({
     description: 'Required waiting time at the start location',
@@ -47,19 +48,22 @@ export class WaitResponseDto {
     description: 'Current status of the wait',
     enum: WaitStatus,
     example: WaitStatus.NOT_STARTED,
+    required: false,
   })
-  wait_status: string;
+  wait_status?: string;
 
   @ApiProperty({
     description: 'Maximum number of seconds the wait should be performed (default: 1800 = 30 minutes)',
     example: 1800,
+    required: false,
   })
-  timeout: number;
+  timeout?: number;
 
   @ApiProperty({
     description: 'Action to perform in case of wait timeout',
     enum: FallbackAction,
     example: FallbackAction.ERROR,
+    required: false,
   })
-  fallback_action: string;
+  fallback_action?: string;
 }

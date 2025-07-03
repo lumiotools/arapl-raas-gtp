@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ScheduleModule } from '@nestjs/schedule';
+import { HttpModule } from '@nestjs/axios';
 import { OrchestratorService } from './orchestrator.service';
 import { OrchestratorController } from './orchestrator.controller';
 import { OrderItem } from 'src/entities/order-item.entity';
@@ -21,7 +21,7 @@ import { InventoryModule } from '../inventory/inventory.module';
       Station,
       GtpLocation,
     ]),
-    ScheduleModule.forRoot(),
+    HttpModule,
     InventoryModule,
   ],
   controllers: [OrchestratorController],

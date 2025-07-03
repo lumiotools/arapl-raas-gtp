@@ -24,13 +24,13 @@ export class LocationResponseDto {
 
   @ApiProperty({
     description: 'Dimensions of the location',
-    example: { length: 0, height: 0, width: 0 },
+    example: { length: 1, height: 1, width: 1 },
   })
   location_dimension: LocationDimension;
 
   @ApiProperty({
     description: 'Attributes of the location',
-    example: { attribute_name: 'station' },
+    example: { attribute_name: 'location_type', attribute_value: 'station' },
   })
   location_attribute: LocationAttribute;
 }
