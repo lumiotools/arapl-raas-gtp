@@ -8,6 +8,7 @@ import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Station } from 'src/entities/station.entity';
 import { GtpLocation } from 'src/entities/gtp-location.entity';
+import { Location, LocationType, LocationAction, LocationDimension, LocationAttribute } from 'src/entities/location.entity';
 import { InventoryService } from '../inventory/inventory.service';
 
 interface ProductRequirement {
@@ -195,29 +196,32 @@ export class OrchestratorService {
     const batches = await this.batchRepository
       .createQueryBuilder('batch')
       .leftJoinAndSelect('batch.tasks', 'task')
-      .where('task.source_inventory_id = :inventoryId', { inventoryId })
-      .andWhere('task.sequence_order = 1') // First task of batch
+      .where('task.sequence_order = 1') // First task of batch
       .orderBy('batch.created_at', 'DESC')
       .getMany();
 
     for (const batch of batches) {
-      // Check if this batch is fully completed
-      const allTasks = await this.taskRepository.find({
-        where: { batch_id: batch.batch_id }
-      });
-
-      const allCompleted = allTasks.every(task => task.status === TaskStatus.COMPLETED);
-      
-      if (!allCompleted) {
-        // Found a non-completed batch, get its last task (highest sequence_order)
-        const lastTask = await this.taskRepository.findOne({
-          where: { batch_id: batch.batch_id },
-          order: { sequence_order: 'DESC' }
+      // Check if the first task starts from the same inventory
+      const firstTask = batch.tasks?.find(task => task.sequence_order === 1);
+      if (firstTask && firstTask.start_location.location_id === inventoryId) {
+        // Check if this batch is fully completed
+        const allTasks = await this.taskRepository.find({
+          where: { batch_id: batch.batch_id }
         });
+
+        const allCompleted = allTasks.every(task => task.status === TaskStatus.COMPLETED);
         
-        if (lastTask) {
-          this.logger.log(`Found dependency: New batch should depend on task ${lastTask.task_id} from batch ${batch.batch_id}`);
-          return lastTask.task_id;
+        if (!allCompleted) {
+          // Found a non-completed batch, get its last task (highest sequence_order)
+          const lastTask = await this.taskRepository.findOne({
+            where: { batch_id: batch.batch_id },
+            order: { sequence_order: 'DESC' }
+          });
+          
+          if (lastTask) {
+            this.logger.log(`Found dependency: New batch should depend on task ${lastTask.task_id} from batch ${batch.batch_id}`);
+            return lastTask.task_id;
+          }
         }
       }
     }
@@ -330,24 +334,67 @@ export class OrchestratorService {
     sequenceOrder: number;
     taskDependency?: number | null;
   }): Promise<number> {
+    // Create start location
+    const startLocation = this.createLocation(
+      taskData.sourceInventoryId || taskData.sourceStationId!,
+      taskData.sourceInventoryId ? 'inventory' : 'station',
+      this.getLocationAction(taskData, 'start')
+    );
+
+    // Create end location
+    const endLocation = this.createLocation(
+      taskData.destinationInventoryId || taskData.destinationStationId!,
+      taskData.destinationInventoryId ? 'inventory' : 'station',
+      this.getLocationAction(taskData, 'end')
+    );
+
     const task = this.taskRepository.create({
       batch_id: taskData.batchId,
       product_id: taskData.productId,
-      source_inventory_id: taskData.sourceInventoryId,
-      source_station_id: taskData.sourceStationId,
-      destination_station_id: taskData.destinationStationId,
-      destination_inventory_id: taskData.destinationInventoryId,
       quantity: taskData.quantity,
       task_type: taskData.taskType,
       sequence_order: taskData.sequenceOrder,
       task_dependency: taskData.taskDependency || undefined,
-      status: TaskStatus.PENDING
+      status: TaskStatus.PENDING,
+      start_location: startLocation,
+      end_location: endLocation
     });
 
     const savedTask = await this.taskRepository.save(task);
     this.logger.log(`Created task ${savedTask.task_id}: ${taskData.taskType} - ${taskData.quantity} units of ${taskData.productId}${taskData.taskDependency ? ` (depends on task ${taskData.taskDependency})` : ''}`);
     
     return savedTask.task_id;
+  }
+
+  private createLocation(
+    locationId: string,
+    locationType: 'inventory' | 'station',
+    locationAction: LocationAction
+  ): Location {
+    return {
+      location_id: locationId,
+      location_type: LocationType.ZONE,
+      location_action: locationAction,
+      location_dimension: { length: 0, height: 0, width: 0 },
+      location_attribute: { attribute_name: locationType }
+    };
+  }
+
+  private getLocationAction(taskData: any, position: 'start' | 'end'): LocationAction {
+    const isInventoryToStation = taskData.sourceInventoryId && taskData.destinationStationId;
+    const isStationToStation = taskData.sourceStationId && taskData.destinationStationId;
+    const isStationToInventory = taskData.sourceStationId && taskData.destinationInventoryId;
+
+    if (isInventoryToStation) {
+      return position === 'start' ? LocationAction.PICK : LocationAction.WAIT;
+    } else if (isStationToStation) {
+      return position === 'start' ? LocationAction.PICK : LocationAction.WAIT;
+    } else if (isStationToInventory) {
+      return position === 'start' ? LocationAction.PICK : LocationAction.DROP;
+    }
+
+    // Default fallback
+    return LocationAction.NOP;
   }
 
   private async generateBatchId(): Promise<string> {

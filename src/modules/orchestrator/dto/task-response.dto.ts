@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { TaskType, TaskStatus } from 'src/entities/task.entity';
+import { LocationResponseDto } from './location-response.dto';
 
 export class TaskResponseDto {
   @ApiProperty({
@@ -21,32 +22,16 @@ export class TaskResponseDto {
   product_id: string;
 
   @ApiProperty({
-    description: 'Source inventory ID (if applicable)',
-    example: 'INV001',
-    nullable: true,
+    description: 'Starting location for this task',
+    type: LocationResponseDto,
   })
-  source_inventory_id?: string;
+  start_location: LocationResponseDto;
 
   @ApiProperty({
-    description: 'Source station ID (if applicable)',
-    example: 'ST001',
-    nullable: true,
+    description: 'Ending location for this task',
+    type: LocationResponseDto,
   })
-  source_station_id?: string;
-
-  @ApiProperty({
-    description: 'Destination station ID (if applicable)',
-    example: 'ST002',
-    nullable: true,
-  })
-  destination_station_id?: string;
-
-  @ApiProperty({
-    description: 'Destination inventory ID (if applicable)',
-    example: 'INV002',
-    nullable: true,
-  })
-  destination_inventory_id?: string;
+  end_location: LocationResponseDto;
 
   @ApiProperty({
     description: 'Quantity to be moved in this task',

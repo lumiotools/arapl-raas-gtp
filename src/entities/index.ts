@@ -6,3 +6,4 @@ export { OrderItem, OrderItemStatus } from './order-item.entity';
 export { Inventory } from './inventory.entity';
 export { Task, TaskType, TaskStatus } from './task.entity';
 export { Batch, BatchStatus } from './batch.entity';
+export { Location, LocationType, LocationAction, LocationDimension, LocationAttribute } from './location.entity';

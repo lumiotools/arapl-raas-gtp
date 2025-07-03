@@ -9,6 +9,7 @@ import {
   Relation,
 } from 'typeorm';
 import type { Batch } from './batch.entity';
+import { Location } from './location.entity';
 
 export enum TaskType {
   CROSSDOCK = 'Crossdock',
@@ -34,18 +35,6 @@ export class Task {
 
   @Column({ type: 'varchar', length: 10 })
   product_id: string;
-
-  @Column({ type: 'varchar', length: 10, nullable: true })
-  source_inventory_id: string;
-
-  @Column({ type: 'varchar', length: 10, nullable: true })
-  source_station_id: string;
-
-  @Column({ type: 'varchar', length: 10, nullable: true })
-  destination_station_id: string;
-
-  @Column({ type: 'varchar', length: 10, nullable: true })
-  destination_inventory_id: string;
 
   @Column({ type: 'int' })
   quantity: number;
@@ -83,4 +72,10 @@ export class Task {
   @ManyToOne('Batch', 'tasks')
   @JoinColumn({ name: 'batch_id' })
   batch: Relation<Batch>;
+
+  @Column({ type: 'json' })
+  start_location: Location;
+
+  @Column({ type: 'json' })
+  end_location: Location;
 }
