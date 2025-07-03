@@ -47,6 +47,7 @@ async function bootstrap() {
     .addTag('Products', 'Product catalog management')
     .addTag('Inventory', 'Inventory tracking, management, and bulk operations')
     .addTag('Orchestrator', 'Task orchestration and batch processing for warehouse operations')
+    .addTag('Webhook', 'Webhook endpoints for receiving status updates from WMS API layer')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

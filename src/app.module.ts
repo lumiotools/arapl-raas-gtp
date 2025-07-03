@@ -9,6 +9,7 @@ import { StationsModule } from './modules/stations/stations.module';
 import { ProductsModule } from './modules/products/products.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
+import { WebhookModule } from './modules/webhook/webhook.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
     ProductsModule,
     InventoryModule,
     OrchestratorModule,
+    WebhookModule,
   ],
   controllers: [],
   providers: [],

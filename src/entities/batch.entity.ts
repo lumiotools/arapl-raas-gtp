@@ -11,8 +11,11 @@ import type { Task } from './task.entity';
 
 export enum BatchStatus {
   PENDING = 'PENDING',
+  INQUEUE = 'INQUEUE',
+  PROCESSING = 'PROCESSING',
   IN_PROGRESS = 'IN_PROGRESS',
   COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
   FAILED = 'FAILED',
 }
 
