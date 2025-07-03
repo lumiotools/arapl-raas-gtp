@@ -76,10 +76,10 @@ export class TaskStatusDto {
 
   @ApiProperty({ 
     description: 'Task status', 
-    enum: ['pending', 'assigned', 'inqueue', 'inprogress', 'completed', 'cancelled', 'failed'],
+    enum: ['pending', 'assigned', 'inqueue', 'inprogress', 'processing', 'completed', 'cancelled', 'failed'],
     example: 'inqueue' 
   })
-  @IsIn(['pending', 'assigned', 'inqueue', 'inprogress', 'completed', 'cancelled', 'failed'])
+  @IsIn(['pending', 'assigned', 'inqueue', 'inprogress', 'processing', 'completed', 'cancelled', 'failed'])
   status: string;
 
   @ApiProperty({ description: 'Robot ID', example: 'ROBOT-001' })

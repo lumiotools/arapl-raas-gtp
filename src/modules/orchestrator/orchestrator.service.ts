@@ -317,14 +317,9 @@ export class OrchestratorService {
       this.logger.log(`Return task created (Task ${finalTaskId}) - depends on Task ${previousTaskId}`);
     }
 
-    // Update inventory quantity in database
-    const finalQuantity = availableQuantity;
-    await this.inventoryRepository.update(
-      { id: inventory.id },
-      { quantity: finalQuantity }
-    );
-
-    this.logger.log(`Inventory ${inventory.id} final quantity: ${finalQuantity}`);
+    // Note: Inventory quantity will be updated by webhook service based on task status changes
+    // No inventory update during batch creation as per requirements
+    this.logger.log(`Batch tasks created for inventory ${inventory.id}. Inventory quantity will be managed by webhook service.`);
   }
 
   private async createTask(taskData: {
