@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { TaskType, TaskStatus } from 'src/entities/task.entity';
 import { LocationResponseDto } from './location-response.dto';
+import { WaitResponseDto } from './wait-response.dto';
 
 export class TaskResponseDto {
   @ApiProperty({
@@ -32,6 +33,12 @@ export class TaskResponseDto {
     type: LocationResponseDto,
   })
   end_location: LocationResponseDto;
+
+  @ApiProperty({
+    description: 'Wait configuration for this task',
+    type: WaitResponseDto,
+  })
+  wait: WaitResponseDto;
 
   @ApiProperty({
     description: 'Quantity to be moved in this task',

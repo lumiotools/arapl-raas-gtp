@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import type { Batch } from './batch.entity';
 import { Location } from './location.entity';
+import { Wait } from './wait.entity';
 
 export enum TaskType {
   CROSSDOCK = 'Crossdock',
@@ -78,4 +79,7 @@ export class Task {
 
   @Column({ type: 'json' })
   end_location: Location;
+
+  @Column({ type: 'json' })
+  wait: Wait;
 }

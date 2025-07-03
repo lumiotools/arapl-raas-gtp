@@ -9,6 +9,7 @@ import { Inventory } from 'src/entities/inventory.entity';
 import { Station } from 'src/entities/station.entity';
 import { GtpLocation } from 'src/entities/gtp-location.entity';
 import { Location, LocationType, LocationAction, LocationDimension, LocationAttribute } from 'src/entities/location.entity';
+import { Wait, WaitType } from 'src/entities/wait.entity';
 import { InventoryService } from '../inventory/inventory.service';
 
 interface ProductRequirement {
@@ -348,6 +349,9 @@ export class OrchestratorService {
       this.getLocationAction(taskData, 'end')
     );
 
+    // Create wait object
+    const waitObject = this.createWaitObject();
+
     const task = this.taskRepository.create({
       batch_id: taskData.batchId,
       product_id: taskData.productId,
@@ -357,7 +361,8 @@ export class OrchestratorService {
       task_dependency: taskData.taskDependency || undefined,
       status: TaskStatus.PENDING,
       start_location: startLocation,
-      end_location: endLocation
+      end_location: endLocation,
+      wait: waitObject
     });
 
     const savedTask = await this.taskRepository.save(task);
@@ -377,6 +382,17 @@ export class OrchestratorService {
       location_action: locationAction,
       location_dimension: { length: 0, height: 0, width: 0 },
       location_attribute: { attribute_name: locationType }
+    };
+  }
+
+  private createWaitObject(): Wait {
+    return {
+      wait_type: WaitType.TRIGGER,
+      wait_condition: null,
+      start_location_wait_time: 0,
+      end_location_wait_time: 0,
+      start_location_available_wait: false,
+      end_location_available_wait: false
     };
   }
 
