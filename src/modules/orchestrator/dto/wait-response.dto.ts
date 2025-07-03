@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { WaitStatus, FallbackAction } from 'src/entities/wait.entity';
 
 export class WaitResponseDto {
   @ApiProperty({
@@ -41,4 +42,24 @@ export class WaitResponseDto {
     required: false,
   })
   end_location_available_wait?: boolean;
+
+  @ApiProperty({
+    description: 'Current status of the wait',
+    enum: WaitStatus,
+    example: WaitStatus.NOT_STARTED,
+  })
+  wait_status: string;
+
+  @ApiProperty({
+    description: 'Maximum number of seconds the wait should be performed (default: 1800 = 30 minutes)',
+    example: 1800,
+  })
+  timeout: number;
+
+  @ApiProperty({
+    description: 'Action to perform in case of wait timeout',
+    enum: FallbackAction,
+    example: FallbackAction.ERROR,
+  })
+  fallback_action: string;
 }

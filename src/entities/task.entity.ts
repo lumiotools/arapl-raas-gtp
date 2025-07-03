@@ -11,6 +11,7 @@ import {
 import type { Batch } from './batch.entity';
 import { Location } from './location.entity';
 import { Wait } from './wait.entity';
+import { Cargo } from './cargo.entity';
 
 export enum TaskType {
   CROSSDOCK = 'Crossdock',
@@ -82,4 +83,7 @@ export class Task {
 
   @Column({ type: 'json' })
   wait: Wait;
+
+  @Column({ type: 'json' })
+  cargos: Cargo[];
 }

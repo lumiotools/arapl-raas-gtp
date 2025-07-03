@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { TaskType, TaskStatus } from 'src/entities/task.entity';
 import { LocationResponseDto } from './location-response.dto';
 import { WaitResponseDto } from './wait-response.dto';
+import { CargoResponseDto } from './cargo-response.dto';
 
 export class TaskResponseDto {
   @ApiProperty({
@@ -65,6 +66,12 @@ export class TaskResponseDto {
     example: 1,
   })
   sequence_order: number;
+
+  @ApiProperty({
+    description: 'Array of cargo objects for this task',
+    type: [CargoResponseDto],
+  })
+  cargos: CargoResponseDto[];
 
   @ApiProperty({
     description: 'Timestamp when the task was created',
