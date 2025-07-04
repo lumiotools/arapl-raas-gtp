@@ -13,6 +13,7 @@ import {
   ApiOkResponse,
   ApiBadRequestResponse,
   ApiNotFoundResponse,
+  ApiConflictResponse,
 } from '@nestjs/swagger';
 import { TriggerService } from './trigger.service';
 
@@ -24,7 +25,7 @@ export class TriggerController {
   @Post(':station_id')
   @ApiOperation({
     summary: 'Trigger station action',
-    description: 'Triggers an action for a specific station using station ID',
+    description: 'Triggers completion of current task at station and schedules next task. Station must be OCCUPIED (not RESERVED).',
   })
   @ApiParam({
     name: 'station_id',
@@ -37,8 +38,27 @@ export class TriggerController {
       type: 'object',
       properties: {
         success: { type: 'boolean', example: true },
-        data: { type: 'object' },
+        data: {
+          type: 'object',
+          properties: {
+            message: { type: 'string', example: 'Station ST001 triggered successfully' },
+            triggered_task: { type: 'object' },
+            station: { type: 'object' },
+            timestamp: { type: 'string' },
+          },
+        },
         message: { type: 'string', example: 'Station ST001 triggered successfully' },
+      },
+    },
+  })
+  @ApiConflictResponse({
+    description: 'Station cannot be triggered (reserved or not occupied)',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: false },
+        message: { type: 'string', example: "Can't trigger now - station ST001 is reserved" },
+        error: { type: 'string' },
       },
     },
   })
@@ -64,6 +84,16 @@ export class TriggerController {
         message: `Station ${stationId} triggered successfully`,
       };
     } catch (error) {
+      if (error.status === 409) { // ConflictException
+        throw new HttpException(
+          {
+            success: false,
+            message: error.message || "Can't trigger now",
+            error: error.message,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
       throw new HttpException(
         {
           success: false,

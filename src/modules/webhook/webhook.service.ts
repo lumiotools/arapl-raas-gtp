@@ -94,10 +94,10 @@ export class WebhookService {
     // Handle station status updates
     await this.handleStationUpdates(task, oldStatus, mappedStatus);
     
-    // Handle task completion and next task processing
-    if (mappedStatus === TaskStatus.COMPLETED) {
-      await this.handleTaskCompletion(task);
-    }
+    // Note: Next task scheduling is now handled by trigger API, not webhook completion
+    // if (mappedStatus === TaskStatus.COMPLETED) {
+    //   await this.handleTaskCompletion(task);
+    // }
   }
 
   private mapBatchStatus(webhookStatus: string): BatchStatus {
@@ -238,6 +238,22 @@ export class WebhookService {
 
         // Process any pending requests for this station
         await this.orchestratorService.processStationRequests(stationId);
+      }
+
+      // When task status becomes COMPLETED and destination is station - mark station as OCCUPIED
+      if (newStatus === TaskStatus.COMPLETED && 
+          task.end_location?.location_attribute?.attribute_value === 'station') {
+        
+        const stationId = task.end_location.location_id;
+        this.logger.log(`Marking station ${stationId} as OCCUPIED (task ${task.task_id} completed)`);
+        
+        await this.stationRepository.update(
+          { station_id: stationId },
+          { 
+            status: LocationStatus.OCCUPIED,
+            holded_by: task.task_id
+          }
+        );
       }
     } catch (error) {
       this.logger.error(`Error handling station updates for task ${task.task_id}:`, error.message);
