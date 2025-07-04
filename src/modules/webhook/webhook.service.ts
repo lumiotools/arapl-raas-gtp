@@ -84,12 +84,14 @@ export class WebhookService {
     const oldStatus = task.status;
     const mappedStatus = this.mapTaskStatus(taskStatusData.status);
     
-    this.logger.log(`Updating task ${taskStatusData.task_id} status from ${oldStatus} to ${mappedStatus}`);
+    this.logger.log(`🔄 Updating task ${taskStatusData.task_id} status from ${oldStatus} to ${mappedStatus} (webhook status: "${taskStatusData.status}")`);
     
     await this.taskRepository.update(
       { task_id: parseInt(taskStatusData.task_id) },
       { status: mappedStatus }
     );
+
+    task.status = mappedStatus; 
 
     // Handle inventory updates based on task status changes
     await this.handleInventoryUpdates(task, oldStatus, mappedStatus, batchId);
@@ -97,15 +99,40 @@ export class WebhookService {
     // Handle station status updates
     await this.handleStationUpdates(task, oldStatus, mappedStatus);
     
-    // Note: Next task scheduling is now handled by trigger API, not webhook completion
-    if (task.end_location?.location_attribute.attribute_value === 'waiting_location' && mappedStatus === TaskStatus.COMPLETED) {
-      // Only call waiting location completion handler if it wasn't already called
+    // Handle task completion based on destination type
+    if (mappedStatus === TaskStatus.COMPLETED) {
+      this.logger.log(`🎯 Task ${task.task_id} COMPLETED - checking destination type`);
       const currentTask = await this.taskRepository.findOne({
         where: { task_id: task.task_id }
       });
       
       if (currentTask && currentTask.status === TaskStatus.COMPLETED) {
-        await this.handleTaskCompletion(task);
+        const destinationType = task.end_location?.location_attribute.attribute_value;
+        this.logger.log(`📍 Task ${task.task_id} destination type: ${destinationType}`);
+        
+        if (destinationType === 'waiting_location') {
+          // Task completed at waiting location - handle waiting location completion
+          this.logger.log(`🏁 Calling waiting location completion handler for task ${task.task_id}`);
+          await this.handleWaitingLocationCompletion(task);
+        } else if (destinationType === 'inventory') {
+          // Task completed at inventory (return task) - handle inventory return
+          this.logger.log(`🏁 Calling inventory return completion handler for task ${task.task_id}`);
+          await this.handleInventoryReturnCompletion(task);
+        }
+        // Note: Station completions are handled by trigger API when task is TRIGGERED
+      }
+    }
+    
+    // Handle task processing - release source station when task goes to PROCESSING
+    if (mappedStatus === TaskStatus.PROCESSING) {
+      this.logger.log(`⚙️  Task ${task.task_id} PROCESSING - calling processing handler`);
+      const currentTask = await this.taskRepository.findOne({
+        where: { task_id: task.task_id }
+      });
+      
+      if (currentTask && currentTask.status === TaskStatus.PROCESSING) {
+        this.logger.log(`🔧 Calling task processing handler for task ${task.task_id}`);
+        await this.handleTaskProcessing(task);
       }
     }
   }
@@ -242,25 +269,6 @@ export class WebhookService {
   }
 
   private async handleStationStatusUpdates(task: Task, newStatus: TaskStatus): Promise<void> {
-    // When task status becomes PROCESSING and source location is station - mark station as AVAILABLE
-    if (newStatus === TaskStatus.PROCESSING && 
-        task.start_location?.location_attribute?.attribute_value === 'station') {
-      
-      const stationId = task.start_location.location_id;
-      this.logger.log(`Marking station ${stationId} as AVAILABLE and clearing holded_by (task ${task.task_id} processing)`);
-      
-      await this.stationRepository.update(
-        { station_id: stationId },
-        { 
-          status: LocationStatus.AVAILABLE,
-          holded_by: null
-        }
-      );
-
-      // Process any pending requests for this station
-      await this.orchestratorService.processStationRequests(stationId);
-    }
-
     // When task status becomes COMPLETED and destination is station - mark station as OCCUPIED
     if (newStatus === TaskStatus.COMPLETED && 
         task.end_location?.location_attribute?.attribute_value === 'station') {
@@ -276,6 +284,8 @@ export class WebhookService {
         }
       );
     }
+    
+    // Note: Station release when task goes to PROCESSING is now handled by orchestrator service
   }
 
   private async handleWaitingLocationStatusUpdates(task: Task, newStatus: TaskStatus): Promise<void> {
@@ -312,11 +322,11 @@ export class WebhookService {
     }
   }
 
-  private async handleTaskCompletion(completedTask: Task): Promise<void> {
+  private async handleWaitingLocationCompletion(completedTask: Task): Promise<void> {
     try {
       // Safety check: Only process completion for tasks that are actually COMPLETED
       if (completedTask.status !== TaskStatus.COMPLETED) {
-        this.logger.warn(`Task ${completedTask.task_id} completion handler called but task status is ${completedTask.status} - skipping`);
+        this.logger.warn(`Waiting location task ${completedTask.task_id} completion handler called but task status is ${completedTask.status} - skipping`);
         return;
       }
 
@@ -325,7 +335,18 @@ export class WebhookService {
       // Call orchestrator to handle waiting location task completion according to requirement 2
       await this.orchestratorService.handleWaitingLocationTaskCompletion(completedTask);
     } catch (error) {
-      this.logger.error(`Error handling task completion for task ${completedTask.task_id}:`, error.message);
+      this.logger.error(`Error handling waiting location task completion for task ${completedTask.task_id}:`, error.message);
+    }
+  }
+
+  private async handleInventoryReturnCompletion(completedTask: Task): Promise<void> {
+    try {
+      this.logger.log(`Handling completion of return task ${completedTask.task_id} at inventory`);
+      
+      // Call orchestrator to handle inventory return task completion
+      await this.orchestratorService.handleInventoryReturnTaskCompletion(completedTask);
+    } catch (error) {
+      this.logger.error(`Error handling inventory return completion for task ${completedTask.task_id}:`, error.message);
     }
   }
 
@@ -339,6 +360,17 @@ export class WebhookService {
       this.logger.log(`✅ Batch ${batchId} marked as COMPLETED - all tasks finished!`);
     } catch (error) {
       this.logger.error(`Error marking batch ${batchId} as completed:`, error.message);
+    }
+  }
+
+  private async handleTaskProcessing(processingTask: Task): Promise<void> {
+    try {
+      this.logger.log(`Handling task ${processingTask.task_id} going to PROCESSING state`);
+      
+      // Call orchestrator to handle task processing (release source station)
+      await this.orchestratorService.handleTaskProcessing(processingTask);
+    } catch (error) {
+      this.logger.error(`Error handling task processing for task ${processingTask.task_id}:`, error.message);
     }
   }
 }
