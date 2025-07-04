@@ -9,3 +9,4 @@ export { Batch, BatchStatus } from './batch.entity';
 export { Location, LocationType, LocationAction, LocationDimension, LocationAttribute } from './location.entity';
 export { Wait, WaitType, WaitStatus, FallbackAction } from './wait.entity';
 export { Cargo, CargoDimension, CargoAttribute } from './cargo.entity';
+export { StationRequest } from './station-request.entity';

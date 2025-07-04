@@ -7,8 +7,9 @@ import { OrderItem, OrderItemStatus } from 'src/entities/order-item.entity';
 import { Task, TaskType, TaskStatus } from 'src/entities/task.entity';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Inventory } from 'src/entities/inventory.entity';
-import { Station } from 'src/entities/station.entity';
+import { Station, LocationStatus } from 'src/entities/station.entity';
 import { GtpLocation } from 'src/entities/gtp-location.entity';
+import { StationRequest } from 'src/entities/station-request.entity';
 import { Location, LocationType, LocationAction, LocationDimension, LocationAttribute } from 'src/entities/location.entity';
 import { Wait, WaitType, WaitStatus, FallbackAction } from 'src/entities/wait.entity';
 import { Cargo, CargoDimension, CargoAttribute } from 'src/entities/cargo.entity';
@@ -37,6 +38,8 @@ export class OrchestratorService {
     private readonly stationRepository: Repository<Station>,
     @InjectRepository(GtpLocation)
     private readonly gtpLocationRepository: Repository<GtpLocation>,
+    @InjectRepository(StationRequest)
+    private readonly stationRequestRepository: Repository<StationRequest>,
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
   ) {}
@@ -62,6 +65,9 @@ export class OrchestratorService {
       for (const requirement of productRequirements) {
         await this.processProductRequirement(requirement);
       }
+
+      // After all batches are created, process first tasks
+      await this.processFirstTasks();
 
       this.logger.log(`Orchestrator process completed successfully`);
       
@@ -156,10 +162,10 @@ export class OrchestratorService {
         batchId
       );
       
-      // Send batch to WMS API layer
-      await this.sendBatchToWmsApi(batchId);
+      // TODO: Send batch to WMS API layer (currently disabled)
+      // await this.sendBatchToWmsApi(batchId);
       
-      this.logger.log(`Created batch ${batchId} for inventory ${inventory.id}`);
+      this.logger.log(`Created batch ${batchId} for inventory ${inventory.id} (not sent to WMS API)`);
     }
   }
 
@@ -497,6 +503,142 @@ export class OrchestratorService {
       if (error.response) {
         this.logger.error(`Response status: ${error.response.status}`);
         this.logger.error(`Response data:`, error.response.data);
+      }
+    }
+  }
+
+  // Process first tasks of all batches
+  private async processFirstTasks(): Promise<void> {
+    this.logger.log('Processing first tasks of all batches...');
+    
+    // Get all first tasks (sequence_order = 1) from inventory to station
+    const firstTasks = await this.taskRepository.find({
+      where: { 
+        sequence_order: 1,
+        status: TaskStatus.PENDING 
+      },
+      order: { created_at: 'ASC' }
+    });
+
+    for (const task of firstTasks) {
+      // Verify it's inventory to station task
+      if (task.start_location?.location_attribute?.attribute_value === 'inventory' &&
+          task.end_location?.location_attribute?.attribute_value === 'station') {
+        
+        const stationId = task.end_location.location_id;
+        await this.handleStationRequest(task, stationId);
+      }
+    }
+  }
+
+  private async handleStationRequest(task: Task, stationId: string): Promise<void> {
+    // Check if station is available
+    const station = await this.stationRepository.findOne({
+      where: { station_id: stationId }
+    });
+
+    if (!station) {
+      this.logger.warn(`Station ${stationId} not found`);
+      return;
+    }
+
+    if (station.status === LocationStatus.AVAILABLE) {
+      // Station is available - reserve it and send task to WMS
+      await this.reserveStationAndSendTask(task, station);
+    } else {
+      // Station is not available - add to request queue
+      await this.addStationRequest(task, stationId);
+    }
+  }
+
+  private async reserveStationAndSendTask(task: Task, station: Station): Promise<void> {
+    this.logger.log(`Reserving station ${station.station_id} for task ${task.task_id}`);
+    
+    // Mark station as reserved
+    await this.stationRepository.update(
+      { station_id: station.station_id },
+      { status: LocationStatus.RESERVED }
+    );
+
+    // Send single task to WMS
+    await this.sendSingleTaskToWms(task);
+  }
+
+  public async addStationRequest(task: Task, stationId: string): Promise<void> {
+    this.logger.log(`Adding station request for task ${task.task_id}, station ${stationId}`);
+    
+    const stationRequest = this.stationRequestRepository.create({
+      task_id: task.task_id,
+      station_id: stationId
+    });
+
+    await this.stationRequestRepository.save(stationRequest);
+  }
+
+  public async sendSingleTaskToWms(task: Task): Promise<void> {
+    try {
+      const requestBody = {
+        tasks: [{
+          task_id: task.task_id.toString(),
+          task_type: task.task_type,
+          task_dependency: task.task_dependency?.toString() || null,
+          start_location: task.start_location,
+          end_location: task.end_location,
+          wait: task.wait,
+          cargos: task.cargos
+        }]
+      };
+
+      this.logger.log(`Sending single task ${task.task_id} to WMS API`);
+      console.log('=== WMS API Single Task Request ===');
+      console.log('URL: http://localhost:3000/robot-job/cli/tasks');
+      console.log('Method: POST');
+      console.log('Headers: { authorization: "operator_key" }');
+      console.log('Body:', JSON.stringify(requestBody, null, 2));
+      console.log('===================================');
+
+      const response = await firstValueFrom(
+        this.httpService.post('http://localhost:3000/robot-job/cli/tasks', requestBody, {
+          headers: {
+            'authorization': 'operator_key',
+            'Content-Type': 'application/json'
+          }
+        })
+      );
+
+      this.logger.log(`Successfully sent task ${task.task_id} to WMS API layer`);
+      
+    } catch (error) {
+      this.logger.error(`Failed to send task ${task.task_id} to WMS API layer:`, error.message);
+      if (error.response) {
+        this.logger.error(`Response status: ${error.response.status}`);
+        this.logger.error(`Response data:`, error.response.data);
+      }
+    }
+  }
+
+  // Method to be called from webhook when station becomes available
+  async processStationRequests(stationId: string): Promise<void> {
+    this.logger.log(`Processing pending requests for station ${stationId}`);
+    
+    // Get the oldest request for this station (FIFO)
+    const oldestRequest = await this.stationRequestRepository.findOne({
+      where: { station_id: stationId },
+      order: { created_at: 'ASC' },
+      relations: ['task']
+    });
+
+    if (oldestRequest) {
+      // Remove the request from queue
+      await this.stationRequestRepository.remove(oldestRequest);
+      
+      // Get the station and reserve it
+      const station = await this.stationRepository.findOne({
+        where: { station_id: stationId }
+      });
+
+      if (station && station.status === LocationStatus.AVAILABLE) {
+        await this.reserveStationAndSendTask(oldestRequest.task, station);
       }
     }
   }

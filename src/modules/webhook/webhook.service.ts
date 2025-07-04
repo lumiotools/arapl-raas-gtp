@@ -4,7 +4,9 @@ import { Repository } from 'typeorm';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Task, TaskStatus } from 'src/entities/task.entity';
 import { Inventory } from 'src/entities/inventory.entity';
+import { Station, LocationStatus } from 'src/entities/station.entity';
 import { WebhookRequestDto } from './dto/webhook-request.dto';
+import { OrchestratorService } from '../orchestrator/orchestrator.service';
 
 @Injectable()
 export class WebhookService {
@@ -17,6 +19,9 @@ export class WebhookService {
     private readonly taskRepository: Repository<Task>,
     @InjectRepository(Inventory)
     private readonly inventoryRepository: Repository<Inventory>,
+    @InjectRepository(Station)
+    private readonly stationRepository: Repository<Station>,
+    private readonly orchestratorService: OrchestratorService,
   ) {}
 
   async processWebhook(webhookData: WebhookRequestDto): Promise<{ message: string }> {
@@ -61,15 +66,15 @@ export class WebhookService {
   }
 
   private async updateTaskStatus(batchId: string, taskStatusData: any): Promise<void> {
+    // Find task by task_id only (ignore batch_id as instructed)
     const task = await this.taskRepository.findOne({
       where: { 
-        task_id: parseInt(taskStatusData.task_id),
-        batch_id: batchId 
+        task_id: parseInt(taskStatusData.task_id)
       }
     });
 
     if (!task) {
-      this.logger.warn(`Task with ID ${taskStatusData.task_id} in batch ${batchId} not found, skipping task status update`);
+      this.logger.warn(`Task with ID ${taskStatusData.task_id} not found, skipping task status update`);
       return;
     }
 
@@ -85,6 +90,14 @@ export class WebhookService {
 
     // Handle inventory updates based on task status changes
     await this.handleInventoryUpdates(task, oldStatus, mappedStatus, batchId);
+    
+    // Handle station status updates
+    await this.handleStationUpdates(task, oldStatus, mappedStatus);
+    
+    // Handle task completion and next task processing
+    if (mappedStatus === TaskStatus.COMPLETED) {
+      await this.handleTaskCompletion(task);
+    }
   }
 
   private mapBatchStatus(webhookStatus: string): BatchStatus {
@@ -204,5 +217,113 @@ export class WebhookService {
   private async isFirstTaskInBatch(task: Task, batchId: string): Promise<boolean> {
     // Check if this task has sequence_order = 1 (first task in batch)
     return task.sequence_order === 1;
+  }
+
+  private async handleStationUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus): Promise<void> {
+    try {
+      // When task status becomes PROCESSING and source location is station - mark station as AVAILABLE
+      if (newStatus === TaskStatus.PROCESSING && 
+          task.start_location?.location_attribute?.attribute_value === 'station') {
+        
+        const stationId = task.start_location.location_id;
+        this.logger.log(`Marking station ${stationId} as AVAILABLE (task ${task.task_id} processing)`);
+        
+        await this.stationRepository.update(
+          { station_id: stationId },
+          { status: LocationStatus.AVAILABLE }
+        );
+
+        // Process any pending requests for this station
+        await this.orchestratorService.processStationRequests(stationId);
+      }
+    } catch (error) {
+      this.logger.error(`Error handling station updates for task ${task.task_id}:`, error.message);
+    }
+  }
+
+  private async handleTaskCompletion(completedTask: Task): Promise<void> {
+    try {
+      this.logger.log(`Handling completion of task ${completedTask.task_id} in batch ${completedTask.batch_id}`);
+      
+      // Find the next sequence task in the same batch
+      const nextTask = await this.taskRepository.findOne({
+        where: { 
+          batch_id: completedTask.batch_id,
+          sequence_order: completedTask.sequence_order + 1
+        }
+      });
+
+      if (nextTask) {
+        this.logger.log(`Found next task ${nextTask.task_id} (sequence ${nextTask.sequence_order}) in batch ${completedTask.batch_id}`);
+        await this.processNextTask(nextTask);
+      } else {
+        // No next task - batch is completed
+        this.logger.log(`No next task found. Marking batch ${completedTask.batch_id} as completed`);
+        await this.markBatchAsCompleted(completedTask.batch_id);
+      }
+    } catch (error) {
+      this.logger.error(`Error handling task completion for task ${completedTask.task_id}:`, error.message);
+    }
+  }
+
+  private async processNextTask(nextTask: Task): Promise<void> {
+    const destinationLocation = nextTask.end_location;
+    
+    if (destinationLocation?.location_attribute?.attribute_value === 'inventory') {
+      // Destination is inventory - send directly to WMS
+      this.logger.log(`Next task ${nextTask.task_id} destination is inventory - sending directly to WMS`);
+      await this.orchestratorService.sendSingleTaskToWms(nextTask);
+    } else if (destinationLocation?.location_attribute?.attribute_value === 'station') {
+      // Destination is station - check availability
+      const stationId = destinationLocation.location_id;
+      await this.handleNextTaskStationRequest(nextTask, stationId);
+    } else {
+      this.logger.warn(`Next task ${nextTask.task_id} has unknown destination location type`);
+    }
+  }
+
+  private async handleNextTaskStationRequest(nextTask: Task, stationId: string): Promise<void> {
+    const station = await this.stationRepository.findOne({
+      where: { station_id: stationId }
+    });
+
+    if (!station) {
+      this.logger.warn(`Station ${stationId} not found for next task ${nextTask.task_id}`);
+      return;
+    }
+
+    if (station.status === LocationStatus.AVAILABLE) {
+      // Station is available - reserve it and send task to WMS
+      this.logger.log(`Station ${stationId} is available for next task ${nextTask.task_id} - reserving and sending to WMS`);
+      
+      await this.stationRepository.update(
+        { station_id: stationId },
+        { status: LocationStatus.RESERVED }
+      );
+
+      await this.orchestratorService.sendSingleTaskToWms(nextTask);
+    } else {
+      // Station is not available - add to request queue
+      this.logger.log(`Station ${stationId} is not available for next task ${nextTask.task_id} - adding to request queue`);
+      await this.addTaskToStationQueue(nextTask, stationId);
+    }
+  }
+
+  private async addTaskToStationQueue(task: Task, stationId: string): Promise<void> {
+    // Use orchestrator service to add station request
+    await this.orchestratorService.addStationRequest(task, stationId);
+  }
+
+  private async markBatchAsCompleted(batchId: string): Promise<void> {
+    try {
+      await this.batchRepository.update(
+        { batch_id: batchId },
+        { status: BatchStatus.COMPLETED }
+      );
+      
+      this.logger.log(`✅ Batch ${batchId} marked as COMPLETED - all tasks finished!`);
+    } catch (error) {
+      this.logger.error(`Error marking batch ${batchId} as completed:`, error.message);
+    }
   }
 }
