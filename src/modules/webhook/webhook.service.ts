@@ -98,8 +98,15 @@ export class WebhookService {
     await this.handleStationUpdates(task, oldStatus, mappedStatus);
     
     // Note: Next task scheduling is now handled by trigger API, not webhook completion
-    if (task.end_location?.location_attribute.attribute_value=='waiting_location' && mappedStatus === TaskStatus.COMPLETED) {
-      await this.handleTaskCompletion(task);
+    if (task.end_location?.location_attribute.attribute_value === 'waiting_location' && mappedStatus === TaskStatus.COMPLETED) {
+      // Only call waiting location completion handler if it wasn't already called
+      const currentTask = await this.taskRepository.findOne({
+        where: { task_id: task.task_id }
+      });
+      
+      if (currentTask && currentTask.status === TaskStatus.COMPLETED) {
+        await this.handleTaskCompletion(task);
+      }
     }
   }
 
@@ -313,84 +320,13 @@ export class WebhookService {
         return;
       }
 
-      this.logger.log(`Handling completion of task ${completedTask.task_id} in batch ${completedTask.batch_id}`);
+      this.logger.log(`Handling completion of task ${completedTask.task_id} at waiting location`);
       
-      // Find the next sequence task in the same batch
-      const nextTask = await this.taskRepository.findOne({
-        where: { 
-          batch_id: completedTask.batch_id,
-          sequence_order: completedTask.sequence_order + 1
-        }
-      });
-
-      if (nextTask) {
-        this.logger.log(`Found next task ${nextTask.task_id} (sequence ${nextTask.sequence_order}) in batch ${completedTask.batch_id}`);
-        await this.processNextTask(nextTask);
-      } else {
-        // No next task - batch is completed
-        this.logger.log(`No next task found. Marking batch ${completedTask.batch_id} as completed`);
-        await this.markBatchAsCompleted(completedTask.batch_id);
-      }
+      // Call orchestrator to handle waiting location task completion according to requirement 2
+      await this.orchestratorService.handleWaitingLocationTaskCompletion(completedTask);
     } catch (error) {
       this.logger.error(`Error handling task completion for task ${completedTask.task_id}:`, error.message);
     }
-  }
-
-  private async processNextTask(nextTask: Task): Promise<void> {
-    // Safety check: Only process tasks that are in PENDING status
-    if (nextTask.status !== TaskStatus.PENDING) {
-      this.logger.warn(`Next task ${nextTask.task_id} is not in PENDING status (current: ${nextTask.status}) - skipping processing`);
-      return;
-    }
-
-    const destinationLocation = nextTask.end_location;
-    
-    if (destinationLocation?.location_attribute?.attribute_value === 'inventory') {
-      // Destination is inventory - send directly to WMS
-      this.logger.log(`Next task ${nextTask.task_id} destination is inventory - sending directly to WMS`);
-      await this.orchestratorService.sendSingleTaskToWms(nextTask);
-    } else if (destinationLocation?.location_attribute?.attribute_value === 'station') {
-      // Destination is station - check availability
-      const stationId = destinationLocation.location_id;
-      await this.handleNextTaskStationRequest(nextTask, stationId);
-    } else {
-      this.logger.warn(`Next task ${nextTask.task_id} has unknown destination location type`);
-    }
-  }
-
-  private async handleNextTaskStationRequest(nextTask: Task, stationId: string): Promise<void> {
-    const station = await this.stationRepository.findOne({
-      where: { station_id: stationId }
-    });
-
-    if (!station) {
-      this.logger.warn(`Station ${stationId} not found for next task ${nextTask.task_id}`);
-      return;
-    }
-
-    if (station.status === LocationStatus.AVAILABLE) {
-      // Station is available - reserve it and send task to WMS
-      this.logger.log(`Station ${stationId} is available for next task ${nextTask.task_id} - reserving and sending to WMS`);
-      
-      await this.stationRepository.update(
-        { station_id: stationId },
-        { 
-          status: LocationStatus.RESERVED,
-          holded_by: nextTask.task_id
-        }
-      );
-
-      await this.orchestratorService.sendSingleTaskToWms(nextTask);
-    } else {
-      // Station is not available - add to request queue
-      this.logger.log(`Station ${stationId} is not available for next task ${nextTask.task_id} - adding to request queue`);
-      await this.addTaskToStationQueue(nextTask, stationId);
-    }
-  }
-
-  private async addTaskToStationQueue(task: Task, stationId: string): Promise<void> {
-    // Use orchestrator service to add station request
-    await this.orchestratorService.addStationRequest(task, stationId);
   }
 
   private async markBatchAsCompleted(batchId: string): Promise<void> {

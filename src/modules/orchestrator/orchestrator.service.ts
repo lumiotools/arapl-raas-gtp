@@ -380,6 +380,13 @@ export class OrchestratorService {
     const savedTask = await this.taskRepository.save(task);
     this.logger.log(`Created task ${savedTask.task_id}: ${taskData.taskType} - ${taskData.quantity} units of ${taskData.productId}${taskData.taskDependency ? ` (depends on task ${taskData.taskDependency})` : ''}`);
     
+    // Update batch total_tasks count
+    await this.batchRepository.increment(
+      { batch_id: taskData.batchId },
+      'total_tasks',
+      1
+    );
+    
     return savedTask.task_id;
   }
 
@@ -652,57 +659,89 @@ export class OrchestratorService {
   async processStationRequests(stationId: string): Promise<void> {
     this.logger.log(`Processing pending requests for station ${stationId}`);
     
-    // Get the oldest request for this station (FIFO)
-    const oldestRequest = await this.stationRequestRepository.findOne({
-      where: { station_id: stationId },
-      order: { created_at: 'ASC' },
-      relations: ['task']
-    });
+    // Use database transaction to prevent race conditions
+    const queryRunner = this.stationRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    if (oldestRequest) {
+    try {
+      // Get the oldest request for this station (FIFO) with lock to prevent race conditions
+      const oldestRequest = await queryRunner.manager.findOne(StationRequest, {
+        where: { station_id: stationId },
+        order: { created_at: 'ASC' },
+        relations: ['task'],
+        lock: { mode: 'pessimistic_write' }
+      });
+
+      if (!oldestRequest) {
+        await queryRunner.commitTransaction();
+        return;
+      }
+
       // Safety check: Only process if task is still PENDING
       if (oldestRequest.task.status !== TaskStatus.PENDING) {
         this.logger.warn(`Task ${oldestRequest.task.task_id} in station request is not PENDING (current: ${oldestRequest.task.status}) - removing request`);
-        await this.stationRequestRepository.remove(oldestRequest);
+        await queryRunner.manager.remove(oldestRequest);
+        await queryRunner.commitTransaction();
         
         // Try to process next request recursively
         await this.processStationRequests(stationId);
         return;
       }
 
-      // Remove the request from queue
-      await this.stationRequestRepository.remove(oldestRequest);
-      
-      // Get the station and reserve it
-      const station = await this.stationRepository.findOne({
-        where: { station_id: stationId }
+      // Get the station and ensure it's still available with lock
+      const station = await queryRunner.manager.findOne(Station, {
+        where: { station_id: stationId },
+        lock: { mode: 'pessimistic_write' }
       });
 
-      if (station && station.status === LocationStatus.AVAILABLE) {
-        await this.reserveStationAndSendTask(oldestRequest.task, station);
-      } else {
+      if (!station || station.status !== LocationStatus.AVAILABLE) {
         this.logger.warn(`Station ${stationId} is no longer available when processing request for task ${oldestRequest.task.task_id}`);
-        // Also add back to queue if station was expected to be available but isn't
-        await this.addStationRequest(oldestRequest.task, stationId);
+        // Don't re-add to queue if station isn't available - let webhook handle it later
+        await queryRunner.rollbackTransaction();
+        return;
       }
+
+      // Remove the request from queue
+      await queryRunner.manager.remove(oldestRequest);
+
+      // Reserve the station atomically
+      await queryRunner.manager.update(Station, 
+        { station_id: stationId },
+        { 
+          status: LocationStatus.RESERVED,
+          holded_by: oldestRequest.task.task_id
+        }
+      );
+
+      await queryRunner.commitTransaction();
+
+      // Remove the fulfilled product requirement from database
+      await this.removeProductRequirement(oldestRequest.task.product_id, stationId);
+
+      // Send single task to WMS (outside transaction)
+      await this.sendSingleTaskToWms(oldestRequest.task);
+
+      this.logger.log(`Successfully processed station request for task ${oldestRequest.task.task_id} on station ${stationId}`);
+
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Error processing station requests for ${stationId}:`, error.message);
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
   }
 
   // Method to be called from trigger when a task completes at a station
   async handleTaskCompletion(completedTask: Task): Promise<void> {
-    // Prevent duplicate processing - only handle TRIGERRED tasks
+    // Prevent duplicate processing - only handle TRIGERRED tasks ONCE
     if (completedTask.status !== TaskStatus.TRIGERRED) {
       this.logger.warn(`Task ${completedTask.task_id} is not in TRIGERRED status (current: ${completedTask.status}) - skipping completion handling`);
       return;
     }
 
-    this.logger.log(`Handling task completion for task ${completedTask.task_id} at station`);
-    
-    // Immediately update task status to prevent duplicate processing
-    await this.taskRepository.update(
-      { task_id: completedTask.task_id },
-      { status: TaskStatus.PROCESSING }
-    );
+    this.logger.log(`Handling task completion for task ${completedTask.task_id} at station - TRIGGERED is the final state`);
     
     try {
       // Get remaining product requirements for this product
@@ -718,13 +757,13 @@ export class OrchestratorService {
         // All stations visited - create task back to inventory
         await this.createReturnToInventoryTask(completedTask);
       }
+
+      this.logger.log(`Task ${completedTask.task_id} processing completed - TRIGGERED remains as final state`);
+
+      // Check if batch is completed (TRIGGERED tasks count as completed for batch purposes)
+      await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
     } catch (error) {
       this.logger.error(`Error processing next task for ${completedTask.task_id}:`, error.message);
-      // Revert task status on error
-      await this.taskRepository.update(
-        { task_id: completedTask.task_id },
-        { status: TaskStatus.TRIGERRED }
-      );
       throw error;
     }
   }
@@ -828,13 +867,40 @@ export class OrchestratorService {
     });
 
     if (!availableWaitingLocation) {
-      this.logger.error(`No available waiting location found for task ${completedTask.task_id}`);
+      this.logger.error(`No available waiting location found for task ${completedTask.task_id} - all waiting locations are occupied`);
+      
+      // Fallback Strategy: Create task to first required station and add station request (DO NOT send to WMS)
+      // This keeps the workflow moving by queuing for the next required station instead of blocking
+      const firstRequiredStation = remainingRequirements[0];
+      const nextSequenceOrder = completedTask.sequence_order + 1;
+      
+      const fallbackTaskId = await this.createTask({
+        batchId: completedTask.batch_id,
+        productId: completedTask.product_id,
+        sourceStationId: completedTask.end_location.location_id,
+        destinationStationId: firstRequiredStation.station_id,
+        quantity: completedTask.quantity,
+        taskType: TaskType.GOODS_TO_PERSON,
+        sequenceOrder: nextSequenceOrder,
+        taskDependency: completedTask.task_id
+      });
+
+      // Get the created task and add station request (DO NOT send to WMS yet - wait for station availability)
+      const fallbackTask = await this.taskRepository.findOne({
+        where: { task_id: fallbackTaskId }
+      });
+
+      if (fallbackTask) {
+        await this.addStationRequest(fallbackTask, firstRequiredStation.station_id);
+        this.logger.warn(`Created fallback task ${fallbackTaskId} with station request for ${firstRequiredStation.station_id} (bypassed waiting location - all occupied)`);
+      }
       return;
     }
 
+    // Reserve waiting location first (will be updated with actual task ID after creation)
     await this.waitingLocationRepository.update(
       { location_id: availableWaitingLocation.location_id },
-      { status: WaitingLocationStatus.RESERVED, holded_by: completedTask.task_id }
+      { status: WaitingLocationStatus.RESERVED, holded_by: null }
     );
 
     // Create task to waiting location
@@ -857,31 +923,16 @@ export class OrchestratorService {
     console.log('Waiting task:', waitingTask);
 
     if (waitingTask) {
+      // Update waiting location to be held by this new task
+      await this.waitingLocationRepository.update(
+        { location_id: availableWaitingLocation.location_id },
+        { holded_by: waitingTask.task_id }
+      );
+
       // Send task to WMS
       await this.sendSingleTaskToWms(waitingTask);
 
-      // Create station request for the first required station (highest priority)
-      const firstRequiredStation = remainingRequirements[0];
-      // Create additional task from waiting location to requested station
-      const stationTaskId = await this.createTask({
-        batchId: completedTask.batch_id,
-        productId: completedTask.product_id,
-        sourceWaitingLocationId: availableWaitingLocation.location_id,
-        destinationStationId: firstRequiredStation.station_id,
-        quantity: completedTask.quantity,
-        taskType: TaskType.GOODS_TO_PERSON,
-        sequenceOrder: sequenceOrder + 1,
-        taskDependency: waitingTaskId
-      });
-      const stationTask = await this.taskRepository.findOne({
-        where: { task_id: stationTaskId }
-      });
-      if (stationTask) {
-        await this.addStationRequest(stationTask, firstRequiredStation.station_id);
-      }
-
       this.logger.log(`Created waiting location task ${waitingTaskId}: station ${completedTask.end_location.location_id} → waiting location ${availableWaitingLocation.location_id} (task sent to WMS)`);
-      this.logger.log(`Added station request for task ${waitingTaskId} to station ${firstRequiredStation.station_id}`);
     }
   }
 
@@ -905,7 +956,7 @@ export class OrchestratorService {
       sourceStationId: completedTask.end_location.location_id,
       destinationInventoryId: originalInventoryId,
       quantity: completedTask.quantity,
-      taskType: TaskType.GOODS_TO_PERSON, // Use PUTAWAY for returning to inventory
+      taskType: TaskType.GOODS_TO_PERSON, // Always GOODS_TO_PERSON as you specified
       sequenceOrder: nextSequenceOrder,
       taskDependency: completedTask.task_id
     });
@@ -920,45 +971,6 @@ export class OrchestratorService {
     }
 
     this.logger.log(`Created return to inventory task ${returnTaskId}: station ${completedTask.end_location.location_id} → inventory ${originalInventoryId} (task sent to WMS)`);
-  }
-
-  // Method to handle when a waiting location task gets assigned to a station
-  async processWaitingLocationToStation(waitingTask: Task, availableStationId: string): Promise<void> {
-    this.logger.log(`Processing waiting location task ${waitingTask.task_id} assignment to station ${availableStationId}`);
-    
-    // Get remaining requirements to determine if this is the last station
-    const remainingRequirements = await this.getRemainingProductRequirements(
-      waitingTask.product_id,
-      waitingTask.batch_id
-    );
-
-    const nextSequenceOrder = waitingTask.sequence_order + 1;
-
-    // Create task from waiting location to station
-    const taskId = await this.createTask({
-      batchId: waitingTask.batch_id,
-      productId: waitingTask.product_id,
-      sourceWaitingLocationId: waitingTask.end_location.location_id,
-      destinationStationId: availableStationId,
-      quantity: waitingTask.quantity,
-      taskType: TaskType.GOODS_TO_PERSON,
-      sequenceOrder: nextSequenceOrder,
-      taskDependency: waitingTask.task_id
-    });
-
-    // Get the created task and send to WMS
-    const newTask = await this.taskRepository.findOne({
-      where: { task_id: taskId }
-    });
-
-    if (newTask) {
-      await this.sendSingleTaskToWms(newTask);
-    }
-
-    // Remove the fulfilled requirement
-    await this.removeProductRequirement(waitingTask.product_id, availableStationId);
-
-    this.logger.log(`Created task ${taskId}: waiting location ${waitingTask.end_location.location_id} → station ${availableStationId} (task sent to WMS)`);
   }
 
   private async removeProductRequirement(productId: string, stationId: string): Promise<void> {
@@ -1034,5 +1046,169 @@ export class OrchestratorService {
       where: { station_id: stationId },
       order: { product_id: 'ASC' }
     });
+  }
+
+  // Method to be called from webhook when a task completes at waiting location (requirement 2)
+  async handleWaitingLocationTaskCompletion(completedTask: Task): Promise<void> {
+    // Safety check: Only process completion for tasks that are actually COMPLETED
+    if (completedTask.status !== TaskStatus.COMPLETED) {
+      this.logger.warn(`Waiting location task ${completedTask.task_id} completion handler called but task status is ${completedTask.status} - skipping`);
+      return;
+    }
+
+    this.logger.log(`Handling waiting location task completion for task ${completedTask.task_id} - webhook signaled COMPLETED`);
+    
+    try {
+      // Get remaining product requirements for this product
+      const remainingRequirements = await this.getRemainingProductRequirements(
+        completedTask.product_id,
+        completedTask.batch_id
+      );
+
+      if (remainingRequirements.length === 0) {
+        // No more stations to visit - create task back to inventory
+        await this.createReturnToInventoryTask(completedTask);
+        
+        // Check if batch is completed
+        await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
+        return;
+      }
+
+    // Check available stations in priority order
+    let availableStation: Station | null = null;
+    
+    for (const requirement of remainingRequirements) {
+      const station = await this.stationRepository.findOne({
+        where: { station_id: requirement.station_id }
+      });
+
+      if (station && station.status === LocationStatus.AVAILABLE) {
+        availableStation = station;
+        break; // Take first available station in priority order
+      }
+    }
+
+    const nextSequenceOrder = completedTask.sequence_order + 1;
+
+    if (availableStation) {
+      // Station is available - reserve it and create task
+      await this.stationRepository.update(
+        { station_id: availableStation.station_id },
+        { 
+          status: LocationStatus.RESERVED,
+          holded_by: null // Will be set after task creation
+        }
+      );
+
+      // Create task from waiting location to station
+      const taskId = await this.createTask({
+        batchId: completedTask.batch_id,
+        productId: completedTask.product_id,
+        sourceWaitingLocationId: completedTask.end_location.location_id,
+        destinationStationId: availableStation.station_id,
+        quantity: completedTask.quantity,
+        taskType: TaskType.GOODS_TO_PERSON,
+        sequenceOrder: nextSequenceOrder,
+        taskDependency: completedTask.task_id
+      });
+
+      // Get the created task and send to WMS
+      const newTask = await this.taskRepository.findOne({
+        where: { task_id: taskId }
+      });
+
+      if (newTask) {
+        // Update station to be held by this task
+        await this.stationRepository.update(
+          { station_id: availableStation.station_id },
+          { holded_by: newTask.task_id }
+        );
+
+        // Send task to WMS
+        await this.sendSingleTaskToWms(newTask);
+      }
+
+      // Remove the fulfilled requirement
+      await this.removeProductRequirement(completedTask.product_id, availableStation.station_id);
+
+      this.logger.log(`Created task ${taskId}: waiting location ${completedTask.end_location.location_id} → station ${availableStation.station_id} (station reserved and task sent to WMS)`);
+    } else {
+      // No station available - create task to first required station and add station request
+      const firstRequiredStation = remainingRequirements[0];
+      
+      // Create task from waiting location to first required station (as placeholder)
+      const taskId = await this.createTask({
+        batchId: completedTask.batch_id,
+        productId: completedTask.product_id,
+        sourceWaitingLocationId: completedTask.end_location.location_id,
+        destinationStationId: firstRequiredStation.station_id,
+        quantity: completedTask.quantity,
+        taskType: TaskType.GOODS_TO_PERSON,
+        sequenceOrder: nextSequenceOrder,
+        taskDependency: completedTask.task_id
+      });
+
+      // Get the created task and add station request (DO NOT send to WMS yet)
+      const newTask = await this.taskRepository.findOne({
+        where: { task_id: taskId }
+      });
+
+      if (newTask) {
+        await this.addStationRequest(newTask, firstRequiredStation.station_id);
+        this.logger.log(`Created task ${taskId}: waiting location ${completedTask.end_location.location_id} → station ${firstRequiredStation.station_id} (station request added, will send to WMS when station becomes available)`);
+      }
+    }
+
+    this.logger.log(`Waiting location task ${completedTask.task_id} processing completed - COMPLETED remains as final state`);
+
+    // Check if batch is completed
+    await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
+    } catch (error) {
+      this.logger.error(`Error processing waiting location task completion for ${completedTask.task_id}:`, error.message);
+      throw error;
+    }
+  }
+
+  // Check if batch is completed and update batch status
+  private async checkAndUpdateBatchCompletion(batchId: string): Promise<void> {
+    try {
+      // Get all tasks in the batch
+      const allTasks = await this.taskRepository.find({
+        where: { batch_id: batchId }
+      });
+
+      if (allTasks.length === 0) {
+        return;
+      }
+
+      // Check if all tasks are completed (COMPLETED or TRIGGERED count as finished)
+      const allCompleted = allTasks.every(task => 
+        task.status === TaskStatus.COMPLETED || task.status === TaskStatus.TRIGERRED
+      );
+      
+      if (allCompleted) {
+        // Update batch status to completed
+        await this.batchRepository.update(
+          { batch_id: batchId },
+          { 
+            status: BatchStatus.COMPLETED,
+            completed_tasks: allTasks.length
+          }
+        );
+        
+        this.logger.log(`✅ Batch ${batchId} marked as COMPLETED - all ${allTasks.length} tasks finished!`);
+      } else {
+        // Update completed_tasks count (both COMPLETED and TRIGGERED count)
+        const completedCount = allTasks.filter(task => 
+          task.status === TaskStatus.COMPLETED || task.status === TaskStatus.TRIGERRED
+        ).length;
+        await this.batchRepository.update(
+          { batch_id: batchId },
+          { completed_tasks: completedCount }
+        );
+      }
+    } catch (error) {
+      this.logger.error(`Error checking batch completion for ${batchId}:`, error.message);
+    }
   }
 }

@@ -85,64 +85,6 @@ export class TriggerService {
     };
   }
 
-  async triggerWaitingLocationAction(waitingLocationId: string) {
-    // Find the waiting location
-    const waitingLocation = await this.waitingLocationRepository.findOne({
-      where: { location_id: waitingLocationId },
-    });
-
-    if (!waitingLocation) {
-      throw new NotFoundException(`Waiting location with ID ${waitingLocationId} not found`);
-    }
-
-    // Check if waiting location is OCCUPIED
-    if (waitingLocation.status !== WaitingLocationStatus.OCCUPIED) {
-      if (waitingLocation.status === WaitingLocationStatus.RESERVED) {
-        throw new ConflictException(`Can't trigger now - waiting location ${waitingLocationId} is reserved`);
-      }
-      throw new ConflictException(`Can't trigger - waiting location ${waitingLocationId} is not occupied (current status: ${waitingLocation.status})`);
-    }
-
-    // Find the task that is holding this waiting location
-    if (!waitingLocation.holded_by) {
-      throw new NotFoundException(`No task is currently holding waiting location ${waitingLocationId}`);
-    }
-
-    const currentTask = await this.taskRepository.findOne({
-      where: { task_id: waitingLocation.holded_by },
-    });
-
-    if (!currentTask) {
-      throw new NotFoundException(`No task found holding waiting location ${waitingLocationId}`);
-    }
-
-    // Update task status to TRIGGERED
-    await this.taskRepository.update(
-      { task_id: currentTask.task_id },
-      { status: TaskStatus.TRIGERRED }
-    );
-
-    // Process station requests for this waiting task
-    await this.processWaitingLocationStationRequests(currentTask);
-
-    return {
-      message: `Waiting location ${waitingLocationId} triggered successfully`,
-      triggered_task: {
-        task_id: currentTask.task_id,
-        batch_id: currentTask.batch_id,
-        product_id: currentTask.product_id,
-        previous_status: 'COMPLETED',
-        new_status: 'TRIGGERED',
-      },
-      waiting_location: {
-        location_id: waitingLocationId,
-        status: waitingLocation.status,
-        holded_by: waitingLocation.holded_by,
-      },
-      timestamp: new Date(),
-    };
-  }
-
   private async processNextTask(completedTask: Task): Promise<void> {
     try {
       // Check if the completed task was at a station and handle station workflow
@@ -187,48 +129,6 @@ export class TriggerService {
       }
     } catch (error) {
       console.error(`Error processing next task for ${completedTask.task_id}:`, error.message);
-    }
-  }
-
-  private async processWaitingLocationStationRequests(waitingTask: Task): Promise<void> {
-    // Get station requests for this task
-    const stationRequests = await this.stationRequestRepository.find({
-      where: { task_id: waitingTask.task_id },
-      order: { created_at: 'ASC' }
-    });
-
-    if (stationRequests.length === 0) {
-      console.log(`No station requests found for waiting task ${waitingTask.task_id}`);
-      return;
-    }
-
-    // Process each station request to see if any station is now available
-    for (const request of stationRequests) {
-      const station = await this.stationRepository.findOne({
-        where: { station_id: request.station_id }
-      });
-
-      if (station && station.status === LocationStatus.AVAILABLE) {
-        // Station is available - create task from waiting location to station
-        console.log(`Station ${station.station_id} is available for waiting task ${waitingTask.task_id}`);
-        
-        // Reserve the station
-        await this.stationRepository.update(
-          { station_id: station.station_id },
-          { 
-            status: LocationStatus.RESERVED,
-            holded_by: null // Will be set by the new task
-          }
-        );
-
-        // Remove the station request
-        await this.stationRequestRepository.remove(request);
-
-        // Create task from waiting location to station
-        await this.orchestratorService.processWaitingLocationToStation(waitingTask, station.station_id);
-        
-        break; // Only process one station at a time
-      }
     }
   }
 
