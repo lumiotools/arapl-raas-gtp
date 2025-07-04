@@ -164,4 +164,61 @@ export class TriggerController {
       );
     }
   }
+
+  @Post('waiting-location/:location_id')
+  @ApiOperation({
+    summary: 'Trigger waiting location action',
+    description: 'Triggers completion of current task at waiting location and processes station requests. Location must be OCCUPIED.',
+  })
+  @ApiParam({
+    name: 'location_id',
+    description: 'The ID of the waiting location to trigger',
+    example: 'WL001',
+  })
+  @ApiOkResponse({
+    description: 'Waiting location triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        data: {
+          type: 'object',
+          properties: {
+            message: { type: 'string', example: 'Waiting location WL001 triggered successfully' },
+            triggered_task: { type: 'object' },
+            waiting_location: { type: 'object' },
+            timestamp: { type: 'string' },
+          },
+        },
+        message: { type: 'string', example: 'Waiting location WL001 triggered successfully' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid location ID format',
+  })
+  @ApiNotFoundResponse({
+    description: 'Waiting location not found or no task holding the location',
+  })
+  @ApiConflictResponse({
+    description: 'Cannot trigger - waiting location not occupied or currently reserved',
+  })
+  async triggerWaitingLocation(@Param('location_id') locationId: string) {
+    try {
+      const result = await this.triggerService.triggerWaitingLocationAction(locationId);
+      return {
+        success: true,
+        data: result,
+        message: result.message,
+      };
+    } catch (error) {
+      if (error.name === 'NotFoundException') {
+        throw new HttpException(error.message, HttpStatus.NOT_FOUND);
+      } else if (error.name === 'ConflictException') {
+        throw new HttpException(error.message, HttpStatus.CONFLICT);
+      } else {
+        throw new HttpException('Internal server error', HttpStatus.INTERNAL_SERVER_ERROR);
+      }
+    }
+  }
 }

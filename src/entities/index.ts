@@ -1,5 +1,6 @@
 export { Product } from './product.entity';
 export { Station } from './station.entity';
+export { WaitingLocation, WaitingLocationStatus } from './waiting-location.entity';
 export { GtpLocation, GtpLocationStatus } from './gtp-location.entity';
 export { Order, OrderStatus } from './order.entity';
 export { OrderItem, OrderItemStatus } from './order-item.entity';
@@ -10,3 +11,4 @@ export { Location, LocationType, LocationAction, LocationDimension, LocationAttr
 export { Wait, WaitType, WaitStatus, FallbackAction } from './wait.entity';
 export { Cargo, CargoDimension, CargoAttribute } from './cargo.entity';
 export { StationRequest } from './station-request.entity';
+export { ProductRequirement } from './product-requirement.entity';

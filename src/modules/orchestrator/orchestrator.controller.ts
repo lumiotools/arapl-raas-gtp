@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Param, HttpStatus, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { OrchestratorService } from './orchestrator.service';
 import { BatchResponseDto } from './dto/batch-response.dto';
@@ -63,5 +63,81 @@ export class OrchestratorController {
       return { message: 'Batch not found' };
     }
     return batch;
+  }
+
+  @Get('product-requirements')
+  @ApiOperation({
+    summary: 'Get all product requirements',
+    description: 'Retrieve all product requirements stored in the database.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'List of all product requirements',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'number' },
+          product_id: { type: 'string' },
+          station_id: { type: 'string' },
+          requirement: { type: 'number' },
+          created_at: { type: 'string' },
+          updated_at: { type: 'string' },
+        }
+      }
+    }
+  })
+  async getAllProductRequirements() {
+    return await this.orchestratorService.getAllProductRequirements();
+  }
+
+  @Get('product-requirements/product/:productId')
+  @ApiOperation({
+    summary: 'Get product requirements by product ID',
+    description: 'Retrieve all station requirements for a specific product.',
+  })
+  @ApiParam({ name: 'productId', description: 'Product ID', example: 'P001' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Product requirements for the specified product',
+  })
+  async getProductRequirementsByProductId(@Param('productId') productId: string) {
+    return await this.orchestratorService.getProductRequirementsByProductId(productId);
+  }
+
+  @Get('product-requirements/station/:stationId')
+  @ApiOperation({
+    summary: 'Get product requirements by station ID',
+    description: 'Retrieve all product requirements for a specific station.',
+  })
+  @ApiParam({ name: 'stationId', description: 'Station ID', example: 'ST001' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Product requirements for the specified station',
+  })
+  async getProductRequirementsByStationId(@Param('stationId') stationId: string) {
+    return await this.orchestratorService.getProductRequirementsByStationId(stationId);
+  }
+
+  @Get('waiting-locations')
+  @ApiOperation({ summary: 'Get all waiting locations' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'List of all waiting locations' })
+  async getAllWaitingLocations() {
+    return await this.orchestratorService.getAllWaitingLocations();
+  }
+
+  @Get('waiting-locations/:location_id')
+  @ApiOperation({ summary: 'Get waiting location by ID' })
+  @ApiParam({ name: 'location_id', description: 'Waiting location ID' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Waiting location details' })
+  async getWaitingLocationById(@Param('location_id') locationId: string) {
+    const waitingLocation = await this.orchestratorService.getWaitingLocationById(locationId);
+
+    if (!waitingLocation) {
+      throw new NotFoundException(`Waiting location ${locationId} not found`);
+    }
+
+    return waitingLocation;
   }
 }

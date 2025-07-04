@@ -5,6 +5,7 @@ import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Task, TaskStatus } from 'src/entities/task.entity';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Station, LocationStatus } from 'src/entities/station.entity';
+import { WaitingLocation, WaitingLocationStatus } from 'src/entities/waiting-location.entity';
 import { WebhookRequestDto } from './dto/webhook-request.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 
@@ -21,6 +22,8 @@ export class WebhookService {
     private readonly inventoryRepository: Repository<Inventory>,
     @InjectRepository(Station)
     private readonly stationRepository: Repository<Station>,
+    @InjectRepository(WaitingLocation)
+    private readonly waitingLocationRepository: Repository<WaitingLocation>,
     private readonly orchestratorService: OrchestratorService,
   ) {}
 
@@ -95,9 +98,9 @@ export class WebhookService {
     await this.handleStationUpdates(task, oldStatus, mappedStatus);
     
     // Note: Next task scheduling is now handled by trigger API, not webhook completion
-    // if (mappedStatus === TaskStatus.COMPLETED) {
-    //   await this.handleTaskCompletion(task);
-    // }
+    if (task.end_location?.location_attribute.attribute_value=='waiting_location' && mappedStatus === TaskStatus.COMPLETED) {
+      await this.handleTaskCompletion(task);
+    }
   }
 
   private mapBatchStatus(webhookStatus: string): BatchStatus {
@@ -221,42 +224,84 @@ export class WebhookService {
 
   private async handleStationUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus): Promise<void> {
     try {
-      // When task status becomes PROCESSING and source location is station - mark station as AVAILABLE
-      if (newStatus === TaskStatus.PROCESSING && 
-          task.start_location?.location_attribute?.attribute_value === 'station') {
-        
-        const stationId = task.start_location.location_id;
-        this.logger.log(`Marking station ${stationId} as AVAILABLE and clearing holded_by (task ${task.task_id} processing)`);
-        
-        await this.stationRepository.update(
-          { station_id: stationId },
-          { 
-            status: LocationStatus.AVAILABLE,
-            holded_by: null
-          }
-        );
-
-        // Process any pending requests for this station
-        await this.orchestratorService.processStationRequests(stationId);
-      }
-
-      // When task status becomes COMPLETED and destination is station - mark station as OCCUPIED
-      if (newStatus === TaskStatus.COMPLETED && 
-          task.end_location?.location_attribute?.attribute_value === 'station') {
-        
-        const stationId = task.end_location.location_id;
-        this.logger.log(`Marking station ${stationId} as OCCUPIED (task ${task.task_id} completed)`);
-        
-        await this.stationRepository.update(
-          { station_id: stationId },
-          { 
-            status: LocationStatus.OCCUPIED,
-            holded_by: task.task_id
-          }
-        );
-      }
+      // Handle station updates
+      await this.handleStationStatusUpdates(task, newStatus);
+      
+      // Handle waiting location updates
+      await this.handleWaitingLocationStatusUpdates(task, newStatus);
     } catch (error) {
-      this.logger.error(`Error handling station updates for task ${task.task_id}:`, error.message);
+      this.logger.error(`Error handling location updates for task ${task.task_id}:`, error.message);
+    }
+  }
+
+  private async handleStationStatusUpdates(task: Task, newStatus: TaskStatus): Promise<void> {
+    // When task status becomes PROCESSING and source location is station - mark station as AVAILABLE
+    if (newStatus === TaskStatus.PROCESSING && 
+        task.start_location?.location_attribute?.attribute_value === 'station') {
+      
+      const stationId = task.start_location.location_id;
+      this.logger.log(`Marking station ${stationId} as AVAILABLE and clearing holded_by (task ${task.task_id} processing)`);
+      
+      await this.stationRepository.update(
+        { station_id: stationId },
+        { 
+          status: LocationStatus.AVAILABLE,
+          holded_by: null
+        }
+      );
+
+      // Process any pending requests for this station
+      await this.orchestratorService.processStationRequests(stationId);
+    }
+
+    // When task status becomes COMPLETED and destination is station - mark station as OCCUPIED
+    if (newStatus === TaskStatus.COMPLETED && 
+        task.end_location?.location_attribute?.attribute_value === 'station') {
+      
+      const stationId = task.end_location.location_id;
+      this.logger.log(`Marking station ${stationId} as OCCUPIED (task ${task.task_id} completed)`);
+      
+      await this.stationRepository.update(
+        { station_id: stationId },
+        { 
+          status: LocationStatus.OCCUPIED,
+          holded_by: task.task_id
+        }
+      );
+    }
+  }
+
+  private async handleWaitingLocationStatusUpdates(task: Task, newStatus: TaskStatus): Promise<void> {
+    // When task status becomes PROCESSING and source location is waiting_location - mark waiting location as AVAILABLE
+    if (newStatus === TaskStatus.PROCESSING && 
+        task.start_location?.location_attribute?.attribute_value === 'waiting_location') {
+      
+      const waitingLocationId = task.start_location.location_id;
+      this.logger.log(`Marking waiting location ${waitingLocationId} as AVAILABLE and clearing holded_by (task ${task.task_id} processing)`);
+      
+      await this.waitingLocationRepository.update(
+        { location_id: waitingLocationId },
+        { 
+          status: WaitingLocationStatus.AVAILABLE,
+          holded_by: null
+        }
+      );
+    }
+
+    // When task status becomes COMPLETED and destination is waiting_location - mark waiting location as OCCUPIED
+    if (newStatus === TaskStatus.COMPLETED && 
+        task.end_location?.location_attribute?.attribute_value === 'waiting_location') {
+      
+      const waitingLocationId = task.end_location.location_id;
+      this.logger.log(`Marking waiting location ${waitingLocationId} as OCCUPIED (task ${task.task_id} completed)`);
+      
+      await this.waitingLocationRepository.update(
+        { location_id: waitingLocationId },
+        { 
+          status: WaitingLocationStatus.OCCUPIED,
+          holded_by: task.task_id
+        }
+      );
     }
   }
 

@@ -8,8 +8,10 @@ import { Task } from 'src/entities/task.entity';
 import { Batch } from 'src/entities/batch.entity';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Station } from 'src/entities/station.entity';
+import { WaitingLocation } from 'src/entities/waiting-location.entity';
 import { GtpLocation } from 'src/entities/gtp-location.entity';
 import { StationRequest } from 'src/entities/station-request.entity';
+import { ProductRequirement } from 'src/entities/product-requirement.entity';
 import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
@@ -20,8 +22,10 @@ import { InventoryModule } from '../inventory/inventory.module';
       Batch,
       Inventory,
       Station,
+      WaitingLocation,
       GtpLocation,
       StationRequest,
+      ProductRequirement,
     ]),
     HttpModule,
     InventoryModule,
