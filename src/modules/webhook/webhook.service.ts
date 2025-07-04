@@ -226,11 +226,14 @@ export class WebhookService {
           task.start_location?.location_attribute?.attribute_value === 'station') {
         
         const stationId = task.start_location.location_id;
-        this.logger.log(`Marking station ${stationId} as AVAILABLE (task ${task.task_id} processing)`);
+        this.logger.log(`Marking station ${stationId} as AVAILABLE and clearing holded_by (task ${task.task_id} processing)`);
         
         await this.stationRepository.update(
           { station_id: stationId },
-          { status: LocationStatus.AVAILABLE }
+          { 
+            status: LocationStatus.AVAILABLE,
+            holded_by: null
+          }
         );
 
         // Process any pending requests for this station
@@ -310,7 +313,10 @@ export class WebhookService {
       
       await this.stationRepository.update(
         { station_id: stationId },
-        { status: LocationStatus.RESERVED }
+        { 
+          status: LocationStatus.RESERVED,
+          holded_by: nextTask.task_id
+        }
       );
 
       await this.orchestratorService.sendSingleTaskToWms(nextTask);

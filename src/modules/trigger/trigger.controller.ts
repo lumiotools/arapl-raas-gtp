@@ -1,0 +1,137 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  HttpStatus,
+  HttpException,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiParam,
+  ApiOkResponse,
+  ApiBadRequestResponse,
+  ApiNotFoundResponse,
+} from '@nestjs/swagger';
+import { TriggerService } from './trigger.service';
+
+@ApiTags('Trigger')
+@Controller('trigger')
+export class TriggerController {
+  constructor(private readonly triggerService: TriggerService) {}
+
+  @Post(':station_id')
+  @ApiOperation({
+    summary: 'Trigger station action',
+    description: 'Triggers an action for a specific station using station ID',
+  })
+  @ApiParam({
+    name: 'station_id',
+    description: 'The ID of the station to trigger',
+    example: 'ST001',
+  })
+  @ApiOkResponse({
+    description: 'Station triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        data: { type: 'object' },
+        message: { type: 'string', example: 'Station ST001 triggered successfully' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Failed to trigger station',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: false },
+        message: { type: 'string', example: 'Failed to trigger station' },
+        error: { type: 'string' },
+      },
+    },
+  })
+  async triggerStation(
+    @Param('station_id') stationId: string,
+  ) {
+    try {
+      const result = await this.triggerService.triggerStationAction(stationId);
+      return {
+        success: true,
+        data: result,
+        message: `Station ${stationId} triggered successfully`,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to trigger station',
+          error: error.message,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Get(':station_id/status')
+  @ApiOperation({
+    summary: 'Get station status',
+    description: 'Retrieves the current status of a specific station',
+  })
+  @ApiParam({
+    name: 'station_id',
+    description: 'The ID of the station to get status for',
+    example: 'ST001',
+  })
+  @ApiOkResponse({
+    description: 'Station status retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        data: {
+          type: 'object',
+          properties: {
+            station_id: { type: 'string', example: 'ST001' },
+            status: { type: 'string', example: 'AVAILABLE' },
+            is_active: { type: 'boolean', example: true },
+            priority: { type: 'number', example: 1 },
+          },
+        },
+        message: { type: 'string', example: 'Status retrieved for station ST001' },
+      },
+    },
+  })
+  @ApiNotFoundResponse({
+    description: 'Station not found or failed to get status',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: false },
+        message: { type: 'string', example: 'Failed to get station status' },
+        error: { type: 'string' },
+      },
+    },
+  })
+  async getStationStatus(@Param('station_id') stationId: string) {
+    try {
+      const status = await this.triggerService.getStationStatus(stationId);
+      return {
+        success: true,
+        data: status,
+        message: `Status retrieved for station ${stationId}`,
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: error.message || 'Failed to get station status',
+          error: error.message,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+  }
+}

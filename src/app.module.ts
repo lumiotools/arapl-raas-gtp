@@ -10,6 +10,7 @@ import { ProductsModule } from './modules/products/products.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
+import { TriggerModule } from './modules/trigger/trigger.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { WebhookModule } from './modules/webhook/webhook.module';
     InventoryModule,
     OrchestratorModule,
     WebhookModule,
+    TriggerModule,
   ],
   controllers: [],
   providers: [],

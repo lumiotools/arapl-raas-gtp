@@ -554,10 +554,13 @@ export class OrchestratorService {
   private async reserveStationAndSendTask(task: Task, station: Station): Promise<void> {
     this.logger.log(`Reserving station ${station.station_id} for task ${task.task_id}`);
     
-    // Mark station as reserved
+    // Mark station as reserved and set holded_by to task ID
     await this.stationRepository.update(
       { station_id: station.station_id },
-      { status: LocationStatus.RESERVED }
+      { 
+        status: LocationStatus.RESERVED,
+        holded_by: task.task_id
+      }
     );
 
     // Send single task to WMS
@@ -604,12 +607,12 @@ export class OrchestratorService {
       };
 
       this.logger.log(`Sending single task ${task.task_id} to WMS API`);
-      console.log('=== WMS API Single Task Request ===');
-      console.log('URL: http://localhost:3000/robot-job/cli/tasks');
-      console.log('Method: POST');
-      console.log('Headers: { authorization: "operator_key" }');
-      console.log('Body:', JSON.stringify(requestBody, null, 2));
-      console.log('===================================');
+      // console.log('=== WMS API Single Task Request ===');
+      // console.log('URL: http://localhost:3000/robot-job/cli/tasks');
+      // console.log('Method: POST');
+      // console.log('Headers: { authorization: "operator_key" }');
+      // console.log('Body:', JSON.stringify(requestBody, null, 2));
+      // console.log('===================================');
 
       const response = await firstValueFrom(
         this.httpService.post('http://localhost:3000/robot-job/cli/tasks', requestBody, {
@@ -671,6 +674,8 @@ export class OrchestratorService {
         await this.reserveStationAndSendTask(oldestRequest.task, station);
       } else {
         this.logger.warn(`Station ${stationId} is no longer available when processing request for task ${oldestRequest.task.task_id}`);
+        // Also add back to queue if station was expected to be available but isn't
+        await this.addStationRequest(oldestRequest.task, stationId);
       }
     }
   }
