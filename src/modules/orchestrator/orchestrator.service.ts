@@ -566,6 +566,14 @@ export class OrchestratorService {
 
   public async addStationRequest(task: Task, stationId: string): Promise<void> {
     this.logger.log(`Adding station request for task ${task.task_id}, station ${stationId}`);
+    const existingRequest = await this.stationRequestRepository.findOne({
+      where: { task_id: task.task_id, station_id: stationId }
+    });
+
+    if (existingRequest) {
+      this.logger.warn(`Station request already exists for task ${task.task_id} and station ${stationId}`);
+      return;
+    }
     
     const stationRequest = this.stationRequestRepository.create({
       task_id: task.task_id,
@@ -576,6 +584,12 @@ export class OrchestratorService {
   }
 
   public async sendSingleTaskToWms(task: Task): Promise<void> {
+    // Safety check: Only send tasks that are in PENDING status
+    if (task.status !== TaskStatus.PENDING) {
+      this.logger.warn(`Task ${task.task_id} is not in PENDING status (current: ${task.status}) - skipping WMS send`);
+      return;
+    }
+
     try {
       const requestBody = {
         tasks: [{
@@ -606,7 +620,13 @@ export class OrchestratorService {
         })
       );
 
-      this.logger.log(`Successfully sent task ${task.task_id} to WMS API layer`);
+      // Mark task as sent to prevent duplicate sending
+      await this.taskRepository.update(
+        { task_id: task.task_id },
+        { status: TaskStatus.ASSIGNED }
+      );
+
+      this.logger.log(`Successfully sent task ${task.task_id} to WMS API layer and marked as ASSIGNED`);
       
     } catch (error) {
       this.logger.error(`Failed to send task ${task.task_id} to WMS API layer:`, error.message);
@@ -629,6 +649,16 @@ export class OrchestratorService {
     });
 
     if (oldestRequest) {
+      // Safety check: Only process if task is still PENDING
+      if (oldestRequest.task.status !== TaskStatus.PENDING) {
+        this.logger.warn(`Task ${oldestRequest.task.task_id} in station request is not PENDING (current: ${oldestRequest.task.status}) - removing request`);
+        await this.stationRequestRepository.remove(oldestRequest);
+        
+        // Try to process next request recursively
+        await this.processStationRequests(stationId);
+        return;
+      }
+
       // Remove the request from queue
       await this.stationRequestRepository.remove(oldestRequest);
       
@@ -639,6 +669,8 @@ export class OrchestratorService {
 
       if (station && station.status === LocationStatus.AVAILABLE) {
         await this.reserveStationAndSendTask(oldestRequest.task, station);
+      } else {
+        this.logger.warn(`Station ${stationId} is no longer available when processing request for task ${oldestRequest.task.task_id}`);
       }
     }
   }

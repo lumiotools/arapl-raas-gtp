@@ -243,6 +243,12 @@ export class WebhookService {
 
   private async handleTaskCompletion(completedTask: Task): Promise<void> {
     try {
+      // Safety check: Only process completion for tasks that are actually COMPLETED
+      if (completedTask.status !== TaskStatus.COMPLETED) {
+        this.logger.warn(`Task ${completedTask.task_id} completion handler called but task status is ${completedTask.status} - skipping`);
+        return;
+      }
+
       this.logger.log(`Handling completion of task ${completedTask.task_id} in batch ${completedTask.batch_id}`);
       
       // Find the next sequence task in the same batch
@@ -267,6 +273,12 @@ export class WebhookService {
   }
 
   private async processNextTask(nextTask: Task): Promise<void> {
+    // Safety check: Only process tasks that are in PENDING status
+    if (nextTask.status !== TaskStatus.PENDING) {
+      this.logger.warn(`Next task ${nextTask.task_id} is not in PENDING status (current: ${nextTask.status}) - skipping processing`);
+      return;
+    }
+
     const destinationLocation = nextTask.end_location;
     
     if (destinationLocation?.location_attribute?.attribute_value === 'inventory') {
