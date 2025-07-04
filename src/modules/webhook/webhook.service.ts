@@ -30,7 +30,7 @@ export class WebhookService {
     
     try {
       // Update batch status
-      await this.updateBatchStatus(webhookData.batch_job_id, webhookData.batch_job_status);
+      // await this.updateBatchStatus(webhookData.batch_job_id, webhookData.batch_job_status);
 
       // Update individual task statuses
       for (const taskStatus of webhookData.tasks_status) {

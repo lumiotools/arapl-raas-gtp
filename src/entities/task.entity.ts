@@ -30,6 +30,7 @@ export enum TaskStatus {
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
   FAILED = 'FAILED',
+  TRIGERRED = 'TRIGGERED',
 }
 
 @Entity('tasks')
