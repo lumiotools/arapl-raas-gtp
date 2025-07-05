@@ -83,6 +83,11 @@ export class WebhookService {
 
     const oldStatus = task.status;
     const mappedStatus = this.mapTaskStatus(taskStatusData.status);
+
+    if (oldStatus === mappedStatus) {
+      this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
+      return; // No change needed
+    }
     
     this.logger.log(`🔄 Updating task ${taskStatusData.task_id} status from ${oldStatus} to ${mappedStatus} (webhook status: "${taskStatusData.status}")`);
     

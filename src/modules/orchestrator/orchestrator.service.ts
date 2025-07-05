@@ -792,6 +792,27 @@ export class OrchestratorService {
         return;
       }
 
+      // ADDITIONAL SAFETY: Check if there's already a next task with this task as dependency
+      // This prevents processing station requests for tasks that already had their next task created
+      if (task.task_dependency) {
+        const siblingTask = await queryRunner.manager
+          .createQueryBuilder(Task, 'task')
+          .where('task.task_dependency = :taskDependency', { taskDependency: task.task_dependency })
+          .andWhere('task.batch_id = :batchId', { batchId: task.batch_id })
+          .andWhere('task.task_id != :taskId', { taskId: task.task_id })
+          .getOne();
+
+        if (siblingTask) {
+          this.logger.warn(`⚠️  Another task ${siblingTask.task_id} already exists with same dependency ${task.task_dependency} - removing duplicate station request for task ${task.task_id}`);
+          await queryRunner.manager.remove(oldestRequest);
+          await queryRunner.commitTransaction();
+          
+          // Try to process next request recursively
+          await this.processStationRequests(stationId);
+          return;
+        }
+      }
+
       // Get the station and ensure it's still available with lock
       const station = await queryRunner.manager.findOne(Station, {
         where: { station_id: stationId },
@@ -846,6 +867,23 @@ export class OrchestratorService {
     this.logger.log(`Handling task completion for task ${completedTask.task_id} at station - TRIGGERED is the final state`);
     
     try {
+      // DUPLICATE PREVENTION: Check if a next task already exists with this task as dependency
+      const existingNextTask = await this.taskRepository.findOne({
+        where: { 
+          task_dependency: completedTask.task_id,
+          batch_id: completedTask.batch_id
+        }
+      });
+
+      if (existingNextTask) {
+        this.logger.warn(`⚠️  Next task ${existingNextTask.task_id} already exists with dependency on completed task ${completedTask.task_id} - skipping duplicate creation`);
+        // Still remove product requirement and check batch completion
+        const currentStationId = completedTask.end_location.location_id;
+        await this.removeProductRequirement(completedTask.product_id, currentStationId);
+        await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
+        return;
+      }
+
       // Calculate remaining quantity after dropping required amount at current station
       const remainingQuantity = await this.calculateRemainingQuantityAfterDrop(completedTask);
       
@@ -1207,6 +1245,21 @@ export class OrchestratorService {
     this.logger.log(`Handling waiting location task completion for task ${completedTask.task_id} - webhook signaled COMPLETED`);
     
     try {
+      // DUPLICATE PREVENTION: Check if a next task already exists with this task as dependency
+      const existingNextTask = await this.taskRepository.findOne({
+        where: { 
+          task_dependency: completedTask.task_id,
+          batch_id: completedTask.batch_id
+        }
+      });
+
+      if (existingNextTask) {
+        this.logger.warn(`⚠️  Next task ${existingNextTask.task_id} already exists with dependency on completed task ${completedTask.task_id} - skipping duplicate creation`);
+        // Check if batch is completed and exit
+        await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
+        return;
+      }
+
       // Get remaining product requirements for this product
       const remainingRequirements = await this.getRemainingProductRequirements(
         completedTask.product_id,
@@ -1282,7 +1335,7 @@ export class OrchestratorService {
 
       // Note: Product requirement will be removed when task completes at station
 
-      this.logger.log(`Created task ${taskId}: waiting location ${completedTask.end_location.location_id} → station ${availableStation.station_id} (station reserved and task sent to WMS)`);
+      this.logger.log(`✅ Created task ${taskId}: waiting location ${completedTask.end_location.location_id} → station ${availableStation.station_id} (station reserved and task sent to WMS)`);
     } else {
       // No station available - create task to first required station and add station request
       const firstRequiredStation = remainingRequirements[0];
@@ -1309,7 +1362,7 @@ export class OrchestratorService {
 
       if (newTask) {
         await this.addStationRequest(newTask, firstRequiredStation.station_id);
-        this.logger.log(`Created task ${taskId}: waiting location ${completedTask.end_location.location_id} → station ${firstRequiredStation.station_id} (station request added, will send to WMS when station becomes available)`);
+        this.logger.log(`✅ Created task ${taskId}: waiting location ${completedTask.end_location.location_id} → station ${firstRequiredStation.station_id} (station request added, will send to WMS when station becomes available)`);
       }
     }
 
