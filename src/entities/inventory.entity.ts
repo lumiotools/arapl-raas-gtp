@@ -22,6 +22,12 @@ export class Inventory {
   @Column({ type: 'int', default: 0 })
   quantity: number;
 
+  @Column({ type: 'int', default: 0 })
+  quantity_in_system: number;
+
+  @Column({ type: 'boolean', default: 0 })
+  isProcessing: boolean;
+
   @Column({
     type: 'enum',
     enum: LocationStatus,
