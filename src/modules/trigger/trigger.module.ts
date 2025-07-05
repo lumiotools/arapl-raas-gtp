@@ -7,10 +7,11 @@ import { WaitingLocation } from '../../entities/waiting-location.entity';
 import { Task } from '../../entities/task.entity';
 import { StationRequest } from '../../entities/station-request.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
+import { Inventory } from 'src/entities';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Station, WaitingLocation, Task, StationRequest]),
+    TypeOrmModule.forFeature([Station, WaitingLocation, Task, StationRequest, Inventory]),
     OrchestratorModule,
   ],
   controllers: [TriggerController],
