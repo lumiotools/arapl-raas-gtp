@@ -24,8 +24,7 @@ export class OrchestratorController {
     }
   })
   async triggerOrchestrator() {
-    await this.orchestratorService.triggerOrchestrator();
-    return { message: 'Orchestrator process triggered successfully' };
+    return await this.orchestratorService.triggerOrchestrator();
   }
 
   @Get('batches')

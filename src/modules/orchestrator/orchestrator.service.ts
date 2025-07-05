@@ -72,6 +72,7 @@ export class OrchestratorService {
     private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
+    private orchestratorWorking : boolean = false,
   ) {}
 
   async processAssignedOrderItems() {
@@ -83,7 +84,7 @@ export class OrchestratorService {
       
       if (assignedItems.length === 0) {
         this.logger.log('No assigned order items found');
-        return;
+        return { message: 'No assigned order items found' };
       }
 
       this.logger.log(`Found ${assignedItems.length} assigned order items`);
@@ -1192,8 +1193,16 @@ export class OrchestratorService {
 
   // Manual trigger method for testing
   public async triggerOrchestrator() {
+    // orchestratorWorking is a flag to prevent multiple triggers at the same time
+    if (this.orchestratorWorking) {
+      this.logger.warn('Orchestrator is already running - skipping manual trigger');
+      return {"message": "Service is already running, Try again in few seconds."};
+    }
+    this.orchestratorWorking  = true;
     this.logger.log('Manually triggering orchestrator...');
-    await this.processAssignedOrderItems();
+    const res = await this.processAssignedOrderItems();
+    this.orchestratorWorking = false;
+    return res;
   }
 
   // Get batch status
