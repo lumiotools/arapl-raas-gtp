@@ -355,6 +355,12 @@ export class OrchestratorService {
         where: { task_id: taskId }
       });
       if (task) {
+        // reserve the inventory location
+        inventory.isProcessing = true;
+        inventory.status = LocationStatus.RESERVED;
+        inventory.quantity_in_system = inventory.quantity;
+        inventory.quantity = 0;
+        await this.inventoryRepository.save(inventory);
         await this.reserveStationAndSendTask(task, targetStation);
       }
       this.logger.log(`Created single task ${taskId} for batch ${batchId}: inventory ${inventory.id} → station ${targetStation.station_id} (${inventory.quantity} units)`);

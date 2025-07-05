@@ -119,11 +119,12 @@ export class WebhookService {
           // Task completed at waiting location - handle waiting location completion
           this.logger.log(`🏁 Calling waiting location completion handler for task ${task.task_id}`);
           await this.handleWaitingLocationCompletion(task);
-        } else if (destinationType === 'inventory') {
-          // Task completed at inventory (return task) - handle inventory return
-          this.logger.log(`🏁 Calling inventory return completion handler for task ${task.task_id}`);
-          await this.handleInventoryReturnCompletion(task);
-        }
+        } 
+        // else if (destinationType === 'inventory') {
+        //   // Task completed at inventory (return task) - handle inventory return
+        //   this.logger.log(`🏁 Calling inventory return completion handler for task ${task.task_id}`);
+        //   await this.handleInventoryReturnCompletion(task);
+        // }
         // Note: Station completions are handled by trigger API when task is TRIGGERED
       }
     }
@@ -182,13 +183,54 @@ export class WebhookService {
     return mapped;
   }
 
+  private async releaseProcessingInventory(inventoryLocationId: any, productId: any): Promise<void> {
+
+    this.logger.log(`Releasing inventory for product ${productId} at location ${inventoryLocationId}`);
+
+    await this.inventoryRepository.update(
+      { 
+        id: inventoryLocationId,
+        product_id: productId 
+      },
+      { quantity: 0 ,
+        status: LocationStatus.AVAILABLE,
+      }
+    );
+  }
+
+  private async releaseCompleteInventory(inventoryLocationId: any, productId: any, task_qty: any): Promise<void> {
+    this.logger.log(`Releasing inventory for product ${productId} at location ${inventoryLocationId}`);
+    const inventory = await this.inventoryRepository.findOne({
+      where: { 
+        id: inventoryLocationId,
+        product_id: productId 
+      }
+    });
+    if (!inventory) {
+      this.logger.warn(`Inventory location ${inventoryLocationId} for product ${productId} not found`);
+      return;
+    }
+    await this.inventoryRepository.update(
+      { 
+        id: inventoryLocationId,
+        product_id: productId 
+      },
+      {
+        status: LocationStatus.AVAILABLE,
+        isProcessing: false,
+        quantity_in_system: inventory?.quantity_in_system - task_qty
+      }
+    );
+  }
+
   private async handleInventoryUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus, batchId: string): Promise<void> {
     try {
-      // Case 1: FIRST task from inventory goes to INPROGRESS or PROCESSING - set inventory to 0
+      // Case 1: FIRST task from inventory goes to INPROGRESS or PROCESSING - set inventory to 
       if ((newStatus === TaskStatus.INPROGRESS || newStatus === TaskStatus.PROCESSING) && 
           this.isTaskFromInventory(task) && 
           await this.isFirstTaskInBatch(task, batchId)) {
         await this.setInventoryToZero(task);
+        await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
       }
 
       // Case 2: Last task returning to inventory goes to COMPLETED - update inventory with task quantity
@@ -196,6 +238,7 @@ export class WebhookService {
         const isLastTask = await this.isLastTaskInBatch(task, batchId);
         if (isLastTask) {
           await this.updateInventoryWithTaskQuantity(task);
+          await this.releaseCompleteInventory(task.end_location.location_id, task.product_id, task.quantity);
         }
       }
     } catch (error) {
@@ -244,6 +287,16 @@ export class WebhookService {
     const inventoryLocationId = task.end_location.location_id;
     const productId = task.product_id;
     const quantity = task.quantity;
+    const inventory = await this.inventoryRepository.findOne({
+      where: {
+        id: inventoryLocationId,
+        product_id: productId 
+      }
+    });
+    if (!inventory) {
+      this.logger.warn(`Inventory location ${inventoryLocationId} for product ${productId} not found`);
+      return;
+    }
 
     this.logger.log(`Updating inventory for product ${productId} at location ${inventoryLocationId} with quantity ${quantity}`);
 
@@ -252,7 +305,7 @@ export class WebhookService {
         id: inventoryLocationId,
         product_id: productId 
       },
-      { quantity: quantity }
+      { quantity: quantity + (inventory?.quantity || 0) }
     );
   }
 
