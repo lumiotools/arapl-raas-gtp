@@ -235,11 +235,7 @@ export class WebhookService {
 
       // Case 2: Last task returning to inventory goes to COMPLETED - update inventory with task quantity
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
-        const isLastTask = await this.isLastTaskInBatch(task, batchId);
-        if (isLastTask) {
           await this.updateInventoryWithTaskQuantity(task);
-          await this.releaseCompleteInventory(task.end_location.location_id, task.product_id, task.quantity);
-        }
       }
     } catch (error) {
       this.logger.error(`Error handling inventory updates for task ${task.task_id}:`, error.message);
@@ -305,7 +301,11 @@ export class WebhookService {
         id: inventoryLocationId,
         product_id: productId 
       },
-      { quantity: quantity + (inventory?.quantity || 0) }
+      { quantity: quantity + (inventory?.quantity || 0) ,
+        quantity_in_system: inventory?.quantity_in_system - quantity,
+        status: LocationStatus.AVAILABLE,
+        isProcessing: false
+      }
     );
   }
 

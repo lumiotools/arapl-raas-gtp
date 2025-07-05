@@ -84,6 +84,8 @@ export class TriggerService {
     }
     inventory.quantity_in_system -= currentTask.quantity;
 
+    await this.inventoryRepository.save(inventory);
+
     // Note: Station will become available when webhook receives PROCESSING status
     // for the next task that has this station as source location
 
