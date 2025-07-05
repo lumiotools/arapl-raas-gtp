@@ -51,6 +51,8 @@ interface ProductRequirement {
 export class OrchestratorService {
   private readonly logger = new Logger(OrchestratorService.name);
 
+  private orchestratorWorking = false;
+
   constructor(
     @InjectRepository(OrderItem)
     private readonly orderItemRepository: Repository<OrderItem>,
@@ -72,7 +74,6 @@ export class OrchestratorService {
     private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
-    private orchestratorWorking : boolean = false,
   ) {}
 
   async processAssignedOrderItems() {
@@ -98,12 +99,14 @@ export class OrchestratorService {
       }
 
       // After all batches are created, process first tasks
-      await this.processFirstTasks();
+      // await this.processFirstTasks();
 
       this.logger.log(`Orchestrator process completed successfully`);
+      return { message: 'Orchestrator process completed successfully' };
       
     } catch (error) {
       this.logger.error('Error in orchestrator process:', error);
+      return { message: 'Error in orchestrator process', error: error.message };
     }
   }
 
@@ -174,7 +177,7 @@ export class OrchestratorService {
           // Update existing requirement
           await this.productRequirementRepository.update(
             { product_id: productId, station_id: stationId },
-            { requirement: requirementQuantity }
+            { requirement: requirementQuantity + existingRequirement.requirement }
           );
           this.logger.log(`Updated requirement: Product ${productId} at Station ${stationId} = ${requirementQuantity}`);
         } else {
@@ -200,23 +203,31 @@ export class OrchestratorService {
       return;
     }
 
-    // Step 6: Read product requirements from database for this product
-    const productRequirements = await this.productRequirementRepository.find({
-      where: { product_id: productId },
+    // read the requirement of the product from the database
+    const databaseRequirement = await this.productRequirementRepository.find({
+      where : { product_id: productId },
       order: { station_id: 'ASC' }
     });
 
-    if (!productRequirements || productRequirements.length === 0) {
-      this.logger.warn(`No product requirements found in database for product ${productId}`);
-      return;
+    const totalDataBaseRequirement = databaseRequirement.reduce((sum, req) => sum + req.requirement, 0);
+
+    // Calculate total quantity currently being processed in the system
+    let prod_qty_in_system = 0;
+    for (const inventory of allInventories) {
+      if (inventory.isProcessing) {
+        prod_qty_in_system += inventory.quantity_in_system;
+      }
     }
 
-    // Calculate total quantity needed for this product
-    const totalRequiredQuantity = productRequirements.reduce((sum, req) => sum + req.requirement, 0);
-    this.logger.log(`Product ${productId} total requirement: ${totalRequiredQuantity} units`);
+    const effectiveSystemRequirement = totalDataBaseRequirement - prod_qty_in_system;
+
+    // filter inventories - status - available and quantity > 0
+    const filteredInventories = allInventories.filter(inv => 
+      inv.status === LocationStatus.AVAILABLE && inv.quantity > 0
+    );
 
     // Step 7: Find minimum combination of inventories to satisfy the requirement
-    const selectedInventories = this.selectOptimalInventories(allInventories, totalRequiredQuantity);
+    const selectedInventories = this.selectOptimalInventories(filteredInventories, effectiveSystemRequirement);
     
     if (selectedInventories.length === 0) {
       this.logger.error(`No valid inventories found for product ${productId} - all inventories have zero quantity`);
@@ -225,8 +236,8 @@ export class OrchestratorService {
 
     const totalSelectedQuantity = selectedInventories.reduce((sum, inv) => sum + inv.quantity, 0);
     
-    if (totalSelectedQuantity < totalRequiredQuantity) {
-      this.logger.warn(`Partial fulfillment for product ${productId}: selected ${totalSelectedQuantity}/${totalRequiredQuantity} units from ${selectedInventories.length} inventories`);
+    if (totalSelectedQuantity < effectiveSystemRequirement) {
+      this.logger.warn(`Partial fulfillment for product ${productId}: selected ${totalSelectedQuantity}/${effectiveSystemRequirement} units from ${selectedInventories.length} inventories`);
     } else {
       this.logger.log(`Full fulfillment for product ${productId}: selected ${totalSelectedQuantity} units from ${selectedInventories.length} inventories`);
     }
@@ -234,24 +245,15 @@ export class OrchestratorService {
     this.logger.log(`Selected inventories for product ${productId}: ${selectedInventories.map(inv => `${inv.id}(${inv.quantity})`).join(', ')}`);
 
     // Get stations sorted by priority (ascending order) 
-    const stationIds = productRequirements.map(pr => pr.station_id);
+    const stationIds = databaseRequirement.map(pr => pr.station_id);
     const sortedStations = await this.getStationsSortedByPriority(stationIds);
-
+    
     // Step 8: Create separate batch for each SELECTED inventory only
     for (const inventory of selectedInventories) {
-      // Create a separate batch for this inventory
-      const batchId = await this.generateBatchId();
-      await this.createBatch(batchId, inventory, productId);
-      
-      // Create only one task to the first available station in priority order
-      // If no station is available, create station requests for all required stations
       await this.createSingleTaskToFirstAvailableStation(
         inventory,
-        sortedStations,
-        batchId
+        sortedStations
       );
-      
-      this.logger.log(`Created batch ${batchId} for selected inventory ${inventory.id} with ${inventory.quantity} units`);
     }
   }
 
@@ -309,44 +311,7 @@ export class OrchestratorService {
     return stations.sort((a, b) => a.priority - b.priority);
   }
 
-  private async findLastTaskFromSameInventory(inventoryId: string): Promise<number | null> {
-    // Find the most recently created batch that starts from the same inventory
-    // and is not fully completed
-    const batches = await this.batchRepository
-      .createQueryBuilder('batch')
-      .leftJoinAndSelect('batch.tasks', 'task')
-      .where('task.sequence_order = 1') // First task of batch
-      .orderBy('batch.created_at', 'DESC')
-      .getMany();
 
-    for (const batch of batches) {
-      // Check if the first task starts from the same inventory
-      const firstTask = batch.tasks?.find(task => task.sequence_order === 1);
-      if (firstTask && firstTask.start_location.location_id === inventoryId) {
-        // Check if this batch is fully completed
-        const allTasks = await this.taskRepository.find({
-          where: { batch_id: batch.batch_id }
-        });
-
-        const allCompleted = allTasks.every(task => task.status === TaskStatus.COMPLETED);
-        
-        if (!allCompleted) {
-          // Found a non-completed batch, get its last task (highest sequence_order)
-          const lastTask = await this.taskRepository.findOne({
-            where: { batch_id: batch.batch_id },
-            order: { sequence_order: 'DESC' }
-          });
-          
-          if (lastTask) {
-            this.logger.log(`Found dependency: New batch should depend on task ${lastTask.task_id} from batch ${batch.batch_id}`);
-            return lastTask.task_id;
-          }
-        }
-      }
-    }
-
-    return null; // No dependency found
-  }
 
   /**
    * Create a single task to the first available station in priority order.
@@ -354,25 +319,28 @@ export class OrchestratorService {
    */
   private async createSingleTaskToFirstAvailableStation(
     inventory: Inventory,
-    sortedStations: Station[],
-    batchId: string
-  ): Promise<void> {
+    sortedStations: Station[]
+  ): Promise<number | null> {
     // Find the first available station in priority order
     let targetStation: Station | null = null;
     
     for (const station of sortedStations) {
       // Check if the station is available (not RESERVED or OCCUPIED)
-      if (station.status === LocationStatus.AVAILABLE) {
-        targetStation = station;
+      const station_id = station.station_id;
+      const fetchStation = await this.stationRepository.findOne({
+        where: { station_id },
+      });
+      if (fetchStation && fetchStation.status === LocationStatus.AVAILABLE) {
+        targetStation = fetchStation;
         break; // Take the first available station, don't skip to lower priority
       }
     }
 
-    // Check for cross-batch inventory dependency (if previous batch used same inventory)
-    const dependencyTaskId = await this.findLastTaskFromSameInventory(inventory.id);
-
     if (targetStation) {
       // Station is available - create task immediately
+      const batchId = await this.generateBatchId();
+      await this.createBatch(batchId, inventory, inventory.product_id);
+      // Create only one task to the first available station in priority order
       const taskId = await this.createTask({
         batchId,
         productId: inventory.product_id,
@@ -381,41 +349,20 @@ export class OrchestratorService {
         quantity: inventory.quantity, // Move entire available quantity
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: 1, // First (and only) task in this batch
-        taskDependency: dependencyTaskId // May depend on previous batch
+        taskDependency: null // May depend on previous batch
       });
-
-      // Note: Product requirement will be removed when task completes at station
-
-      this.logger.log(`Created single task ${taskId} for batch ${batchId}: inventory ${inventory.id} → station ${targetStation.station_id} (${inventory.quantity} units)`);
-    } else {
-      // No station is available - create task without station and add station request for first required station only
-      this.logger.warn(`No available stations found for batch ${batchId} (inventory ${inventory.id}) - creating station request for first required station`);
-      
-      // Create a task without a specific destination station (will be assigned when station becomes available)
-      const taskId = await this.createTask({
-        batchId,
-        productId: inventory.product_id,
-        sourceInventoryId: inventory.id,
-        destinationStationId: sortedStations[0].station_id, // Use first station as placeholder
-        quantity: inventory.quantity,
-        taskType: TaskType.GOODS_TO_PERSON,
-        sequenceOrder: 1,
-        taskDependency: dependencyTaskId
-      });
-
-      // Get the created task
       const task = await this.taskRepository.findOne({
         where: { task_id: taskId }
       });
-
       if (task) {
-        // Create station request only for the first required station (highest priority)
-        const firstStation = sortedStations[0];
-        await this.addStationRequest(task, firstStation.station_id);
-        this.logger.log(`Added station request for task ${taskId} to station ${firstStation.station_id} (first required station)`);
-        
-        this.logger.log(`Created task ${taskId} for batch ${batchId} with station request for first station ${firstStation.station_id}`);
+        await this.reserveStationAndSendTask(task, targetStation);
       }
+      this.logger.log(`Created single task ${taskId} for batch ${batchId}: inventory ${inventory.id} → station ${targetStation.station_id} (${inventory.quantity} units)`);
+      return taskId;
+    } else {
+      // No station is available - create task without station and add station request for first required station only
+      this.logger.warn(`No available stations found for (inventory ${inventory.id}) - skipping task creation`);
+      return null;
     }
   }
 

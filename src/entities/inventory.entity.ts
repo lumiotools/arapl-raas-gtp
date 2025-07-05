@@ -25,7 +25,7 @@ export class Inventory {
   @Column({ type: 'int', default: 0 })
   quantity_in_system: number;
 
-  @Column({ type: 'boolean', default: 0 })
+  @Column({ type: 'boolean', default: false })
   isProcessing: boolean;
 
   @Column({
