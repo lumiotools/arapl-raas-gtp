@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderItem, OrderItemStatus } from 'src/entities/order-item.entity';
 import { Task, TaskType, TaskStatus } from 'src/entities/task.entity';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
@@ -76,22 +77,31 @@ export class OrchestratorService {
     private readonly httpService: HttpService,
   ) {}
 
-  async processAssignedOrderItems() {
+  async processAssignedOrderItems(mannual_trigger=false) {
     this.logger.log('Starting orchestrator process...');
     
     try {
-      // Step 1 & 2: Get assigned order items and change status to in-progress
-      const assignedItems = await this.getAndUpdateAssignedItems();
       
-      if (assignedItems.length === 0) {
-        this.logger.log('No assigned order items found');
-        return { message: 'No assigned order items found' };
-      }
-
-      this.logger.log(`Found ${assignedItems.length} assigned order items`);
 
       // Step 3 & 4: Calculate product requirements and sort by descending order
-      const productRequirements = await this.calculateProductRequirements(assignedItems);
+      let productRequirements: ProductRequirement[];
+      
+      if (mannual_trigger) {
+        // Manual trigger: Calculate from assigned items
+        // Step 1 & 2: Get assigned order items and change status to in-progress
+        const assignedItems = await this.getAndUpdateAssignedItems();
+        
+        if (assignedItems.length === 0) {
+          this.logger.log('No assigned order items found');
+          return { message: 'No assigned order items found' };
+        }
+
+        this.logger.log(`Found ${assignedItems.length} assigned order items`);
+        productRequirements = await this.calculateProductRequirements(assignedItems);
+      } else {
+        // Automatic trigger: Load from product_requirement table
+        productRequirements = await this.loadProductRequirementsFromDatabase();
+      }
       
       // Step 5-9: Process each product and create tasks
       for (const requirement of productRequirements) {
@@ -832,18 +842,35 @@ export class OrchestratorService {
       if (existingNextTask) {
         this.logger.warn(`⚠️  Next task ${existingNextTask.task_id} already exists with dependency on completed task ${completedTask.task_id} - skipping duplicate creation`);
         // Still remove product requirement and check batch completion
-        const currentStationId = completedTask.end_location.location_id;
-        await this.removeProductRequirement(completedTask.product_id, currentStationId);
-        await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
+        // const currentStationId = completedTask.end_location.location_id;
+        // await this.removeProductRequirement(completedTask.product_id, currentStationId);
+        // await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
         return;
       }
 
       // Calculate remaining quantity after dropping required amount at current station
       const remainingQuantity = await this.calculateRemainingQuantityAfterDrop(completedTask);
-      
+      const droppedQuantity = completedTask.quantity - remainingQuantity;
+      const firstTask = await this.taskRepository.findOne({
+        where: {
+          batch_id: completedTask.batch_id,
+          sequence_order: 1
+        }
+      });
+      const inventoryId = firstTask?.start_location?.location_id || completedTask.start_location?.location_id;
+      const inventory = await this.inventoryRepository.findOne({
+        where: { id: inventoryId }
+      });
+      if (!inventory) {
+        this.logger.error(`Inventory not found for task ${completedTask.task_id} - cannot proceed with next steps`);
+        return;
+      }
+      inventory.quantity_in_system -= droppedQuantity;
+      await this.inventoryRepository.save(inventory);
+
       // Remove the fulfilled product requirement from database (quantity has been dropped at this station)
       const currentStationId = completedTask.end_location.location_id;
-      await this.removeProductRequirement(completedTask.product_id, currentStationId);
+      await this.removeProductRequirement(completedTask.product_id, currentStationId, droppedQuantity);
       
       if (remainingQuantity > 0) {
         // Still have quantity to process - check for more stations
@@ -1089,6 +1116,17 @@ export class OrchestratorService {
     const originalInventoryId = firstTask.start_location.location_id;
     const nextSequenceOrder = completedTask.sequence_order + 1;
 
+    const inventory = await this.inventoryRepository.findOne({
+      where: { id: originalInventoryId }
+    });
+    if (!inventory) {
+      this.logger.error(`Original inventory ${originalInventoryId} not found for task ${completedTask.task_id}`);
+      return;
+    }
+    // Ensure we only create a return task if there's quantity to return
+    inventory.status = LocationStatus.RESERVED;
+    await this.inventoryRepository.save(inventory);
+
     // Create return task only if there's quantity to return or to complete the batch workflow
     const returnTaskId = await this.createTask({
       batchId: completedTask.batch_id,
@@ -1113,17 +1151,32 @@ export class OrchestratorService {
     this.logger.log(`Created return to inventory task ${returnTaskId}: station ${completedTask.end_location.location_id} → inventory ${originalInventoryId} with ${remainingQuantity} units (task sent to WMS)`);
   }
 
-  private async removeProductRequirement(productId: string, stationId: string): Promise<void> {
+  private async removeProductRequirement(productId: string, stationId: string, droppedQuantity: number): Promise<void> {
     try {
-      const result = await this.productRequirementRepository.delete({
-        product_id: productId,
-        station_id: stationId
+      const existingRequirement = await this.productRequirementRepository.findOne({
+        where: { product_id: productId, station_id: stationId }
       });
+      if (!existingRequirement) {
+        this.logger.warn(`No product requirement found for Product ${productId} at Station ${stationId} - nothing to remove`);
+        return;
+      }
+      existingRequirement.requirement -= droppedQuantity;
+      if (existingRequirement.requirement == 0){
+        const result = await this.productRequirementRepository.delete({
+          product_id: productId,
+          station_id: stationId
+        });
 
-      if (result.affected && result.affected > 0) {
-        this.logger.log(`Removed fulfilled product requirement: Product ${productId} at Station ${stationId}`);
-      } else {
-        this.logger.warn(`No product requirement found to remove for Product ${productId} at Station ${stationId}`);
+        if (result.affected && result.affected > 0) {
+          this.logger.log(`Removed fulfilled product requirement: Product ${productId} at Station ${stationId}`);
+        } else {
+          this.logger.warn(`No product requirement found to remove for Product ${productId} at Station ${stationId}`);
+        }
+      }
+      if (existingRequirement.requirement > 0) {
+        // If requirement is still greater than 0, just update it
+        await this.productRequirementRepository.save(existingRequirement);
+        this.logger.log(`Updated product requirement: Product ${productId} at Station ${stationId} - remaining requirement: ${existingRequirement.requirement}`);
       }
     } catch (error) {
       this.logger.error(`Failed to remove product requirement for Product ${productId} at Station ${stationId}:`, error);
@@ -1145,7 +1198,8 @@ export class OrchestratorService {
   }
 
   // Manual trigger method for testing
-  public async triggerOrchestrator() {
+
+  public async triggerOrchestrator(mannual_trigger = false) {
     // orchestratorWorking is a flag to prevent multiple triggers at the same time
     if (this.orchestratorWorking) {
       this.logger.warn('Orchestrator is already running - skipping manual trigger');
@@ -1153,9 +1207,23 @@ export class OrchestratorService {
     }
     this.orchestratorWorking  = true;
     this.logger.log('Manually triggering orchestrator...');
-    const res = await this.processAssignedOrderItems();
+    const res = await this.processAssignedOrderItems(mannual_trigger);
     this.orchestratorWorking = false;
     return res;
+  }
+
+  // Cron job that runs every 30 seconds to automatically trigger orchestrator
+  @Cron('*/30 * * * * *') // Every 30 seconds
+  async handleOrchestratorCron() {
+    this.logger.log('🕒 Cron job triggered - running orchestrator...');
+    
+    // Use manual_trigger = false for automatic cron job execution
+    try {
+      const result = await this.triggerOrchestrator(false);
+      this.logger.log(`🕒 Cron job completed: ${result.message}`);
+    } catch (error) {
+      this.logger.error('🕒 Cron job failed:', error.message);
+    }
   }
 
   // Get batch status
@@ -1467,5 +1535,46 @@ export class OrchestratorService {
     
     // Immediately process any pending station requests for this station
     await this.processStationRequests(stationId);
+  }
+
+  private async loadProductRequirementsFromDatabase(): Promise<ProductRequirement[]> {
+    this.logger.log('Loading product requirements from database...');
+    
+    // Load all product requirements from database
+    const dbRequirements = await this.productRequirementRepository.find({
+      order: { product_id: 'ASC', station_id: 'ASC' }
+    });
+
+    if (dbRequirements.length === 0) {
+      this.logger.log('No product requirements found in database');
+      return [];
+    }
+
+    // Group by product_id and format to match ProductRequirement interface
+    const requirementMap = new Map<string, ProductRequirement>();
+
+    for (const dbReq of dbRequirements) {
+      const productId = dbReq.product_id;
+      
+      if (!requirementMap.has(productId)) {
+        requirementMap.set(productId, {
+          productId,
+          totalRequirement: 0,
+          stationRequirements: new Map<string, number>()
+        });
+      }
+
+      const requirement = requirementMap.get(productId)!;
+      requirement.totalRequirement += dbReq.requirement;
+      requirement.stationRequirements.set(dbReq.station_id, dbReq.requirement);
+    }
+
+    // Convert to array and sort by descending total requirement
+    const productRequirements = Array.from(requirementMap.values()).sort(
+      (a, b) => b.totalRequirement - a.totalRequirement
+    );
+
+    this.logger.log(`Loaded ${productRequirements.length} product requirements from database`);
+    return productRequirements;
   }
 }

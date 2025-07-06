@@ -63,29 +63,6 @@ export class TriggerService {
 
     currentTask.status = TaskStatus.TRIGERRED;
 
-    // Find the first task in the batch to get inventory id
-    const firstTask = await this.taskRepository.findOne({
-      where: { 
-        batch_id: currentTask.batch_id,
-        sequence_order: 1
-      }
-    });
-
-    const inventoryId = firstTask?.start_location?.location_id;
-
-    const inventory = await this.inventoryRepository.findOne({
-      where: { 
-        id: inventoryId,
-        product_id: currentTask.product_id 
-      }
-    });
-    if (!inventory) {
-      throw new NotFoundException(`Inventory not found for product ${currentTask.product_id} at location ${inventoryId}`);
-    }
-    inventory.quantity_in_system -= currentTask.quantity;
-
-    await this.inventoryRepository.save(inventory);
-
     // Note: Station will become available when webhook receives PROCESSING status
     // for the next task that has this station as source location
 

@@ -295,7 +295,7 @@ export class WebhookService {
     }
 
     this.logger.log(`Updating inventory for product ${productId} at location ${inventoryLocationId} with quantity ${quantity}`);
-
+    console.log(`Current inventory quantity: ${inventory.quantity}, quantity in system: ${inventory.quantity_in_system}`);
     await this.inventoryRepository.update(
       { 
         id: inventoryLocationId,
