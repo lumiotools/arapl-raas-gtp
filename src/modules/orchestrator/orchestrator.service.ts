@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -257,6 +257,125 @@ export class OrchestratorService {
     // Get stations sorted by priority (ascending order) 
     const stationIds = databaseRequirement.map(pr => pr.station_id);
     const sortedStations = await this.getStationsSortedByPriority(stationIds);
+
+    // first check waiting locations for this product.
+    const waitingLocations = await this.waitingLocationRepository.find({
+      where: {
+      holded_by: Not(IsNull())
+      }
+    });
+    if (waitingLocations.length > 0) {
+      this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
+      for (const waitingLocation of waitingLocations) {
+        const taskId = waitingLocation.holded_by;
+        if (!taskId){
+          this.logger.warn(`Waiting location ${waitingLocation.location_id} has no task ID associated`);
+          continue;
+        }
+        const task = await this.taskRepository.findOne({
+          where: { task_id: taskId }
+        });
+        if (!task){
+          this.logger.warn(`Task ${taskId} not found for waiting location ${waitingLocation.location_id}`);
+          continue;
+        }
+        // Check if this task's product is in the current requirements
+        const hasRequirement = databaseRequirement.some(req => req.product_id === task.product_id);
+        if (!hasRequirement) {
+          // Product not in current requirements - return to original inventory
+          const firstTaskInBatch = await this.taskRepository.findOne({
+            where: { batch_id: task.batch_id, sequence_order: 1 }
+          });
+          
+          if (!firstTaskInBatch) {
+            this.logger.warn(`First task not found for batch ${task.batch_id} - cannot determine original inventory`);
+            continue;
+          }
+          // Check if this batch already has a return to inventory task (skip if yes)
+          const existingReturnTask = await this.taskRepository.findOne({
+            where: { 
+              batch_id: task.batch_id,
+              end_location: { location_attribute: { attribute_value: 'inventory' } }
+            }
+          });
+
+          if (existingReturnTask) {
+            this.logger.log(`Batch ${task.batch_id} already has return to inventory task ${existingReturnTask.task_id} - skipping return task creation`);
+            continue;
+          }
+          const originalInventoryId = firstTaskInBatch.start_location.location_id;
+          const returnTaskId = await this.createTask({
+            batchId: task.batch_id,
+            productId: task.product_id,
+            sourceWaitingLocationId: waitingLocation.location_id,
+            destinationInventoryId: originalInventoryId,
+            quantity: task.quantity,
+            taskType: TaskType.GOODS_TO_PERSON,
+            sequenceOrder: 1,
+            taskDependency: null
+          });
+          
+          const returnTask = await this.taskRepository.findOne({
+            where: { task_id: returnTaskId }
+          });
+          
+          if (returnTask) {
+            // Reserve the inventory location
+            const inventory = await this.inventoryRepository.findOne({
+              where: { id: originalInventoryId }
+            });
+            if (inventory) {
+              inventory.status = LocationStatus.RESERVED;
+              await this.inventoryRepository.save(inventory);
+            }
+            
+            // Send task to WMS
+            await this.sendSingleTaskToWms(returnTask);
+            this.logger.log(`Created return task ${returnTaskId} for product ${task.product_id} from waiting location ${waitingLocation.location_id} to original inventory ${originalInventoryId}`);
+          }
+          continue;
+        }
+        if (task.product_id == productId && task.quantity > 0){
+          for (const stat in sortedStations){
+            const stationID = sortedStations[stat].station_id;
+            const station = await  this.stationRepository.findOne({
+              where: { station_id: stationID }
+            });
+            if (!station){
+              this.logger.warn(`Station ${stationID} not found for task ${taskId}`);
+              continue;
+            }
+            if (station.status === LocationStatus.AVAILABLE) {
+              // Create a task to return the product to inventory
+              const batchId = await this.generateBatchId();
+              await this.createBatch(batchId, allInventories[0], productId); // Use first inventory as source
+              
+              const returnTaskId = await this.createTask({
+                batchId,
+                productId,
+                sourceWaitingLocationId: waitingLocation.location_id,
+                destinationStationId: station.station_id,
+                quantity: task.quantity,
+                taskType: TaskType.GOODS_TO_PERSON,
+                sequenceOrder: 1,
+                taskDependency: null
+              });
+              const returnTask = await this.taskRepository.findOne({
+                where: { task_id: returnTaskId }
+              });
+              if (!returnTask) {
+                this.logger.error(`Failed to create return task for waiting location ${waitingLocation.location_id} and task ${taskId}`);
+                continue;
+              }
+              // Reserve the station and send task to WMS
+              await this.reserveStationAndSendTask(returnTask, station);
+
+              break; // Exit loop after processing first available station
+            }
+          }
+        }
+      }
+    }
     
     // Step 8: Create separate batch for each SELECTED inventory only
     for (const inventory of selectedInventories) {
@@ -1367,33 +1486,34 @@ export class OrchestratorService {
 
       this.logger.log(`✅ Created task ${taskId}: waiting location ${completedTask.end_location.location_id} → station ${availableStation.station_id} (station reserved and task sent to WMS)`);
     } else {
+      // skip
       // No station available - create task to first required station and add station request
-      const firstRequiredStation = remainingRequirements[0];
+      // const firstRequiredStation = remainingRequirements[0];
       
-      // Calculate remaining quantity for next task (all quantity since waiting location doesn't consume any)
-      const remainingQuantity = completedTask.quantity;
+      // // Calculate remaining quantity for next task (all quantity since waiting location doesn't consume any)
+      // const remainingQuantity = completedTask.quantity;
       
-      // Create task from waiting location to first required station (as placeholder)
-      const taskId = await this.createTask({
-        batchId: completedTask.batch_id,
-        productId: completedTask.product_id,
-        sourceWaitingLocationId: completedTask.end_location.location_id,
-        destinationStationId: firstRequiredStation.station_id,
-        quantity: remainingQuantity, // Waiting location doesn't consume quantity
-        taskType: TaskType.GOODS_TO_PERSON,
-        sequenceOrder: nextSequenceOrder,
-        taskDependency: completedTask.task_id
-      });
+      // // Create task from waiting location to first required station (as placeholder)
+      // const taskId = await this.createTask({
+      //   batchId: completedTask.batch_id,
+      //   productId: completedTask.product_id,
+      //   sourceWaitingLocationId: completedTask.end_location.location_id,
+      //   destinationStationId: firstRequiredStation.station_id,
+      //   quantity: remainingQuantity, // Waiting location doesn't consume quantity
+      //   taskType: TaskType.GOODS_TO_PERSON,
+      //   sequenceOrder: nextSequenceOrder,
+      //   taskDependency: completedTask.task_id
+      // });
 
-      // Get the created task and add station request (DO NOT send to WMS yet)
-      const newTask = await this.taskRepository.findOne({
-        where: { task_id: taskId }
-      });
+      // // Get the created task and add station request (DO NOT send to WMS yet)
+      // const newTask = await this.taskRepository.findOne({
+      //   where: { task_id: taskId }
+      // });
 
-      if (newTask) {
-        await this.addStationRequest(newTask, firstRequiredStation.station_id);
-        this.logger.log(`✅ Created task ${taskId}: waiting location ${completedTask.end_location.location_id} → station ${firstRequiredStation.station_id} (station request added, will send to WMS when station becomes available)`);
-      }
+      // if (newTask) {
+      //   await this.addStationRequest(newTask, firstRequiredStation.station_id);
+      //   this.logger.log(`✅ Created task ${taskId}: waiting location ${completedTask.end_location.location_id} → station ${firstRequiredStation.station_id} (station request added, will send to WMS when station becomes available)`);
+      // }
     }
 
     this.logger.log(`Waiting location task ${completedTask.task_id} processing completed - COMPLETED remains as final state`);
