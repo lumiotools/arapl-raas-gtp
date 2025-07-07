@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Put,
+  Delete,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
@@ -235,5 +236,109 @@ export class OrdersController {
       mappingData.licensePlateId,
       mappingData.gtpLocationId
     );
+  }
+
+  @Get('order-items')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get all order items',
+    description: 'Retrieve all order items from the database with their details.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved all order items',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Found 25 order items' },
+        data: { 
+          type: 'array', 
+          items: {
+            type: 'object',
+            properties: {
+              order_item_id: { type: 'number', example: 1 },
+              order_id: { type: 'string', example: 'ORD001' },
+              product_id: { type: 'string', example: 'PROD001' },
+              quantity: { type: 'number', example: 10 },
+              license_plate_id: { type: 'string', example: 'LP001' },
+              status: { type: 'string', example: 'PENDING' },
+              created_at: { type: 'string', format: 'date-time' },
+              updated_at: { type: 'string', format: 'date-time' },
+              assignedGtpLocation: {
+                type: 'object',
+                properties: {
+                  gtp_location_id: { type: 'string', example: 'GTP001' },
+                  station_id: { type: 'string', example: 'STA001' }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Internal server error',
+    type: InternalServerErrorDto,
+  })
+  async getAllOrderItems() {
+    return await this.ordersService.getAllOrderItems();
+  }
+
+  @Delete('license-plate-mapping/:licensePlateId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Remove license plate to GTP location mapping',
+    description: 'Remove the GTP location assignment from a license plate by setting it to null. Only works if status is ASSIGNED.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully removed license plate to GTP location mapping',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Successfully removed GTP location mapping for license plate LP001. 3 order items updated.' },
+        data: {
+          type: 'object',
+          properties: {
+            licensePlateId: { type: 'string', example: 'LP001' },
+            previousGtpLocationId: { type: 'string', example: 'GTP001' },
+            affectedItems: { type: 'number', example: 3 }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'License plate not found or invalid status',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 400 },
+        message: { type: 'string', example: 'Cannot remove mapping: Order items with license plate LP001 are not in ASSIGNED status' },
+        error: { type: 'string', example: 'Bad Request' }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'License plate not found or no GTP mapping exists',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 404 },
+        message: { type: 'string', example: 'No order items found with license plate LP001 or no GTP mapping exists' },
+        error: { type: 'string', example: 'Not Found' }
+      }
+    }
+  })
+  async removeLicensePlateMapping(
+    @Param('licensePlateId') licensePlateId: string
+  ) {
+    return await this.ordersService.removeLicensePlateMapping(licensePlateId);
   }
 }

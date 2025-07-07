@@ -37,7 +37,7 @@ export class OrderItem {
   license_plate_id: string;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
-  assigned_gtp_location: string;
+  assigned_gtp_location: string | null;
 
   @Column({
     type: 'enum',

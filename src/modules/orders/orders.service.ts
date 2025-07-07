@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import * as XLSX from 'xlsx';
@@ -413,6 +413,82 @@ export class OrdersService {
       };
     } catch (error) {
       throw new BadRequestException(`Failed to map license plate to GTP location: ${error.message}`);
+    }
+  }
+
+  async getAllOrderItems() {
+    try {
+      // Get all order items with their assigned GTP location details
+      const orderItems = await this.orderItemRepository.find({
+        relations: ['assignedGtpLocation', 'assignedGtpLocation.station'],
+        order: { created_at: 'DESC' }
+      });
+
+      return {
+        success: true,
+        message: `Found ${orderItems.length} order items`,
+        data: orderItems
+      };
+    } catch (error) {
+      throw new BadRequestException(`Failed to get order items: ${error.message}`);
+    }
+  }
+
+  async removeLicensePlateMapping(licensePlateId: string) {
+    try {
+      // Find order items with the given license_plate_id
+      const orderItems = await this.orderItemRepository.find({
+        where: { 
+          license_plate_id: licensePlateId
+        },
+        select: ['order_item_id', 'license_plate_id', 'assigned_gtp_location', 'status']
+      });
+
+      if (orderItems.length === 0) {
+        throw new NotFoundException(`No order items found with license plate ${licensePlateId}`);
+      }
+
+      // Check if any order item has a GTP location assigned
+      const itemsWithGtpLocation = orderItems.filter(item => item.assigned_gtp_location !== null);
+      if (itemsWithGtpLocation.length === 0) {
+        throw new NotFoundException(`No GTP location mapping exists for license plate ${licensePlateId}`);
+      }
+
+      // Check if all items with GTP location are in ASSIGNED status
+      const nonAssignedItems = itemsWithGtpLocation.filter(item => item.status !== OrderItemStatus.ASSIGNED);
+      if (nonAssignedItems.length > 0) {
+        throw new BadRequestException(`Cannot remove mapping: Order items with license plate ${licensePlateId} are not in ASSIGNED status`);
+      }
+
+      // Store the previous GTP location for response
+      const previousGtpLocationId = itemsWithGtpLocation[0].assigned_gtp_location;
+
+      // Update all matching order items - set GTP location to null and status back to PENDING
+      const updateResult = await this.orderItemRepository.update(
+        { 
+          license_plate_id: licensePlateId,
+          assigned_gtp_location: previousGtpLocationId as string,
+        },
+        { 
+          assigned_gtp_location: null,
+          status: OrderItemStatus.PENDING
+        }
+      );
+
+      return {
+        success: true,
+        message: `Successfully removed GTP location mapping for license plate ${licensePlateId}. ${updateResult.affected} order items updated.`,
+        data: {
+          licensePlateId,
+          previousGtpLocationId,
+          affectedItems: updateResult.affected
+        }
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to remove license plate mapping: ${error.message}`);
     }
   }
 }
