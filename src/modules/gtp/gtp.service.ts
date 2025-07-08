@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { CreateGtpDto } from './dto/create-gtp.dto';
 import { UpdateGtpDto } from './dto/update-gtp.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GtpLocation } from 'src/entities/gtp-location.entity'; // Assuming you have a Gtp entity defined
 import { Station } from 'src/entities/station.entity';
+import { OrderItem, OrderItemStatus } from 'src/entities/order-item.entity';
 
 @Injectable()
 export class GtpService {
@@ -13,6 +14,8 @@ export class GtpService {
     private readonly gtpRepository: Repository<GtpLocation>,
     @InjectRepository(Station)
     private readonly stationRepository: Repository<Station>,
+    @InjectRepository(OrderItem)
+    private readonly orderItemRepository: Repository<OrderItem>,
   ) {}
   async create(createGtpDto: GtpLocation) {
     // Check if station_id exists in Station repository
@@ -66,12 +69,25 @@ export class GtpService {
     }
     return await this.gtpRepository.findOne({where: { gtp_location_id: updateGtpDto.gtp_location_id}});
   }
-
   async remove(id: string) {
     const existing = await this.gtpRepository.findOne({ where: { gtp_location_id: id } });
     if (!existing) {
       throw new NotFoundException(`GTP with id ${id} not found`);
     }
+    
+    // Check if this GTP location is assigned to any order items in IN_PROGRESS state
+    const inProgressOrderItems = await this.orderItemRepository.find({
+      where: { 
+        assigned_gtp_location: id,
+        status: OrderItemStatus.IN_PROGRESS
+      }
+    });
+    
+    if (inProgressOrderItems.length > 0) {
+      const orderIds = inProgressOrderItems.map(item => item.order_id).join(', ');
+      throw new ForbiddenException(`Cannot delete GTP location ${id}: A license plate number is assigned to this location.`);
+    }
+    
     return this.gtpRepository.delete(id).then(() => {
       return { message: `GTP with id ${id} has been removed` };
     });
