@@ -1383,6 +1383,25 @@ export class OrchestratorService {
     });
   }
 
+  // Get all tasks in the system
+  public async getAllTasks() {
+    try {
+      // Get all tasks ordered by creation date (newest first)
+      const tasks = await this.taskRepository.find({
+        order: { created_at: 'DESC' }
+      });
+
+      return {
+        success: true,
+        message: `Found ${tasks.length} tasks in the system`,
+        data: tasks
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get all tasks: ${error.message}`);
+      throw new Error(`Failed to retrieve tasks: ${error.message}`);
+    }
+  }
+
   // Method to be called from webhook when a task completes at waiting location (requirement 2)
   async handleWaitingLocationTaskCompletion(completedTask: Task): Promise<void> {
     // Safety check: Only process completion for tasks that are actually COMPLETED

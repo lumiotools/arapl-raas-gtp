@@ -93,10 +93,13 @@ export class WebhookService {
     
     await this.taskRepository.update(
       { task_id: parseInt(taskStatusData.task_id) },
-      { status: mappedStatus }
+      { status: mappedStatus,
+        robot_id: taskStatusData.robot_id || null,
+      }
     );
 
-    task.status = mappedStatus; 
+    task.status = mappedStatus;
+    task.robot_id = taskStatusData.robot_id || null; 
 
     // Handle inventory updates based on task status changes
     await this.handleInventoryUpdates(task, oldStatus, mappedStatus, batchId);

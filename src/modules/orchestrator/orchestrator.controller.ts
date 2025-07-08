@@ -139,4 +139,127 @@ export class OrchestratorController {
 
     return waitingLocation;
   }
+
+  @Get('tasks')
+  @ApiOperation({
+    summary: 'Get all tasks in the system',
+    description: 'Retrieve all tasks from the database with their complete details including locations, status, and dependencies.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved all tasks',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Found 150 tasks in the system' },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              task_id: { type: 'number', example: 1 },
+              batch_id: { type: 'string', example: 'B1641234567' },
+              product_id: { type: 'string', example: 'PROD001' },
+              quantity: { type: 'number', example: 10 },
+              task_type: { type: 'string', example: 'GOODS_TO_PERSON' },
+              sequence_order: { type: 'number', example: 1 },
+              task_dependency: { type: 'number', example: null },
+              status: { type: 'string', example: 'COMPLETED' },
+              robot_id: { type: 'string', example: 'ROBOT_001' },
+              start_location: {
+                type: 'object',
+                properties: {
+                  location_id: { type: 'string', example: 'INV001' },
+                  location_type: { type: 'string', example: 'ZONE' },
+                  location_action: { type: 'string', example: 'PICK' },
+                  location_dimension: {
+                    type: 'object',
+                    properties: {
+                      length: { type: 'number', example: 1 },
+                      width: { type: 'number', example: 1 },
+                      height: { type: 'number', example: 1 }
+                    }
+                  },
+                  location_attribute: {
+                    type: 'object',
+                    properties: {
+                      attribute_name: { type: 'string', example: 'location_type' },
+                      attribute_value: { type: 'string', example: 'inventory' }
+                    }
+                  }
+                }
+              },
+              end_location: {
+                type: 'object',
+                properties: {
+                  location_id: { type: 'string', example: 'STA001' },
+                  location_type: { type: 'string', example: 'ZONE' },
+                  location_action: { type: 'string', example: 'WAIT' },
+                  location_dimension: {
+                    type: 'object',
+                    properties: {
+                      length: { type: 'number', example: 1 },
+                      width: { type: 'number', example: 1 },
+                      height: { type: 'number', example: 1 }
+                    }
+                  },
+                  location_attribute: {
+                    type: 'object',
+                    properties: {
+                      attribute_name: { type: 'string', example: 'location_type' },
+                      attribute_value: { type: 'string', example: 'station' }
+                    }
+                  }
+                }
+              },
+              wait: {
+                type: 'object',
+                properties: {
+                  wait_type: { type: 'string', example: 'TRIGGER' }
+                }
+              },
+              cargos: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    cargo_code: { type: 'string', example: 'PROD001' },
+                    cargo_type: { type: 'string', example: 'Pallet' },
+                    cargo_dimension: {
+                      type: 'object',
+                      properties: {
+                        length: { type: 'number', example: 1 },
+                        width: { type: 'number', example: 1 },
+                        height: { type: 'number', example: 1 }
+                      }
+                    },
+                    cargo_attributes: { type: 'object', example: null },
+                    cargo_weight: { type: 'number', example: 1 }
+                  }
+                }
+              },
+              created_at: { type: 'string', format: 'date-time' },
+              updated_at: { type: 'string', format: 'date-time' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Internal server error',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 500 },
+        message: { type: 'string', example: 'Failed to retrieve tasks: Database connection error' },
+        error: { type: 'string', example: 'Internal Server Error' }
+      }
+    }
+  })
+  async getAllTasks() {
+    return await this.orchestratorService.getAllTasks();
+  }
 }
