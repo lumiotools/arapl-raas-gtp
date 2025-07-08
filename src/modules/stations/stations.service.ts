@@ -1,10 +1,11 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { CreateStationDto } from './dto/create-station.dto';
 import { UpdateStationDto } from './dto/update-station.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Station } from 'src/entities/station.entity';
 import { GtpLocation } from 'src/entities';
+import { ProductRequirement as ProductRequirementEntity } from 'src/entities/product-requirement.entity';
 
 @Injectable()
 export class StationsService {
@@ -12,7 +13,9 @@ export class StationsService {
     @InjectRepository(Station)
     private readonly stationRepository: Repository<Station>,
     @InjectRepository(GtpLocation)
-    private readonly gtpLocation: Repository<GtpLocation> // Assuming GtpLocation is an entity
+    private readonly gtpLocation: Repository<GtpLocation>, // Assuming GtpLocation is an entity
+    @InjectRepository(ProductRequirementEntity)
+    private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
   ) {}
 
   async create(createStationDto: CreateStationDto) {
@@ -112,6 +115,17 @@ export class StationsService {
     if (!existing) {
       throw new NotFoundException(`Station with id ${id} not found`);
     }
+    
+    // Check if this station exists in product_requirement table
+    const productRequirements = await this.productRequirementRepository.find({
+      where: { station_id: id }
+    });
+    
+    if (productRequirements.length > 0) {
+      const productIds = productRequirements.map(pr => pr.product_id).join(', ');
+      throw new ForbiddenException(`Cannot delete station ${id}: Products are scheduled to reach this station. Products: ${productIds}.`);
+    }
+    
     for (const gtpLocationarray in existing.gtpLocations) {
       const gtpLocation = await this.gtpLocation.findOne({ where: { gtp_location_id: gtpLocationarray } });
       if (gtpLocation) {
