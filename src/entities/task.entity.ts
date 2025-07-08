@@ -66,6 +66,9 @@ export class Task {
   @Column({ type: 'int', nullable: true })
   task_dependency: number;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  robot_id: string;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 
