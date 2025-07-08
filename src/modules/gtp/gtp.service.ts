@@ -53,6 +53,18 @@ export class GtpService {
     if (!existing) {
       throw new NotFoundException(`GTP with id ${id} not found`);
     }
+    // Check if this GTP location is assigned to any order items in IN_PROGRESS state
+    const inProgressOrderItems = await this.orderItemRepository.find({
+      where: { 
+        assigned_gtp_location: id,
+        status: OrderItemStatus.IN_PROGRESS
+      }
+    });
+    
+    if (inProgressOrderItems.length > 0) {
+      const orderIds = inProgressOrderItems.map(item => item.order_id).join(', ');
+      throw new ForbiddenException(`Cannot delete GTP location ${id}: A license plate number is assigned to this location.`);
+    }
     if (updateGtpDto.station_id) {
       const station = await this.stationRepository.findOne({ where: { station_id: updateGtpDto.station_id } });
       if (!station) {
