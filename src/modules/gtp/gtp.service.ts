@@ -63,7 +63,7 @@ export class GtpService {
     
     if (inProgressOrderItems.length > 0) {
       const orderIds = inProgressOrderItems.map(item => item.order_id).join(', ');
-      throw new ForbiddenException(`Cannot delete GTP location ${id}: A license plate number is assigned to this location.`);
+      throw new ForbiddenException(`Cannot update GTP location ${id}: A license plate number is assigned to this location.`);
     }
     if (updateGtpDto.station_id) {
       const station = await this.stationRepository.findOne({ where: { station_id: updateGtpDto.station_id } });

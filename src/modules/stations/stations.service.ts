@@ -4,7 +4,7 @@ import { UpdateStationDto } from './dto/update-station.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Station } from 'src/entities/station.entity';
-import { GtpLocation } from 'src/entities';
+import { GtpLocation, OrderItem, OrderItemStatus } from 'src/entities';
 import { ProductRequirement as ProductRequirementEntity } from 'src/entities/product-requirement.entity';
 
 @Injectable()
@@ -16,6 +16,8 @@ export class StationsService {
     private readonly gtpLocation: Repository<GtpLocation>, // Assuming GtpLocation is an entity
     @InjectRepository(ProductRequirementEntity)
     private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
+    @InjectRepository(OrderItem)
+    private readonly orderItemRepository: Repository<OrderItem>,
   ) {}
 
   async create(createStationDto: CreateStationDto) {
@@ -66,6 +68,24 @@ export class StationsService {
       throw new NotFoundException(`Station with id ${id} not found`);
     }
 
+    // Check if any GTP locations being removed are assigned to IN_PROGRESS order items
+    const removedGtpLocationIds = existing.gtpLocations
+      ?.filter(loc => !(updateStationDto.gtp_locations_array || []).includes(loc.gtp_location_id))
+      .map(loc => loc.gtp_location_id) || [];
+
+    for (const gtpLocationId of removedGtpLocationIds) {
+      // Check if this GTP location is assigned to any IN_PROGRESS order items
+      const inProgressOrderItems = await this.orderItemRepository.find({
+        where: { 
+          assigned_gtp_location: gtpLocationId,
+          status: OrderItemStatus.IN_PROGRESS // Using the enum value instead of string literal
+        }
+      });
+      
+      if (inProgressOrderItems.length > 0) {
+        throw new ForbiddenException(`Cannot remove GTP location ${gtpLocationId}: It is assigned to order items with IN_PROGRESS status.`);
+      }
+    }
     // Remove GtpLocations that are no longer associated
     const existingGtpLocationIds = existing.gtpLocations?.map(loc => loc.gtp_location_id) || [];
     const updatedGtpLocationIds = updateStationDto.gtp_locations_array || [];

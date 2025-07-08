@@ -4,10 +4,10 @@ import { StationsController } from './stations.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Station } from 'src/entities/station.entity'; // Import Station entity
 import { GtpController } from '../gtp/gtp.controller';
-import { GtpLocation, ProductRequirement } from 'src/entities';
+import { GtpLocation, OrderItem, ProductRequirement } from 'src/entities';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Station, GtpLocation,ProductRequirement])], // Import Station entity
+  imports: [TypeOrmModule.forFeature([Station, GtpLocation,ProductRequirement, OrderItem])], // Import Station entity
   controllers: [StationsController],
   providers: [StationsService],
 })
