@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { HttpService } from '@nestjs/axios';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Task, TaskStatus } from 'src/entities/task.entity';
 import { Inventory } from 'src/entities/inventory.entity';
@@ -27,6 +28,7 @@ export class WebhookService {
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
+    private readonly httpService: HttpService,
   ) {}
 
   async processWebhook(webhookData: WebhookRequestDto): Promise<{ message: string }> {
@@ -127,12 +129,20 @@ export class WebhookService {
           // Task completed at waiting location - handle waiting location completion
           this.logger.log(`🏁 Calling waiting location completion handler for task ${task.task_id}`);
           await this.handleWaitingLocationCompletion(task);
-        } 
-        // else if (destinationType === 'inventory') {
-        //   // Task completed at inventory (return task) - handle inventory return
-        //   this.logger.log(`🏁 Calling inventory return completion handler for task ${task.task_id}`);
-        //   await this.handleInventoryReturnCompletion(task);
-        // }
+          
+          // Free robot when task is completed at waiting location
+          if (currentTask.robot_id) {
+            await this.freeRobot(currentTask.robot_id);
+          }
+        } else if (destinationType === 'inventory') {
+          // Task completed at inventory (return task) - free robot
+          this.logger.log(`🏁 Task ${task.task_id} completed at inventory - freeing robot`);
+          
+          // Free robot when task is completed at inventory
+          if (currentTask.robot_id) {
+            await this.freeRobot(currentTask.robot_id);
+          }
+        }
         // Note: Station completions are handled by trigger API when task is TRIGGERED
       }
     }
@@ -437,6 +447,29 @@ export class WebhookService {
       await this.orchestratorService.handleTaskProcessing(processingTask);
     } catch (error) {
       this.logger.error(`Error handling task processing for task ${processingTask.task_id}:`, error.message);
+    }
+  }
+
+  // Method to free robot by calling the external endpoint
+  private async freeRobot(robotId: string): Promise<void> {
+    if (!robotId) {
+      await this.loggingService.log('Cannot free robot: robot_id is null or empty');
+      return;
+    }
+
+    try {
+      const response = await this.httpService.post('http://localhost:3000/orchestrator/robot/set-available', {
+        robot_id: robotId
+      }).toPromise();
+
+      if (response && response.data) {
+        await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
+      } else {
+        await this.loggingService.log(`Robot ${robotId} freed successfully`);
+      }
+    } catch (error) {
+      await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
+      // Don't throw error to avoid breaking the main process
     }
   }
 }

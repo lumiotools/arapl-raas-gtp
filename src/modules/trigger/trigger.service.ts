@@ -1,6 +1,7 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { HttpService } from '@nestjs/axios';
 import { Station, LocationStatus } from '../../entities/station.entity';
 import { WaitingLocation, WaitingLocationStatus } from '../../entities/waiting-location.entity';
 import { Task, TaskStatus } from '../../entities/task.entity';
@@ -24,6 +25,7 @@ export class TriggerService {
     private readonly inventoryRepository: Repository<Inventory>,
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
+    private readonly httpService: HttpService,
   ) {}
 
   async triggerStationAction(stationId: string) {
@@ -73,6 +75,11 @@ export class TriggerService {
 
     // Find and process the next task in sequence
     await this.processNextTask(currentTask);
+
+    // Free the robot holding this station
+    if (currentTask.robot_id) {
+      await this.freeRobot(currentTask.robot_id);
+    }
 
     return {
       message: `Station ${stationId} triggered successfully`,
@@ -240,6 +247,11 @@ export class TriggerService {
     // Create next task with same quantity (no quantity drop occurred)
     const nextTaskResult = await this.createNextTaskForSkip(currentTask);
 
+    // Free the robot holding this station
+    if (currentTask.robot_id) {
+      await this.freeRobot(currentTask.robot_id);
+    }
+
     return {
       message: `Station ${stationId} skipped successfully`,
       skipped_task: {
@@ -281,6 +293,29 @@ export class TriggerService {
     } catch (error) {
       await this.loggingService.log(`Error in skip operation for task ${currentTask.task_id}: ${error.message}`);
       throw error;
+    }
+  }
+
+  // Method to free robot by calling the external endpoint
+  private async freeRobot(robotId: string): Promise<void> {
+    if (!robotId) {
+      await this.loggingService.log('Cannot free robot: robot_id is null or empty');
+      return;
+    }
+
+    try {
+      const response = await this.httpService.post('http://localhost:3000/orchestrator/robot/set-available', {
+        robot_id: robotId
+      }).toPromise();
+
+      if (response && response.data) {
+        await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
+      } else {
+        await this.loggingService.log(`Robot ${robotId} freed successfully`);
+      }
+    } catch (error) {
+      await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
+      // Don't throw error to avoid breaking the main process
     }
   }
 }

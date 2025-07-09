@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
-import { firstValueFrom, take } from 'rxjs';
+import { firstValueFrom, last, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderItem, OrderItemStatus } from 'src/entities/order-item.entity';
 import { Task, TaskType, TaskStatus } from 'src/entities/task.entity';
@@ -282,6 +282,7 @@ export class OrchestratorService {
           this.logger.warn(`Task ${taskId} not found for waiting location ${waitingLocation.location_id}`);
           continue;
         }
+
         // Check if this task's product is in the current requirements
         const hasRequirement = databaseRequirement.some(req => req.product_id === task.product_id);
         if (!hasRequirement) {
@@ -289,21 +290,29 @@ export class OrchestratorService {
           const firstTaskInBatch = await this.taskRepository.findOne({
             where: { batch_id: task.batch_id, sequence_order: 1 }
           });
+          console.log(`first in batch task: ${firstTaskInBatch?.task_id}`);
           
           if (!firstTaskInBatch) {
             this.logger.warn(`First task not found for batch ${task.batch_id} - cannot determine original inventory`);
             continue;
           }
           // Check if this batch already has a return to inventory task (skip if yes)
-          const existingReturnTask = await this.taskRepository.findOne({
-            where: { 
-              batch_id: task.batch_id,
-              end_location: { location_attribute: { attribute_value: 'inventory' } }
-            }
-          });
+          const existingReturnTask = await this.taskRepository
+            .createQueryBuilder('task')
+            .where('task.batch_id = :batchId', { batchId: task.batch_id })
+            .andWhere(`task.end_location->'location_attribute'->>'attribute_value' = :attrValue`, { attrValue: 'inventory' })
+            .getOne();
 
           if (existingReturnTask) {
             this.logger.log(`Batch ${task.batch_id} already has return to inventory task ${existingReturnTask.task_id} - skipping return task creation`);
+            continue;
+          }
+          const lastTaskOfBatch = await this.taskRepository.findOne({
+            where: { batch_id: task.batch_id},
+            order: { sequence_order: 'DESC' }
+          });
+          if (!lastTaskOfBatch) {
+            this.logger.warn(`Last task not found for batch ${task.batch_id} - cannot determine original inventory`);
             continue;
           }
           const originalInventoryId = firstTaskInBatch.start_location.location_id;
@@ -314,13 +323,15 @@ export class OrchestratorService {
             destinationInventoryId: originalInventoryId,
             quantity: task.quantity,
             taskType: TaskType.GOODS_TO_PERSON,
-            sequenceOrder: 1,
-            taskDependency: null
+            sequenceOrder: lastTaskOfBatch.sequence_order + 1, // Next sequence order
+            taskDependency: lastTaskOfBatch.task_id // Use last task of batch as dependency
           });
           
           const returnTask = await this.taskRepository.findOne({
             where: { task_id: returnTaskId }
           });
+
+          console.log(`returnTask: ${returnTask?.task_id}`);
           
           if (returnTask) {
             // Reserve the inventory location
