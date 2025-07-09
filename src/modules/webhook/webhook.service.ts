@@ -8,6 +8,7 @@ import { Station, LocationStatus } from 'src/entities/station.entity';
 import { WaitingLocation, WaitingLocationStatus } from 'src/entities/waiting-location.entity';
 import { WebhookRequestDto } from './dto/webhook-request.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
+import { LoggingService } from '../../services/logging.service';
 
 @Injectable()
 export class WebhookService {
@@ -25,6 +26,7 @@ export class WebhookService {
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
     private readonly orchestratorService: OrchestratorService,
+    private readonly loggingService: LoggingService,
   ) {}
 
   async processWebhook(webhookData: WebhookRequestDto): Promise<{ message: string }> {
@@ -90,6 +92,9 @@ export class WebhookService {
     }
     
     this.logger.log(`🔄 Updating task ${taskStatusData.task_id} status from ${oldStatus} to ${mappedStatus} (webhook status: "${taskStatusData.status}")`);
+    
+    // Log webhook received after duplicate check
+    await this.loggingService.log(`Webhook received for task ${taskStatusData.task_id}: status changed from ${oldStatus} to ${mappedStatus} (robot: ${taskStatusData.robot_id || 'none'})`);
     
     await this.taskRepository.update(
       { task_id: parseInt(taskStatusData.task_id) },

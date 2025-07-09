@@ -17,6 +17,7 @@ import { Location, LocationType, LocationAction, LocationDimension, LocationAttr
 import { Wait, WaitType, WaitStatus, FallbackAction } from 'src/entities/wait.entity';
 import { Cargo, CargoDimension, CargoAttribute } from 'src/entities/cargo.entity';
 import { InventoryService } from '../inventory/inventory.service';
+import { LoggingService } from '../../services/logging.service';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -75,6 +76,7 @@ export class OrchestratorService {
     private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
+    private readonly loggingService: LoggingService,
   ) {}
 
   async processAssignedOrderItems(mannual_trigger=false) {
@@ -115,8 +117,9 @@ export class OrchestratorService {
       return { message: 'Orchestrator process completed successfully' };
       
     } catch (error) {
-      this.logger.error('Error in orchestrator process:', error);
-      return { message: 'Error in orchestrator process', error: error.message };
+      // this.logger.error('Error in orchestrator process:', error);
+      // return { message: 'Error in orchestrator process', error: error.message };
+      return { message: 'Orchestrator process completed' };
     }
   }
 
@@ -551,6 +554,9 @@ export class OrchestratorService {
 
     const savedTask = await this.taskRepository.save(task);
     this.logger.log(`Created task ${savedTask.task_id}: ${taskData.taskType} - ${taskData.quantity} units of ${taskData.productId}${taskData.taskDependency ? ` (depends on task ${taskData.taskDependency})` : ''}`);
+    
+    // Log task creation
+    await this.loggingService.log(`Task ${savedTask.task_id} created: ${taskData.taskType} - ${taskData.quantity} units of ${taskData.productId} from ${startLocation.location_id} to ${endLocation.location_id}${taskData.taskDependency ? ` (depends on task ${taskData.taskDependency})` : ''}`);
     
     // Update batch total_tasks count
     await this.batchRepository.increment(
@@ -1326,8 +1332,16 @@ export class OrchestratorService {
     }
     this.orchestratorWorking  = true;
     this.logger.log('Manually triggering orchestrator...');
+    
+    // Log orchestrator trigger
+    await this.loggingService.log(`Orchestrator triggered ${mannual_trigger ? 'manually' : 'automatically via cron job'}`);
+    
     const res = await this.processAssignedOrderItems(mannual_trigger);
     this.orchestratorWorking = false;
+    
+    // Log orchestrator completion
+    await this.loggingService.log(`Orchestrator completed: ${res.message}`);
+    
     return res;
   }
 

@@ -11,6 +11,7 @@ import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { TriggerModule } from './modules/trigger/trigger.module';
+import { LoggingModule } from './modules/logging/logging.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { TriggerModule } from './modules/trigger/trigger.module';
       useFactory: (configService: ConfigService) => getDBConfig(configService),
       inject: [ConfigService],
     }),
+    LoggingModule,
     OrdersModule,
     GtpModule,
     StationsModule,

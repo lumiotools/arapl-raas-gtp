@@ -7,6 +7,7 @@ import { Task, TaskStatus } from '../../entities/task.entity';
 import { StationRequest } from '../../entities/station-request.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { Inventory } from 'src/entities';
+import { LoggingService } from '../../services/logging.service';
 
 @Injectable()
 export class TriggerService {
@@ -22,6 +23,7 @@ export class TriggerService {
     @InjectRepository(Inventory)
     private readonly inventoryRepository: Repository<Inventory>,
     private readonly orchestratorService: OrchestratorService,
+    private readonly loggingService: LoggingService,
   ) {}
 
   async triggerStationAction(stationId: string) {
@@ -62,6 +64,9 @@ export class TriggerService {
     );
 
     currentTask.status = TaskStatus.TRIGERRED;
+
+    // Log trigger action
+    await this.loggingService.log(`Station ${stationId} triggered successfully - Task ${currentTask.task_id} status updated to TRIGGERED`);
 
     // Note: Station will become available when webhook receives PROCESSING status
     // for the next task that has this station as source location

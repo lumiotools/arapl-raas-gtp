@@ -12,3 +12,4 @@ export { Wait, WaitType, WaitStatus, FallbackAction } from './wait.entity';
 export { Cargo, CargoDimension, CargoAttribute } from './cargo.entity';
 export { StationRequest } from './station-request.entity';
 export { ProductRequirement } from './product-requirement.entity';
+export { Log } from './log.entity';
