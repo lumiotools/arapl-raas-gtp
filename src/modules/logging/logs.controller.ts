@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Param, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Query, Param, HttpStatus, Delete } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { LoggingService } from '../../services/logging.service';
 
@@ -15,7 +15,7 @@ export class LogsController {
   @ApiQuery({
     name: 'limit',
     required: false,
-    description: 'Maximum number of logs to return',
+    description: 'Maximum number of logs to return (optional - returns all logs if not specified)',
     example: 100
   })
   @ApiResponse({
@@ -34,7 +34,7 @@ export class LogsController {
     }
   })
   async getAllLogs(@Query('limit') limit?: number) {
-    return await this.loggingService.getAllLogs(limit || 100);
+    return await this.loggingService.getAllLogs(limit);
   }
 
   @Get('search')
@@ -97,5 +97,34 @@ export class LogsController {
     const start = new Date(startTime);
     const end = new Date(endTime);
     return await this.loggingService.getLogsByTimeRange(start, end, limit || 1000);
+  }
+
+  @Delete()
+  @ApiOperation({
+    summary: 'Delete all logs',
+    description: 'Delete all log entries from the system. This action cannot be undone.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'All logs deleted successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        deletedCount: { type: 'number', example: 150 },
+        message: { type: 'string', example: 'Successfully deleted 150 log entries' },
+        timestamp: { type: 'string', format: 'date-time', example: '2024-01-01T00:00:00.000Z' }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Failed to delete logs'
+  })
+  async deleteAllLogs() {
+    const result = await this.loggingService.deleteAllLogs();
+    return {
+      ...result,
+      timestamp: new Date()
+    };
   }
 }

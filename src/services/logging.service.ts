@@ -27,11 +27,19 @@ export class LoggingService {
   }
 
   // Query methods for retrieving logs
-  async getAllLogs(limit: number = 100): Promise<Log[]> {
-    return await this.logRepository.find({
+  async getAllLogs(limit?: number): Promise<Log[]> {
+    const query = this.logRepository.find({
       order: { timestamp: 'DESC' },
-      take: limit,
     });
+    
+    if (limit) {
+      return await this.logRepository.find({
+        order: { timestamp: 'DESC' },
+        take: limit,
+      });
+    }
+    
+    return await query;
   }
 
   async getLogsByTimeRange(startTime: Date, endTime: Date, limit: number = 1000): Promise<Log[]> {
@@ -50,5 +58,28 @@ export class LoggingService {
       .orderBy('log.timestamp', 'DESC')
       .limit(limit)
       .getMany();
+  }
+
+  // Delete all logs
+  async deleteAllLogs(): Promise<{ deletedCount: number; message: string }> {
+    try {
+      // Get count before deletion
+      const countBefore = await this.logRepository.count();
+      
+      // Use clear() method to delete all records
+      await this.logRepository.clear();
+      
+      const deletedCount = countBefore;
+      
+      await this.log(`All logs cleared - ${deletedCount} entries deleted`);
+      
+      return {
+        deletedCount,
+        message: `Successfully deleted ${deletedCount} log entries`
+      };
+    } catch (error) {
+      this.logger.error(`Failed to delete all logs: ${error.message}`);
+      throw error;
+    }
   }
 }
