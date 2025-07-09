@@ -1,8 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderItem, OrderItemStatus } from 'src/entities/order-item.entity';
 import { Task, TaskType, TaskStatus } from 'src/entities/task.entity';
@@ -1715,5 +1715,15 @@ export class OrchestratorService {
 
     this.logger.log(`Loaded ${productRequirements.length} product requirements from database`);
     return productRequirements;
+  }
+
+  async getTaskbyID(taskId: string): Promise<Task> {
+    const task = await this.taskRepository.findOne({
+      where: { task_id: parseInt(taskId) }, 
+    });
+    if (!task) {
+      throw new NotFoundException(`Task with ID ${taskId} not found`);
+    }
+    return task;
   }
 }

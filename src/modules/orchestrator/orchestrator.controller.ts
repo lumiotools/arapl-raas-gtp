@@ -262,4 +262,122 @@ export class OrchestratorController {
   async getAllTasks() {
     return await this.orchestratorService.getAllTasks();
   }
+
+  @Get('tasks/:taskId')
+  @ApiOperation({
+    summary: 'Get task by task ID',
+    description: 'Retrieve a specific task by its task_id with complete details including locations, status, and dependencies.',
+  })
+  @ApiParam({ name: 'taskId', description: 'Task ID', example: '123' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved the task',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Task 123 retrieved successfully' },
+        data: {
+          type: 'object',
+          properties: {
+            task_id: { type: 'number', example: 123 },
+            batch_id: { type: 'string', example: 'B1641234567' },
+            product_id: { type: 'string', example: 'PROD001' },
+            quantity: { type: 'number', example: 10 },
+            task_type: { type: 'string', example: 'GOODS_TO_PERSON' },
+            sequence_order: { type: 'number', example: 1 },
+            task_dependency: { type: 'number', example: null },
+            status: { type: 'string', example: 'COMPLETED' },
+            robot_id: { type: 'string', example: 'ROBOT_001' },
+            start_location: { type: 'string', example: 'INV_LOC_001' },
+            end_location: { type: 'string', example: 'STATION_A' },
+            created_at: { type: 'string', example: '2024-01-15T10:30:00Z' },
+            updated_at: { type: 'string', example: '2024-01-15T11:00:00Z' }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Task not found',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Task with ID 123 not found' },
+        error: { type: 'string', example: 'Not Found' },
+        statusCode: { type: 'number', example: 404 }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Internal server error',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Failed to retrieve task: Database connection error' },
+        error: { type: 'string', example: 'Internal Server Error' },
+        statusCode: { type: 'number', example: 500 }
+      }
+    }
+  })
+
+  @Get('tasks/:taskId')
+  @ApiOperation({
+    summary: 'Get task by task ID',
+    description: 'Retrieve detailed information about a specific task using its task ID.',
+  })
+  @ApiParam({
+    name: 'taskId',
+    type: 'string',
+    description: 'The unique identifier of the task',
+    example: '123'
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Task retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'number', example: 123 },
+        batch_id: { type: 'number', example: 1 },
+        product_id: { type: 'string', example: 'P001' },
+        from_location_id: { type: 'string', example: 'L001' },
+        to_location_id: { type: 'string', example: 'S001' },
+        quantity: { type: 'number', example: 5 },
+        status: { type: 'string', example: 'PENDING', enum: ['PENDING', 'IN_PROGRESS', 'COMPLETED'] },
+        priority: { type: 'number', example: 1 },
+        created_at: { type: 'string', format: 'date-time', example: '2024-01-01T00:00:00.000Z' },
+        updated_at: { type: 'string', format: 'date-time', example: '2024-01-01T00:00:00.000Z' }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Task not found',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Task with ID 123 not found' },
+        error: { type: 'string', example: 'Not Found' },
+        statusCode: { type: 'number', example: 404 }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid task ID format',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Invalid task ID format' },
+        error: { type: 'string', example: 'Bad Request' },
+        statusCode: { type: 'number', example: 400 }
+      }
+    }
+  })
+  async getTaskById(@Param('taskId') taskId: string) {
+    return await this.orchestratorService.getTaskbyID(taskId);
+  }
 }
