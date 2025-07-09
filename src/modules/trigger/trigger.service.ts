@@ -194,4 +194,93 @@ export class TriggerService {
       timestamp: new Date(),
     };
   }
+
+  async skipStationAction(stationId: string) {
+    // Find the station
+    const station = await this.stationRepository.findOne({
+      where: { station_id: stationId },
+    });
+
+    if (!station) {
+      throw new NotFoundException(`Station with ID ${stationId} not found`);
+    }
+
+    // Check if station is OCCUPIED (not RESERVED)
+    if (station.status !== LocationStatus.OCCUPIED) {
+      if (station.status === LocationStatus.RESERVED) {
+        throw new ConflictException(`Can't skip now - station ${stationId} is reserved`);
+      }
+      throw new ConflictException(`Can't skip - station ${stationId} is not occupied (current status: ${station.status})`);
+    }
+
+    // Find the task that is holding this station
+    if (!station.holded_by) {
+      throw new NotFoundException(`No task is currently holding station ${stationId}`);
+    }
+
+    const currentTask = await this.taskRepository.findOne({
+      where: { task_id: station.holded_by },
+    });
+
+    if (!currentTask) {
+      throw new NotFoundException(`No task found holding station ${stationId}`);
+    }
+
+    // Mark current task as TRIGGERED (skipped)
+    await this.taskRepository.update(
+      { task_id: currentTask.task_id },
+      { status: TaskStatus.TRIGERRED }
+    );
+
+    currentTask.status = TaskStatus.TRIGERRED;
+
+    // Log skip action
+    await this.loggingService.log(`Station ${stationId} skipped - Task ${currentTask.task_id} marked as TRIGGERED without processing (quantity preserved: ${currentTask.quantity})`);
+
+    // Create next task with same quantity (no quantity drop occurred)
+    const nextTaskResult = await this.createNextTaskForSkip(currentTask);
+
+    return {
+      message: `Station ${stationId} skipped successfully`,
+      skipped_task: {
+        task_id: currentTask.task_id,
+        batch_id: currentTask.batch_id,
+        product_id: currentTask.product_id,
+        previous_status: 'COMPLETED',
+        new_status: 'TRIGGERED',
+        quantity: currentTask.quantity,
+        skipped_station: stationId
+      },
+      next_task: nextTaskResult,
+      station: {
+        station_id: stationId,
+        status: station.status,
+        message: 'Station remains occupied until next task starts processing'
+      },
+      timestamp: new Date(),
+    };
+  }
+
+  private async createNextTaskForSkip(currentTask: Task) {
+    try {
+      // For skip operations, call orchestrator with isSkipOperation=true
+      // This preserves full quantity and doesn't update product requirements
+      await this.orchestratorService.handleTaskCompletion(currentTask, true);
+
+      await this.loggingService.log(`Skip operation completed for task ${currentTask.task_id} - orchestrator handled next task creation with full quantity ${currentTask.quantity} (no product requirements updated)`);
+
+      // Return a generic response since orchestrator handles the actual task creation
+      return {
+        task_id: 'TBD', // Will be created by orchestrator
+        destination: 'TBD', // Will be determined by orchestrator
+        quantity: currentTask.quantity,
+        status: 'PENDING',
+        type: 'ORCHESTRATOR_MANAGED',
+        note: 'Next task creation handled by orchestrator service with preserved quantity'
+      };
+    } catch (error) {
+      await this.loggingService.log(`Error in skip operation for task ${currentTask.task_id}: ${error.message}`);
+      throw error;
+    }
+  }
 }

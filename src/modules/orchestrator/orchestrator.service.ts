@@ -946,14 +946,15 @@ export class OrchestratorService {
   }
 
   // Method to be called from trigger when a task completes at a station
-  async handleTaskCompletion(completedTask: Task): Promise<void> {
+  async handleTaskCompletion(completedTask: Task, isSkipOperation: boolean = false): Promise<void> {
     // Prevent duplicate processing - only handle TRIGERRED tasks ONCE
     if (completedTask.status !== TaskStatus.TRIGERRED) {
       this.logger.warn(`Task ${completedTask.task_id} is not in TRIGERRED status (current: ${completedTask.status}) - skipping completion handling`);
       return;
     }
 
-    this.logger.log(`Handling task completion for task ${completedTask.task_id} at station - TRIGGERED is the final state`);
+    const operationType = isSkipOperation ? 'skip' : 'normal completion';
+    this.logger.log(`Handling task ${operationType} for task ${completedTask.task_id} at station - TRIGGERED is the final state`);
     
     try {
       // DUPLICATE PREVENTION: Check if a next task already exists with this task as dependency
@@ -966,36 +967,47 @@ export class OrchestratorService {
 
       if (existingNextTask) {
         this.logger.warn(`⚠️  Next task ${existingNextTask.task_id} already exists with dependency on completed task ${completedTask.task_id} - skipping duplicate creation`);
-        // Still remove product requirement and check batch completion
-        // const currentStationId = completedTask.end_location.location_id;
-        // await this.removeProductRequirement(completedTask.product_id, currentStationId);
-        // await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
         return;
       }
 
-      // Calculate remaining quantity after dropping required amount at current station
-      const remainingQuantity = await this.calculateRemainingQuantityAfterDrop(completedTask);
-      const droppedQuantity = completedTask.quantity - remainingQuantity;
-      const firstTask = await this.taskRepository.findOne({
-        where: {
-          batch_id: completedTask.batch_id,
-          sequence_order: 1
+      let remainingQuantity: number;
+      let droppedQuantity: number;
+
+      if (isSkipOperation) {
+        // For skip operations: preserve full quantity, no drops, no product requirement updates
+        remainingQuantity = completedTask.quantity;
+        droppedQuantity = 0;
+        this.logger.log(`⏩ Skip operation: preserving full quantity ${remainingQuantity} - no drops at station`);
+        await this.loggingService.log(`Skip task ${completedTask.task_id}: preserved quantity ${remainingQuantity}, no product requirements updated`);
+      } else {
+        // For normal completion: calculate dropped quantity and update requirements
+        remainingQuantity = await this.calculateRemainingQuantityAfterDrop(completedTask);
+        droppedQuantity = completedTask.quantity - remainingQuantity;
+        
+        // Update inventory quantity (reduce by dropped amount)
+        const firstTask = await this.taskRepository.findOne({
+          where: {
+            batch_id: completedTask.batch_id,
+            sequence_order: 1
+          }
+        });
+        const inventoryId = firstTask?.start_location?.location_id || completedTask.start_location?.location_id;
+        const inventory = await this.inventoryRepository.findOne({
+          where: { id: inventoryId }
+        });
+        if (!inventory) {
+          this.logger.error(`Inventory not found for task ${completedTask.task_id} - cannot proceed with next steps`);
+          return;
         }
-      });
-      const inventoryId = firstTask?.start_location?.location_id || completedTask.start_location?.location_id;
-      const inventory = await this.inventoryRepository.findOne({
-        where: { id: inventoryId }
-      });
-      if (!inventory) {
-        this.logger.error(`Inventory not found for task ${completedTask.task_id} - cannot proceed with next steps`);
-        return;
-      }
-      inventory.quantity_in_system -= droppedQuantity;
-      await this.inventoryRepository.save(inventory);
+        inventory.quantity_in_system -= droppedQuantity;
+        await this.inventoryRepository.save(inventory);
 
-      // Remove the fulfilled product requirement from database (quantity has been dropped at this station)
-      const currentStationId = completedTask.end_location.location_id;
-      await this.removeProductRequirement(completedTask.product_id, currentStationId, droppedQuantity);
+        // Remove the fulfilled product requirement from database (quantity has been dropped at this station)
+        const currentStationId = completedTask.end_location.location_id;
+        await this.removeProductRequirement(completedTask.product_id, currentStationId, droppedQuantity);
+        
+        this.logger.log(`📦 Normal completion: dropped ${droppedQuantity} units, remaining ${remainingQuantity} units`);
+      }
       
       if (remainingQuantity > 0) {
         // Still have quantity to process - check for more stations
