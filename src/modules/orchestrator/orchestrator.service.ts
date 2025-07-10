@@ -234,6 +234,11 @@ export class OrchestratorService {
 
     const effectiveSystemRequirement = totalDataBaseRequirement - prod_qty_in_system;
 
+    if (effectiveSystemRequirement <= 0) {
+      this.logger.log(`No additional requirement for product ${productId} - already satisfied by current inventory`);
+      return;
+    }   
+
     // filter inventories - status - available and quantity > 0
     const filteredInventories = allInventories.filter(inv => 
       inv.status === LocationStatus.AVAILABLE && inv.quantity > 0
@@ -282,9 +287,15 @@ export class OrchestratorService {
           this.logger.warn(`Task ${taskId} not found for waiting location ${waitingLocation.location_id}`);
           continue;
         }
+        if (task.product_id !== productId) {
+          this.logger.warn(`Task ${taskId} product ${task.product_id} does not match required product ${productId} for waiting location ${waitingLocation.location_id}`);
+          continue;
+        }
 
         // Check if this task's product is in the current requirements
         const hasRequirement = databaseRequirement.some(req => req.product_id === task.product_id);
+        console.log(`database requirements: ${JSON.stringify(databaseRequirement)}`);
+        console.log(`hasRequirement: ${hasRequirement}`);
         if (!hasRequirement) {
           // Product not in current requirements - return to original inventory
           const firstTaskInBatch = await this.taskRepository.findOne({
