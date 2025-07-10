@@ -234,10 +234,7 @@ export class OrchestratorService {
 
     const effectiveSystemRequirement = totalDataBaseRequirement - prod_qty_in_system;
 
-    if (effectiveSystemRequirement <= 0) {
-      this.logger.log(`No additional requirement for product ${productId} - already satisfied by current inventory`);
-      return;
-    }   
+    
 
     // filter inventories - status - available and quantity > 0
     const filteredInventories = allInventories.filter(inv => 
@@ -247,10 +244,7 @@ export class OrchestratorService {
     // Step 7: Find minimum combination of inventories to satisfy the requirement
     const selectedInventories = this.selectOptimalInventories(filteredInventories, effectiveSystemRequirement);
     
-    if (selectedInventories.length === 0) {
-      this.logger.error(`No valid inventories found for product ${productId} - all inventories have zero quantity`);
-      return;
-    }
+    
 
     const totalSelectedQuantity = selectedInventories.reduce((sum, inv) => sum + inv.quantity, 0);
     
@@ -272,6 +266,7 @@ export class OrchestratorService {
         holded_by: Not(IsNull())
       }
     });
+    console.log(`waiting locations: ${JSON.stringify(waitingLocations)}`);
     if (waitingLocations.length > 0) {
       this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
       for (const waitingLocation of waitingLocations) {
@@ -294,6 +289,7 @@ export class OrchestratorService {
 
         // Check if this task's product is in the current requirements
         const hasRequirement = productRequirements.some(req => req.productId === task.product_id);
+        console.log(`task product: ${task.product_id}, productId: ${productId}, hasRequirement: ${hasRequirement}`);
         if (!hasRequirement) {
           // Product not in current requirements - return to original inventory
           const firstTaskInBatch = await this.taskRepository.findOne({
@@ -359,6 +355,14 @@ export class OrchestratorService {
           continue;
         }
         if (task.product_id == productId && task.quantity > 0){
+          const lastTaskOfBatch = await this.taskRepository.findOne({
+            where: { batch_id: task.batch_id},
+            order: { sequence_order: 'DESC' }
+          });
+          if (!lastTaskOfBatch) {
+            this.logger.warn(`Last task not found for batch ${task.batch_id} - cannot determine original inventory`);
+            continue;
+          }
           for (const stat in sortedStations){
             const stationID = sortedStations[stat].station_id;
             const station = await  this.stationRepository.findOne({
@@ -370,8 +374,7 @@ export class OrchestratorService {
             }
             if (station.status === LocationStatus.AVAILABLE) {
               // Create a task to return the product to inventory
-              const batchId = await this.generateBatchId();
-              await this.createBatch(batchId, allInventories[0], productId); // Use first inventory as source
+              const batchId = lastTaskOfBatch.batch_id || await this.generateBatchId();
               
               const returnTaskId = await this.createTask({
                 batchId,
@@ -380,8 +383,8 @@ export class OrchestratorService {
                 destinationStationId: station.station_id,
                 quantity: task.quantity,
                 taskType: TaskType.GOODS_TO_PERSON,
-                sequenceOrder: 1,
-                taskDependency: null
+                sequenceOrder: lastTaskOfBatch.sequence_order + 1, // Next sequence order
+                taskDependency: lastTaskOfBatch.task_id // Use last task of batch as dependency
               });
               const returnTask = await this.taskRepository.findOne({
                 where: { task_id: returnTaskId }
@@ -398,6 +401,16 @@ export class OrchestratorService {
           }
         }
       }
+    }
+
+    if (effectiveSystemRequirement <= 0) {
+      this.logger.log(`No additional requirement for product ${productId} - already satisfied by current inventory`);
+      return;
+    }   
+
+    if (selectedInventories.length === 0) {
+      this.logger.error(`No valid inventories found for product ${productId} - all inventories have zero quantity`);
+      return;
     }
     
     // Step 8: Create separate batch for each SELECTED inventory only
