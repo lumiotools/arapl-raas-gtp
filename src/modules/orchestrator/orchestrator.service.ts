@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
-import { firstValueFrom, last, take } from 'rxjs';
+import { firstValueFrom, last, min, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderItem, OrderItemStatus } from 'src/entities/order-item.entity';
 import { Task, TaskType, TaskStatus } from 'src/entities/task.entity';
@@ -1016,7 +1016,7 @@ export class OrchestratorService {
         // For normal completion: calculate dropped quantity and update requirements
         remainingQuantity = await this.calculateRemainingQuantityAfterDrop(completedTask);
         droppedQuantity = completedTask.quantity - remainingQuantity;
-        
+
         // Update inventory quantity (reduce by dropped amount)
         const firstTask = await this.taskRepository.findOne({
           where: {
@@ -1323,6 +1323,7 @@ export class OrchestratorService {
 
   private async removeProductRequirement(productId: string, stationId: string, droppedQuantity: number): Promise<void> {
     try {
+      this.logger.log(`Removing product requirement for Product ${productId} at Station ${stationId} - dropped quantity: ${droppedQuantity}`);
       const existingRequirement = await this.productRequirementRepository.findOne({
         where: { product_id: productId, station_id: stationId }
       });
@@ -1331,6 +1332,34 @@ export class OrchestratorService {
         return;
       }
       existingRequirement.requirement -= droppedQuantity;
+      const gtpLocations = await this.gtpLocationRepository.find({
+        where: { station_id: stationId}
+      });
+      console.log(`GTP Locations for Station ${stationId}:`, JSON.stringify(gtpLocations, null, 2));
+      for (const gtpLocation of gtpLocations) {
+        const order_item = await this.orderItemRepository.findOne({
+          where: { assigned_gtp_location: gtpLocation.gtp_location_id }
+        });
+        console.log(`Order Item for GTP Location ${gtpLocation.gtp_location_id}:`, JSON.stringify(order_item, null, 2));
+        console.log(`Order Item Product ID: ${order_item ? order_item.product_id : 'None'}`);
+        if (order_item && order_item.product_id == productId   ) {
+          console.log(`Processing Order Item ${order_item.order_item_id} for Product ${productId} at GTP Location ${gtpLocation.gtp_location_id}`);
+          if (droppedQuantity >= order_item.quantity) {
+            droppedQuantity -= order_item.quantity;
+            order_item.status = OrderItemStatus.COMPLETED;
+            order_item.assigned_gtp_location = null;
+            order_item.quantity = 0;
+            await this.orderItemRepository.save(order_item);
+          }
+          else{
+            droppedQuantity = 0;
+            order_item.quantity -= droppedQuantity;
+            await this.orderItemRepository.save(order_item);
+            break;
+          }
+          console.log(`Updated Order Item ${order_item.order_item_id} - new quantity: ${order_item.quantity}`);
+        }
+      }
       if (existingRequirement.requirement == 0){
         const result = await this.productRequirementRepository.delete({
           product_id: productId,
@@ -1348,6 +1377,29 @@ export class OrchestratorService {
         await this.productRequirementRepository.save(existingRequirement);
         this.logger.log(`Updated product requirement: Product ${productId} at Station ${stationId} - remaining requirement: ${existingRequirement.requirement}`);
       }
+      // const gtpLocations = await this.gtpLocationRepository.find({
+      //   where: { station_id: stationId}
+      // });
+      // for (const gtpLocation of gtpLocations) {
+      //   const order_item = await this.orderItemRepository.findOne({
+      //     where: { assigned_gtp_location: gtpLocation.gtp_location_id }
+      //   });
+      //   if (order_item) {
+      //     if (droppedQuantity >= order_item.quantity) {
+      //       droppedQuantity -= order_item.quantity;
+      //       order_item.status = OrderItemStatus.COMPLETED;
+      //       order_item.assigned_gtp_location = null;
+      //       order_item.quantity = 0;
+      //       await this.orderItemRepository.save(order_item);
+      //     }
+      //     else{
+      //       droppedQuantity = 0;
+      //       order_item.quantity -= droppedQuantity;
+      //       await this.orderItemRepository.save(order_item);
+      //       break;
+      //     }
+      //   }
+      // }
     } catch (error) {
       this.logger.error(`Failed to remove product requirement for Product ${productId} at Station ${stationId}:`, error);
     }
