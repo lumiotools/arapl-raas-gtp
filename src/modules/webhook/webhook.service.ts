@@ -131,9 +131,9 @@ export class WebhookService {
           await this.handleWaitingLocationCompletion(task);
           
           // Free robot when task is completed at waiting location
-          if (currentTask.robot_id) {
-            await this.freeRobot(currentTask.robot_id);
-          }
+          // if (currentTask.robot_id) {
+          //   await this.freeRobot(currentTask.robot_id);
+          // }
         } else if (destinationType === 'inventory') {
           // Task completed at inventory (return task) - free robot
           this.logger.log(`🏁 Task ${task.task_id} completed at inventory - freeing robot`);
