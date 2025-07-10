@@ -107,7 +107,7 @@ export class OrchestratorService {
       
       // Step 5-9: Process each product and create tasks
       for (const requirement of productRequirements) {
-        await this.processProductRequirement(requirement.productId);
+        await this.processProductRequirement(requirement.productId, productRequirements);
       }
 
       // After all batches are created, process first tasks
@@ -207,7 +207,7 @@ export class OrchestratorService {
     }
   }
 
-  private async processProductRequirement(productId: string) {
+  private async processProductRequirement(productId: string, productRequirements: ProductRequirement[]) {
     // Step 5: Get all inventories for this product
     const allInventories = await this.inventoryService.findAllByProductId(productId);
     
@@ -269,7 +269,7 @@ export class OrchestratorService {
     // first check waiting locations for this product.
     const waitingLocations = await this.waitingLocationRepository.find({
       where: {
-      holded_by: Not(IsNull())
+        holded_by: Not(IsNull())
       }
     });
     if (waitingLocations.length > 0) {
@@ -287,15 +287,13 @@ export class OrchestratorService {
           this.logger.warn(`Task ${taskId} not found for waiting location ${waitingLocation.location_id}`);
           continue;
         }
-        if (task.product_id !== productId) {
-          this.logger.warn(`Task ${taskId} product ${task.product_id} does not match required product ${productId} for waiting location ${waitingLocation.location_id}`);
-          continue;
-        }
+        // if (task.product_id !== productId) {
+        //   this.logger.warn(`Task ${taskId} product ${task.product_id} does not match required product ${productId} for waiting location ${waitingLocation.location_id}`);
+        //   continue;
+        // }
 
         // Check if this task's product is in the current requirements
-        const hasRequirement = databaseRequirement.some(req => req.product_id === task.product_id);
-        console.log(`database requirements: ${JSON.stringify(databaseRequirement)}`);
-        console.log(`hasRequirement: ${hasRequirement}`);
+        const hasRequirement = productRequirements.some(req => req.productId === task.product_id);
         if (!hasRequirement) {
           // Product not in current requirements - return to original inventory
           const firstTaskInBatch = await this.taskRepository.findOne({
