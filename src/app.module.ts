@@ -12,6 +12,7 @@ import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { TriggerModule } from './modules/trigger/trigger.module';
 import { LoggingModule } from './modules/logging/logging.module';
+import { DatabaseResetModule } from './modules/database-reset/database-reset.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { LoggingModule } from './modules/logging/logging.module';
     OrchestratorModule,
     WebhookModule,
     TriggerModule,
+    DatabaseResetModule,
   ],
   controllers: [],
   providers: [],
