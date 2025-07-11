@@ -1,18 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import {
-  OrderItem,
-  Order,
-  StationRequest,
-  ProductRequirement,
-  Task,
-  Batch,
-  Inventory,
-  Station,
-  WaitingLocation,
-} from '../../entities';
-import { LocationStatus } from '../../entities/station.entity';
-import { WaitingLocationStatus } from '../../entities/waiting-location.entity';
 import { ResetResponseDto } from './dto/reset-response.dto';
 
 @Injectable()
