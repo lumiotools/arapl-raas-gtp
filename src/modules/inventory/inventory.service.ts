@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Product } from 'src/entities/product.entity';
 import { UploadInventoryResponseDto } from './dto/upload-inventory-response.dto';
+import { ProductRequirement } from 'src/entities/product-requirement.entity';
 
 @Injectable()
 export class InventoryService {
@@ -14,6 +15,8 @@ export class InventoryService {
     private readonly inventoryRepository: Repository<Inventory>,
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    @InjectRepository(ProductRequirement)
+    private readonly productRequirementRepository: Repository<ProductRequirement>,
   ) {}
 
   async create(createInventoryDto: Inventory) {
@@ -55,9 +58,42 @@ export class InventoryService {
   }
 
   async findAll() {
-    return await this.inventoryRepository.find({
+    const inventories = await this.inventoryRepository.find({
       relations: ['product']
     });
+
+    // Calculate priorities for all inventories
+    const inventoriesWithPriority = await this.addPriorityToInventories(inventories);
+    return inventoriesWithPriority;
+  }
+
+  private async addPriorityToInventories(inventories: Inventory[]) {
+    // Get all product requirements to calculate total demand per product
+    const productRequirements = await this.productRequirementRepository.find();
+    
+    // Calculate total requirement per product
+    const productDemandMap = new Map<string, number>();
+    for (const req of productRequirements) {
+      const currentDemand = productDemandMap.get(req.product_id) || 0;
+      productDemandMap.set(req.product_id, currentDemand + req.requirement);
+    }
+
+    // Get max demand to normalize priorities (0-100 scale)
+    const maxDemand = Math.max(...Array.from(productDemandMap.values()), 1);
+
+    // Add priority to each inventory item
+    return inventories.map(inventory => ({
+      ...inventory,
+      priority: this.calculatePriority(inventory.product_id, productDemandMap, maxDemand)
+    }));
+  }
+
+  private calculatePriority(productId: string, demandMap: Map<string, number>, maxDemand: number): number {
+    const demand = demandMap.get(productId) || 0;
+    
+    // Normalize to 0-100 scale (higher demand = higher priority)
+    const priority = Math.round((demand / maxDemand) * 100);
+    return priority;
   }
 
   async findOne(id: string) {
