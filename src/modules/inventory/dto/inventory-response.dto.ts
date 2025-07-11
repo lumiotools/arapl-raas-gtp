@@ -30,4 +30,10 @@ export class InventoryResponseDto {
     example: '2024-01-15T10:30:00.000Z',
   })
   updated_at: Date;
+
+  @ApiProperty({
+    description: 'Priority based on order demand (higher number = higher priority)',
+    example: 85,
+  })
+  priority: number;
 }
