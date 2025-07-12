@@ -18,6 +18,7 @@ import { Wait, WaitType, WaitStatus, FallbackAction } from 'src/entities/wait.en
 import { Cargo, CargoDimension, CargoAttribute } from 'src/entities/cargo.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { LoggingService } from '../../services/logging.service';
+import { MessageCode } from '../trigger/trigger.controller';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -979,7 +980,7 @@ export class OrchestratorService {
   }
 
   // Method to be called from trigger when a task completes at a station
-  async handleTaskCompletion(completedTask: Task, isSkipOperation: boolean = false): Promise<void> {
+  async handleTaskCompletion(completedTask: Task, isSkipOperation: boolean = false , dropped_quantity: number, message_code: MessageCode): Promise<void> {
     // Prevent duplicate processing - only handle TRIGERRED tasks ONCE
     if (completedTask.status !== TaskStatus.TRIGERRED) {
       this.logger.warn(`Task ${completedTask.task_id} is not in TRIGERRED status (current: ${completedTask.status}) - skipping completion handling`);
@@ -1008,14 +1009,14 @@ export class OrchestratorService {
 
       if (isSkipOperation) {
         // For skip operations: preserve full quantity, no drops, no product requirement updates
-        remainingQuantity = completedTask.quantity;
-        droppedQuantity = 0;
+        remainingQuantity = completedTask.quantity - dropped_quantity;
+        droppedQuantity = dropped_quantity;
         this.logger.log(`⏩ Skip operation: preserving full quantity ${remainingQuantity} - no drops at station`);
         await this.loggingService.log(`Skip task ${completedTask.task_id}: preserved quantity ${remainingQuantity}, no product requirements updated`);
       } else {
         // For normal completion: calculate dropped quantity and update requirements
-        remainingQuantity = await this.calculateRemainingQuantityAfterDrop(completedTask);
-        droppedQuantity = completedTask.quantity - remainingQuantity;
+        remainingQuantity = completedTask.quantity - dropped_quantity;
+        droppedQuantity = dropped_quantity;
 
         // Update inventory quantity (reduce by dropped amount)
         const firstTask = await this.taskRepository.findOne({

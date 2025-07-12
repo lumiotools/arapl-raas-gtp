@@ -5,6 +5,7 @@ import {
   Param,
   HttpStatus,
   HttpException,
+  Body,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -14,8 +15,16 @@ import {
   ApiBadRequestResponse,
   ApiNotFoundResponse,
   ApiConflictResponse,
+  ApiBody,
 } from '@nestjs/swagger';
 import { TriggerService } from './trigger.service';
+
+export enum MessageCode {
+  NO_PROBLEM = 'NO_PROBLEM',
+  INSUFFICIENT_QUANTITY = 'INSUFFICIENT_QUANTITY',
+  OTHER = 'OTHER',
+  NOT_REQUIRED = 'NOT_REQUIRED',
+}
 
 @ApiTags('Trigger')
 @Controller('trigger')
@@ -31,6 +40,21 @@ export class TriggerController {
     name: 'station_id',
     description: 'The ID of the station to trigger',
     example: 'ST001',
+  })
+  @ApiBody({
+    description: 'Trigger station action payload',
+    schema: {
+      type: 'object',
+      properties: {
+        dropped_quantity: { type: 'integer', example: 5 },
+        message_code: {
+          type: 'string',
+          enum: Object.values(MessageCode),
+          example: 'NO_PROBLEM',
+        },
+      },
+      required: ['dropped_quantity', 'message_code'],
+    },
   })
   @ApiOkResponse({
     description: 'Station triggered successfully',
@@ -75,9 +99,10 @@ export class TriggerController {
   })
   async triggerStation(
     @Param('station_id') stationId: string,
+    @Body() body: { dropped_quantity: number; message_code: MessageCode }
   ) {
     try {
-      const result = await this.triggerService.triggerStationAction(stationId);
+      const result = await this.triggerService.triggerStationAction(stationId, body.dropped_quantity, body.message_code);
       return {
         success: true,
         data: result,
@@ -292,5 +317,27 @@ export class TriggerController {
         HttpStatus.BAD_REQUEST,
       );
     }
+  }
+
+  @Get('message-codes')
+  @ApiOperation({
+    summary: 'Get all message codes',
+    description: 'Returns all possible message codes for station trigger actions.'
+  })
+  @ApiOkResponse({
+    description: 'List of message codes',
+    schema: {
+      type: 'object',
+      properties: {
+        codes: {
+          type: 'array',
+          items: { type: 'string', enum: Object.values(MessageCode) },
+          example: Object.values(MessageCode)
+        }
+      }
+    }
+  })
+  getMessageCodes() {
+    return { codes: Object.values(MessageCode) };
   }
 }
