@@ -84,8 +84,6 @@ export class OrchestratorService {
     this.logger.log('Starting orchestrator process...');
     
     try {
-      
-
       // Step 3 & 4: Calculate product requirements and sort by descending order
       let productRequirements: ProductRequirement[];
       
@@ -105,14 +103,10 @@ export class OrchestratorService {
         // Automatic trigger: Load from product_requirement table
         productRequirements = await this.loadProductRequirementsFromDatabase();
       }
-      
-      // Step 5-9: Process each product and create tasks
+      // now process all the product requirements
       for (const requirement of productRequirements) {
         await this.processProductRequirement(requirement.productId, productRequirements);
       }
-
-      // After all batches are created, process first tasks
-      // await this.processFirstTasks();
 
       this.logger.log(`Orchestrator process completed successfully`);
       return { message: 'Orchestrator process completed successfully' };
@@ -209,9 +203,10 @@ export class OrchestratorService {
   }
 
   private async processProductRequirement(productId: string, productRequirements: ProductRequirement[]) {
-    // Step 5: Get all inventories for this product
+    // Get all inventories for this product
     const allInventories = await this.inventoryService.findAllByProductId(productId);
     
+    // no inventory for this product was found
     if (!allInventories || allInventories.length === 0) {
       this.logger.warn(`No inventories found for product ${productId}`);
       return;
@@ -235,17 +230,12 @@ export class OrchestratorService {
 
     const effectiveSystemRequirement = totalDataBaseRequirement - prod_qty_in_system;
 
-    
-
     // filter inventories - status - available and quantity > 0
     const filteredInventories = allInventories.filter(inv => 
       inv.status === LocationStatus.AVAILABLE && inv.quantity > 0
     );
 
-    // Step 7: Find minimum combination of inventories to satisfy the requirement
     const selectedInventories = this.selectOptimalInventories(filteredInventories, effectiveSystemRequirement);
-    
-    
 
     const totalSelectedQuantity = selectedInventories.reduce((sum, inv) => sum + inv.quantity, 0);
     
@@ -405,12 +395,12 @@ export class OrchestratorService {
     }
 
     if (effectiveSystemRequirement <= 0) {
-      this.logger.log(`No additional requirement for product ${productId} - already satisfied by current inventory`);
+      this.logger.warn(`No additional requirement for product ${productId} - already satisfied by current inventory`);
       return;
     }   
 
     if (selectedInventories.length === 0) {
-      this.logger.error(`No valid inventories found for product ${productId} - all inventories have zero quantity`);
+      this.logger.warn(`No valid inventories found for product ${productId} - all inventories have zero quantity`);
       return;
     }
     

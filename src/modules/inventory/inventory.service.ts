@@ -127,11 +127,6 @@ export class InventoryService {
       where: { product_id: productId },
       relations: ['product']
     });
-    
-    if (!inventories || inventories.length === 0) {
-      throw new NotFoundException(`No inventories found for product ${productId}`);
-    }
-    
     return inventories;
   }
 
