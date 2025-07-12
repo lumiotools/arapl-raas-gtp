@@ -294,4 +294,24 @@ export class InventoryService {
       throw new BadRequestException(`Failed to process CSV file: ${error.message}`);
     }
   }
+
+  async updateBarcodeImage(
+    id: string,
+    barcodeData: {
+      barcode_image: Buffer;
+      barcode_image_name: string;
+      barcode_image_mimetype: string;
+      barcode_image_size: number;
+    }
+  ): Promise<Inventory> {
+    const result = await this.inventoryRepository.update(id, barcodeData);
+    
+    if (result.affected === 0) {
+      throw new NotFoundException(`Inventory item with ID ${id} not found`);
+    }
+
+    // Return the updated inventory item
+    const updatedInventory = await this.findOne(id);
+    return updatedInventory!;
+  }
 }
