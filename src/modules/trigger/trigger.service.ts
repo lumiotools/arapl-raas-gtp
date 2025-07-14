@@ -9,6 +9,7 @@ import { StationRequest } from '../../entities/station-request.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { Inventory } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
+import { MessageCode } from './trigger.controller';
 
 @Injectable()
 export class TriggerService {
@@ -28,7 +29,7 @@ export class TriggerService {
     private readonly httpService: HttpService,
   ) {}
 
-  async triggerStationAction(stationId: string) {
+  async triggerStationAction(stationId: string, dropped_quantity: number, message_code: MessageCode) {
     // Find the station
     const station = await this.stationRepository.findOne({
       where: { station_id: stationId },
@@ -74,7 +75,7 @@ export class TriggerService {
     // for the next task that has this station as source location
 
     // Find and process the next task in sequence
-    await this.processNextTask(currentTask);
+    await this.processNextTask(currentTask, dropped_quantity, message_code);
 
     // Free the robot holding this station
     if (currentTask.robot_id) {
@@ -100,12 +101,12 @@ export class TriggerService {
     };
   }
 
-  private async processNextTask(completedTask: Task): Promise<void> {
+  private async processNextTask(completedTask: Task, dropped_quantity: number, message_code: MessageCode): Promise<void> {
     try {
       // Check if the completed task was at a station and handle station workflow
       if (completedTask.end_location?.location_attribute?.attribute_value === 'station') {
         console.log(`Task ${completedTask.task_id} completed at station - checking for next required stations`);
-        await this.orchestratorService.handleTaskCompletion(completedTask);
+        await this.orchestratorService.handleTaskCompletion(completedTask, false, dropped_quantity, message_code);
         return; // Exit early - orchestrator handles the rest
       }
 
@@ -277,7 +278,7 @@ export class TriggerService {
     try {
       // For skip operations, call orchestrator with isSkipOperation=true
       // This preserves full quantity and doesn't update product requirements
-      await this.orchestratorService.handleTaskCompletion(currentTask, true);
+      await this.orchestratorService.handleTaskCompletion(currentTask, true, 0, MessageCode.NOT_REQUIRED);
 
       await this.loggingService.log(`Skip operation completed for task ${currentTask.task_id} - orchestrator handled next task creation with full quantity ${currentTask.quantity} (no product requirements updated)`);
 

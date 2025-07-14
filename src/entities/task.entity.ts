@@ -20,6 +20,13 @@ export enum TaskType {
   GOODS_TO_PERSON = 'GoodsToPerson',
 }
 
+export  enum MOVE_TYPE {
+  INVENTORY_TO_STATION = 'InventoryToStation',
+  STATION_TO_INVENTORY = 'StationToInventory',
+  STATION_TO_STATION = 'StationToStation',
+}
+
+
 export enum TaskStatus {
   PENDING = 'PENDING',
   ASSIGNED = 'ASSIGNED',

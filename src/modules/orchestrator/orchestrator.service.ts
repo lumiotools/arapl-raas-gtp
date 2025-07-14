@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Not, Repository } from 'typeorm';
+import { IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, last, min, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -18,6 +18,7 @@ import { Wait, WaitType, WaitStatus, FallbackAction } from 'src/entities/wait.en
 import { Cargo, CargoDimension, CargoAttribute } from 'src/entities/cargo.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { LoggingService } from '../../services/logging.service';
+import { MessageCode } from '../trigger/trigger.controller';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -83,8 +84,6 @@ export class OrchestratorService {
     this.logger.log('Starting orchestrator process...');
     
     try {
-      
-
       // Step 3 & 4: Calculate product requirements and sort by descending order
       let productRequirements: ProductRequirement[];
       
@@ -104,14 +103,10 @@ export class OrchestratorService {
         // Automatic trigger: Load from product_requirement table
         productRequirements = await this.loadProductRequirementsFromDatabase();
       }
-      
-      // Step 5-9: Process each product and create tasks
+      // now process all the product requirements
       for (const requirement of productRequirements) {
         await this.processProductRequirement(requirement.productId, productRequirements);
       }
-
-      // After all batches are created, process first tasks
-      // await this.processFirstTasks();
 
       this.logger.log(`Orchestrator process completed successfully`);
       return { message: 'Orchestrator process completed successfully' };
@@ -208,9 +203,10 @@ export class OrchestratorService {
   }
 
   private async processProductRequirement(productId: string, productRequirements: ProductRequirement[]) {
-    // Step 5: Get all inventories for this product
+    // Get all inventories for this product
     const allInventories = await this.inventoryService.findAllByProductId(productId);
     
+    // no inventory for this product was found
     if (!allInventories || allInventories.length === 0) {
       this.logger.warn(`No inventories found for product ${productId}`);
       return;
@@ -234,17 +230,12 @@ export class OrchestratorService {
 
     const effectiveSystemRequirement = totalDataBaseRequirement - prod_qty_in_system;
 
-    
-
     // filter inventories - status - available and quantity > 0
     const filteredInventories = allInventories.filter(inv => 
       inv.status === LocationStatus.AVAILABLE && inv.quantity > 0
     );
 
-    // Step 7: Find minimum combination of inventories to satisfy the requirement
     const selectedInventories = this.selectOptimalInventories(filteredInventories, effectiveSystemRequirement);
-    
-    
 
     const totalSelectedQuantity = selectedInventories.reduce((sum, inv) => sum + inv.quantity, 0);
     
@@ -404,12 +395,12 @@ export class OrchestratorService {
     }
 
     if (effectiveSystemRequirement <= 0) {
-      this.logger.log(`No additional requirement for product ${productId} - already satisfied by current inventory`);
+      this.logger.warn(`No additional requirement for product ${productId} - already satisfied by current inventory`);
       return;
     }   
 
     if (selectedInventories.length === 0) {
-      this.logger.error(`No valid inventories found for product ${productId} - all inventories have zero quantity`);
+      this.logger.warn(`No valid inventories found for product ${productId} - all inventories have zero quantity`);
       return;
     }
     
@@ -979,7 +970,7 @@ export class OrchestratorService {
   }
 
   // Method to be called from trigger when a task completes at a station
-  async handleTaskCompletion(completedTask: Task, isSkipOperation: boolean = false): Promise<void> {
+  async handleTaskCompletion(completedTask: Task, isSkipOperation: boolean = false , dropped_quantity: number, message_code: MessageCode): Promise<void> {
     // Prevent duplicate processing - only handle TRIGERRED tasks ONCE
     if (completedTask.status !== TaskStatus.TRIGERRED) {
       this.logger.warn(`Task ${completedTask.task_id} is not in TRIGERRED status (current: ${completedTask.status}) - skipping completion handling`);
@@ -1008,14 +999,14 @@ export class OrchestratorService {
 
       if (isSkipOperation) {
         // For skip operations: preserve full quantity, no drops, no product requirement updates
-        remainingQuantity = completedTask.quantity;
-        droppedQuantity = 0;
+        remainingQuantity = completedTask.quantity - dropped_quantity;
+        droppedQuantity = dropped_quantity;
         this.logger.log(`⏩ Skip operation: preserving full quantity ${remainingQuantity} - no drops at station`);
         await this.loggingService.log(`Skip task ${completedTask.task_id}: preserved quantity ${remainingQuantity}, no product requirements updated`);
       } else {
         // For normal completion: calculate dropped quantity and update requirements
-        remainingQuantity = await this.calculateRemainingQuantityAfterDrop(completedTask);
-        droppedQuantity = completedTask.quantity - remainingQuantity;
+        remainingQuantity = completedTask.quantity - dropped_quantity;
+        droppedQuantity = dropped_quantity;
 
         // Update inventory quantity (reduce by dropped amount)
         const firstTask = await this.taskRepository.findOne({
@@ -1129,15 +1120,36 @@ export class OrchestratorService {
   private async createNextStationTask(completedTask: Task, remainingRequirements: ProductRequirementEntity[], remainingQuantity: number): Promise<void> {
     // Find next available station in priority order
     let nextAvailableStation: Station | null = null;
-
+    const currentStationId = completedTask.end_location.location_id;
+    const currentStationPriority = (await this.stationRepository.findOne({
+      where: { station_id: currentStationId }
+    }))?.priority || 999;
     for (const requirement of remainingRequirements) {
       const station = await this.stationRepository.findOne({
-        where: { station_id: requirement.station_id }
+        where: { station_id: requirement.station_id}
       });
-
+      if (station && (station.station_id == currentStationId || station.priority < currentStationPriority)) {
+        // Skip current station - already processed
+        continue;
+      }
       if (station && station.status === LocationStatus.AVAILABLE) {
         nextAvailableStation = station;
         break;
+      }
+    }
+    if (!nextAvailableStation) {
+      for (const requirement of remainingRequirements) {
+        const station = await this.stationRepository.findOne({
+          where: { station_id: requirement.station_id }
+        });
+        if (station && station.station_id == currentStationId) {
+          // Skip current station - already processed
+          continue;
+        }
+        if (station && station.status === LocationStatus.AVAILABLE) {
+          nextAvailableStation = station;
+          break;
+        }
       }
     }
 
@@ -1338,11 +1350,11 @@ export class OrchestratorService {
       console.log(`GTP Locations for Station ${stationId}:`, JSON.stringify(gtpLocations, null, 2));
       for (const gtpLocation of gtpLocations) {
         const order_item = await this.orderItemRepository.findOne({
-          where: { assigned_gtp_location: gtpLocation.gtp_location_id }
+          where: { assigned_gtp_location: gtpLocation.gtp_location_id, product_id: productId }
         });
         console.log(`Order Item for GTP Location ${gtpLocation.gtp_location_id}:`, JSON.stringify(order_item, null, 2));
         console.log(`Order Item Product ID: ${order_item ? order_item.product_id : 'None'}`);
-        if (order_item && order_item.product_id == productId   ) {
+        if (order_item && order_item.product_id == productId) {
           console.log(`Processing Order Item ${order_item.order_item_id} for Product ${productId} at GTP Location ${gtpLocation.gtp_location_id}`);
           if (droppedQuantity >= order_item.quantity) {
             droppedQuantity -= order_item.quantity;
@@ -1352,8 +1364,8 @@ export class OrchestratorService {
             await this.orderItemRepository.save(order_item);
           }
           else{
-            droppedQuantity = 0;
             order_item.quantity -= droppedQuantity;
+            droppedQuantity = 0;
             await this.orderItemRepository.save(order_item);
             break;
           }
