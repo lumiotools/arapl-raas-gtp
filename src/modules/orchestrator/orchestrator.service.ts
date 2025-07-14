@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Not, Repository } from 'typeorm';
+import { IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, last, min, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -1120,15 +1120,36 @@ export class OrchestratorService {
   private async createNextStationTask(completedTask: Task, remainingRequirements: ProductRequirementEntity[], remainingQuantity: number): Promise<void> {
     // Find next available station in priority order
     let nextAvailableStation: Station | null = null;
-
+    const currentStationId = completedTask.end_location.location_id;
+    const currentStationPriority = (await this.stationRepository.findOne({
+      where: { station_id: currentStationId }
+    }))?.priority || 999;
     for (const requirement of remainingRequirements) {
       const station = await this.stationRepository.findOne({
-        where: { station_id: requirement.station_id }
+        where: { station_id: requirement.station_id}
       });
-
+      if (station && (station.station_id == currentStationId || station.priority < currentStationPriority)) {
+        // Skip current station - already processed
+        continue;
+      }
       if (station && station.status === LocationStatus.AVAILABLE) {
         nextAvailableStation = station;
         break;
+      }
+    }
+    if (!nextAvailableStation) {
+      for (const requirement of remainingRequirements) {
+        const station = await this.stationRepository.findOne({
+          where: { station_id: requirement.station_id }
+        });
+        if (station && station.station_id == currentStationId) {
+          // Skip current station - already processed
+          continue;
+        }
+        if (station && station.status === LocationStatus.AVAILABLE) {
+          nextAvailableStation = station;
+          break;
+        }
       }
     }
 
@@ -1329,11 +1350,11 @@ export class OrchestratorService {
       console.log(`GTP Locations for Station ${stationId}:`, JSON.stringify(gtpLocations, null, 2));
       for (const gtpLocation of gtpLocations) {
         const order_item = await this.orderItemRepository.findOne({
-          where: { assigned_gtp_location: gtpLocation.gtp_location_id }
+          where: { assigned_gtp_location: gtpLocation.gtp_location_id, product_id: productId }
         });
         console.log(`Order Item for GTP Location ${gtpLocation.gtp_location_id}:`, JSON.stringify(order_item, null, 2));
         console.log(`Order Item Product ID: ${order_item ? order_item.product_id : 'None'}`);
-        if (order_item && order_item.product_id == productId   ) {
+        if (order_item && order_item.product_id == productId) {
           console.log(`Processing Order Item ${order_item.order_item_id} for Product ${productId} at GTP Location ${gtpLocation.gtp_location_id}`);
           if (droppedQuantity >= order_item.quantity) {
             droppedQuantity -= order_item.quantity;
@@ -1343,8 +1364,8 @@ export class OrchestratorService {
             await this.orderItemRepository.save(order_item);
           }
           else{
-            droppedQuantity = 0;
             order_item.quantity -= droppedQuantity;
+            droppedQuantity = 0;
             await this.orderItemRepository.save(order_item);
             break;
           }
