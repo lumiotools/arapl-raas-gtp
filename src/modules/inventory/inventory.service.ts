@@ -7,6 +7,7 @@ import { Inventory } from 'src/entities/inventory.entity';
 import { Product } from 'src/entities/product.entity';
 import { UploadInventoryResponseDto } from './dto/upload-inventory-response.dto';
 import { ProductRequirement } from 'src/entities/product-requirement.entity';
+import { toBuffer } from 'bwip-js';
 
 @Injectable()
 export class InventoryService {
@@ -37,6 +38,21 @@ export class InventoryService {
     if (existingInventory) {
       throw new BadRequestException(`Inventory with id ${createInventoryDto.id} already exists`);
     }
+    if (createInventoryDto.barcode_number){
+      try {
+        const barcodeBuffer = await toBuffer({
+          bcid: 'code128', // Barcode type
+          text: createInventoryDto.barcode_number, // Barcode number
+          scale: 3,
+          height: 10,
+          includetext: true,
+          textxalign: 'center',
+        });
+        createInventoryDto.barcode_image = barcodeBuffer;
+      } catch (err) {
+        throw new BadRequestException(`Failed to generate barcode image: ${err.message}`);
+      }
+    }
 
     const newInventory = this.inventoryRepository.create(createInventoryDto);
     return await this.inventoryRepository.save(newInventory);
@@ -51,6 +67,21 @@ export class InventoryService {
     
     if (existingInventory) {
       throw new BadRequestException(`Inventory with id ${createInventoryDto.id} already exists`);
+    }
+    if (createInventoryDto.barcode_number){
+      try {
+        const barcodeBuffer = await toBuffer({
+          bcid: 'code128', // Barcode type
+          text: createInventoryDto.barcode_number, // Barcode number
+          scale: 3,
+          height: 10,
+          includetext: true,
+          textxalign: 'center',
+        });
+        createInventoryDto.barcode_image = barcodeBuffer;
+      } catch (err) {
+        throw new BadRequestException(`Failed to generate barcode image: ${err.message}`);
+      }
     }
 
     const newInventory = this.inventoryRepository.create(createInventoryDto);
@@ -199,7 +230,7 @@ export class InventoryService {
 
       // Parse header
       const headers = lines[0].split(',').map(h => h.trim());
-      const expectedHeaders = ['Inv Locations', 'Product ID', 'Qty'];
+      const expectedHeaders = ['Inv Locations', 'Product ID', 'Qty','barcode_number'];
       
       // Validate headers
       if (!expectedHeaders.every(header => headers.includes(header))) {
@@ -216,7 +247,7 @@ export class InventoryService {
       for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(',').map(v => v.trim());
         
-        if (values.length < 3) {
+        if (values.length < 4) {
           results.failed++;
           results.errors.push(`Row ${i + 1}: Invalid number of columns`);
           continue;
@@ -225,8 +256,9 @@ export class InventoryService {
         const invLocation = values[0]; // Inv Locations
         const productId = values[1];   // Product ID
         const qty = parseInt(values[2]); // Qty
+        const barcodeNumber = values[3]; // Barcode number
 
-        if (!invLocation || !productId || isNaN(qty)) {
+        if (!invLocation || !productId || isNaN(qty) || !barcodeNumber) {
           results.failed++;
           results.errors.push(`Row ${i + 1}: Missing required fields (Inv Locations, Product ID, or Qty)`);
           continue;
@@ -256,7 +288,8 @@ export class InventoryService {
             // Update existing inventory
             const inventoryData = {
               product_id: productId,
-              quantity: qty
+              quantity: qty,
+              barcode_number: barcodeNumber,
             } as Inventory;
 
             await this.update(invLocation, inventoryData);
@@ -266,7 +299,8 @@ export class InventoryService {
             const inventoryData = {
               id: invLocation,
               product_id: productId,
-              quantity: qty
+              quantity: qty,
+              barcode_number: barcodeNumber,
             } as Inventory;
 
             await this.createInventoryForUpload(inventoryData);
