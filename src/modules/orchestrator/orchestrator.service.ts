@@ -824,16 +824,16 @@ export class OrchestratorService {
 
       this.logger.log(`Sending single task ${task.task_id} to WMS API`);
       console.log('=== WMS API Single Task Request ===');
-      console.log('URL: http://localhost:3000/robot-job/cli/tasks');
+      console.log('URL: http://localhost:3000/robot-job/WH_001/tasks');
       console.log('Method: POST');
-      console.log('Headers: { authorization: "operator_key" }');
+      console.log('Headers: { authorization: "test" }');
       console.log('Body:', JSON.stringify(requestBody, null, 2));
       console.log('===================================');
 
       const response = await firstValueFrom(
-        this.httpService.post('http://localhost:3000/robot-job/cli/tasks', requestBody, {
+        this.httpService.post('http://localhost:3000/robot-job/WH_001/tasks', requestBody, {
           headers: {
-            'authorization': 'operator_key',
+            'authorization': 'test',
             'Content-Type': 'application/json'
           }
         })
