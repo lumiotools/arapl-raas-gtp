@@ -1849,4 +1849,22 @@ export class OrchestratorService {
     }
     return task;
   }
+
+  async pauseAllProductRequirements() {
+    const result = await this.productRequirementRepository
+      .createQueryBuilder()
+      .update()
+      .set({ isPaused: true })
+      .execute();
+    return result;
+  }
+
+  async resumeAllProductRequirements() {
+    const result = await this.productRequirementRepository
+      .createQueryBuilder()
+      .update()
+      .set({ isPaused: false })
+      .execute();
+    return result;
+  }
 }

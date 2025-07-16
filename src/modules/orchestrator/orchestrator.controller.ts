@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, HttpStatus, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Param, HttpStatus, NotFoundException, Put } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { OrchestratorService } from './orchestrator.service';
 import { BatchResponseDto } from './dto/batch-response.dto';
@@ -245,8 +245,7 @@ export class OrchestratorController {
           }
         }
       }
-    }
-  })
+    }})
   @ApiResponse({
     status: HttpStatus.INTERNAL_SERVER_ERROR,
     description: 'Internal server error',
@@ -379,5 +378,57 @@ export class OrchestratorController {
   })
   async getTaskById(@Param('taskId') taskId: string) {
     return await this.orchestratorService.getTaskbyID(taskId);
+  }
+
+  @Put('product-requirements/pause')
+  @ApiOperation({
+    summary: 'Pause all product requirements',
+    description: 'Sets the isPause attribute of all entries in the product_requirement table to true.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'All product requirements paused successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'All product requirements paused successfully' },
+        affected: { type: 'number', example: 42 }
+      }
+    }
+  })
+  async pauseAllProductRequirements() {
+    const result = await this.orchestratorService.pauseAllProductRequirements();
+    return {
+      success: true,
+      message: 'All product requirements paused successfully',
+      affected: result.affected
+    };
+  }
+
+  @Put('product-requirements/resume')
+  @ApiOperation({
+    summary: 'Resume all product requirements',
+    description: 'Sets the isPause attribute of all entries in the product_requirement table to true.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'All product requirements paused successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'All product requirements paused successfully' },
+        affected: { type: 'number', example: 42 }
+      }
+    }
+  })
+  async ResumeAllProductRequirements() {
+    const result = await this.orchestratorService.resumeAllProductRequirements();
+    return {
+      success: true,
+      message: 'All product requirements paused successfully',
+      affected: result.affected
+    };
   }
 }
