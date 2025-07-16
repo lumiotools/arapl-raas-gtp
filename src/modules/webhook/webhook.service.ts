@@ -322,7 +322,7 @@ export class WebhookService {
       { quantity: quantity + (inventory?.quantity || 0) ,
         quantity_in_system: inventory?.quantity_in_system - quantity,
         status: LocationStatus.AVAILABLE,
-        isProcessing: false
+        isProcessing: inventory?.quantity_in_system > 0 ? true : false
       }
     );
   }

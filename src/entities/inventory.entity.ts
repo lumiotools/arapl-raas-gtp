@@ -28,6 +28,9 @@ export class Inventory {
   @Column({ type: 'boolean', default: false })
   isProcessing: boolean;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  barcode_number: string;
+
   @Column({ 
     type: 'bytea', 
     nullable: true 
