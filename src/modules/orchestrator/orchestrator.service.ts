@@ -214,7 +214,7 @@ export class OrchestratorService {
 
     // read the requirement of the product from the database
     const databaseRequirement = await this.productRequirementRepository.find({
-      where : { product_id: productId },
+      where : { product_id: productId , isPaused: false},
       order: { station_id: 'ASC' }
     });
 
@@ -1098,7 +1098,7 @@ export class OrchestratorService {
   private async getRemainingProductRequirements(productId: string, batchId: string): Promise<ProductRequirementEntity[]> {
     // Get all product requirements for this product
     const allRequirements = await this.productRequirementRepository.find({
-      where: { product_id: productId }
+      where: { product_id: productId , isPaused: false}
     });
 
     // Get stations with their priority info
@@ -1804,6 +1804,7 @@ export class OrchestratorService {
     
     // Load all product requirements from database
     const dbRequirements = await this.productRequirementRepository.find({
+      where: { isPaused: false },
       order: { product_id: 'ASC', station_id: 'ASC' }
     });
 
@@ -1856,6 +1857,12 @@ export class OrchestratorService {
       .update()
       .set({ isPaused: true })
       .execute();
+    // Only update inventories where isProcessing is true
+    const result2 = await this.inventoryRepository.createQueryBuilder()
+      .update()
+      .set({ isProcessing: false })
+      .where("isProcessing = :isProcessing", { isProcessing: true })
+      .execute();
     return result;
   }
 
@@ -1865,6 +1872,10 @@ export class OrchestratorService {
       .update()
       .set({ isPaused: false })
       .execute();
+    const result2 = await this.inventoryRepository.update(
+      { isProcessing: false, quantity_in_system: MoreThan(0) },
+      { isProcessing: true }
+    );
     return result;
   }
 }
