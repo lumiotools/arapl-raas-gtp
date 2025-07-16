@@ -22,6 +22,9 @@ export class ProductRequirement {
   @Column({ type: 'integer' })
   requirement: number;
 
+  @Column({ type: 'boolean', default: false })
+  isPaused: boolean;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 
