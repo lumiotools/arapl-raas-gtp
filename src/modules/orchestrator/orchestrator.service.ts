@@ -81,8 +81,6 @@ export class OrchestratorService {
   ) {}
 
   async processAssignedOrderItems(mannual_trigger=false) {
-    this.logger.log('Starting orchestrator process...');
-    
     try {
       // Step 3 & 4: Calculate product requirements and sort by descending order
       let productRequirements: ProductRequirement[];
@@ -93,11 +91,8 @@ export class OrchestratorService {
         const assignedItems = await this.getAndUpdateAssignedItems();
         
         if (assignedItems.length === 0) {
-          this.logger.log('No assigned order items found');
           return { message: 'No assigned order items found' };
         }
-
-        this.logger.log(`Found ${assignedItems.length} assigned order items`);
         productRequirements = await this.calculateProductRequirements(assignedItems);
       } else {
         // Automatic trigger: Load from product_requirement table
@@ -107,8 +102,6 @@ export class OrchestratorService {
       for (const requirement of productRequirements) {
         await this.processProductRequirement(requirement.productId, productRequirements);
       }
-
-      this.logger.log(`Orchestrator process completed successfully`);
       return { message: 'Orchestrator process completed successfully' };
       
     } catch (error) {
@@ -208,7 +201,6 @@ export class OrchestratorService {
     
     // no inventory for this product was found
     if (!allInventories || allInventories.length === 0) {
-      this.logger.warn(`No inventories found for product ${productId}`);
       return;
     }
 
@@ -239,13 +231,13 @@ export class OrchestratorService {
 
     const totalSelectedQuantity = selectedInventories.reduce((sum, inv) => sum + inv.quantity, 0);
     
-    if (totalSelectedQuantity < effectiveSystemRequirement) {
-      this.logger.warn(`Partial fulfillment for product ${productId}: selected ${totalSelectedQuantity}/${effectiveSystemRequirement} units from ${selectedInventories.length} inventories`);
-    } else {
-      this.logger.log(`Full fulfillment for product ${productId}: selected ${totalSelectedQuantity} units from ${selectedInventories.length} inventories`);
-    }
+    // if (totalSelectedQuantity < effectiveSystemRequirement) {
+    //   this.logger.warn(`Partial fulfillment for product ${productId}: selected ${totalSelectedQuantity}/${effectiveSystemRequirement} units from ${selectedInventories.length} inventories`);
+    // } else {
+    //   this.logger.log(`Full fulfillment for product ${productId}: selected ${totalSelectedQuantity} units from ${selectedInventories.length} inventories`);
+    // }
 
-    this.logger.log(`Selected inventories for product ${productId}: ${selectedInventories.map(inv => `${inv.id}(${inv.quantity})`).join(', ')}`);
+    // this.logger.log(`Selected inventories for product ${productId}: ${selectedInventories.map(inv => `${inv.id}(${inv.quantity})`).join(', ')}`);
 
     // Get stations sorted by priority (ascending order) 
     const stationIds = databaseRequirement.map(pr => pr.station_id);
@@ -259,37 +251,30 @@ export class OrchestratorService {
     });
     console.log(`waiting locations: ${JSON.stringify(waitingLocations)}`);
     if (waitingLocations.length > 0) {
-      this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
+      // this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
       for (const waitingLocation of waitingLocations) {
         const taskId = waitingLocation.holded_by;
         if (!taskId){
-          this.logger.warn(`Waiting location ${waitingLocation.location_id} has no task ID associated`);
+          // this.logger.warn(`Waiting location ${waitingLocation.location_id} has no task ID associated`);
           continue;
         }
         const task = await this.taskRepository.findOne({
           where: { task_id: taskId }
         });
         if (!task){
-          this.logger.warn(`Task ${taskId} not found for waiting location ${waitingLocation.location_id}`);
+          // this.logger.warn(`Task ${taskId} not found for waiting location ${waitingLocation.location_id}`);
           continue;
         }
-        // if (task.product_id !== productId) {
-        //   this.logger.warn(`Task ${taskId} product ${task.product_id} does not match required product ${productId} for waiting location ${waitingLocation.location_id}`);
-        //   continue;
-        // }
-
         // Check if this task's product is in the current requirements
         const hasRequirement = productRequirements.some(req => req.productId === task.product_id);
-        console.log(`task product: ${task.product_id}, productId: ${productId}, hasRequirement: ${hasRequirement}`);
         if (!hasRequirement) {
           // Product not in current requirements - return to original inventory
           const firstTaskInBatch = await this.taskRepository.findOne({
             where: { batch_id: task.batch_id, sequence_order: 1 }
           });
-          console.log(`first in batch task: ${firstTaskInBatch?.task_id}`);
           
           if (!firstTaskInBatch) {
-            this.logger.warn(`First task not found for batch ${task.batch_id} - cannot determine original inventory`);
+            // this.logger.warn(`First task not found for batch ${task.batch_id} - cannot determine original inventory`);
             continue;
           }
           // Check if this batch already has a return to inventory task (skip if yes)
@@ -300,7 +285,7 @@ export class OrchestratorService {
             .getOne();
 
           if (existingReturnTask) {
-            this.logger.log(`Batch ${task.batch_id} already has return to inventory task ${existingReturnTask.task_id} - skipping return task creation`);
+            // this.logger.log(`Batch ${task.batch_id} already has return to inventory task ${existingReturnTask.task_id} - skipping return task creation`);
             continue;
           }
           const lastTaskOfBatch = await this.taskRepository.findOne({
@@ -308,7 +293,7 @@ export class OrchestratorService {
             order: { sequence_order: 'DESC' }
           });
           if (!lastTaskOfBatch) {
-            this.logger.warn(`Last task not found for batch ${task.batch_id} - cannot determine original inventory`);
+            // this.logger.warn(`Last task not found for batch ${task.batch_id} - cannot determine original inventory`);
             continue;
           }
           const originalInventoryId = firstTaskInBatch.start_location.location_id;
@@ -1457,14 +1442,10 @@ export class OrchestratorService {
   // Cron job that runs every 30 seconds to automatically trigger orchestrator
   @Cron('*/5 * * * * *') // Every 30 seconds
   async handleOrchestratorCron() {
-    this.logger.log('🕒 Cron job triggered - running orchestrator...');
-    
     // Use manual_trigger = false for automatic cron job execution
     try {
       const result = await this.triggerOrchestrator(false);
-      this.logger.log(`🕒 Cron job completed: ${result.message}`);
     } catch (error) {
-      this.logger.error('🕒 Cron job failed:', error.message);
     }
   }
 

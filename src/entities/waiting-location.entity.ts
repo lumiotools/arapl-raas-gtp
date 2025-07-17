@@ -11,6 +11,10 @@ export enum WaitingLocationStatus {
   OCCUPIED = 'OCCUPIED',
   RESERVED = 'RESERVED'
 }
+export enum WaitingLocationType {
+  STATION_TO_STATION = 'STATION_TO_STATION', 
+  INVENTORY_TO_STATION = 'INVENTORY_TO_STATION' 
+}
 
 @Entity('waiting_locations')
 export class WaitingLocation {
@@ -28,6 +32,9 @@ export class WaitingLocation {
 
   @Column({ type: 'integer', nullable: true })
   holded_by: number | null;
+
+  @Column({ type: 'enum', enum: WaitingLocationType, default: WaitingLocationType.STATION_TO_STATION })
+  type: WaitingLocationType;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
