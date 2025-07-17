@@ -119,7 +119,7 @@ export class WebhookService {
     this.logger.log(`🔄 Updating task ${taskStatusData.task_id} status from ${oldStatus} to ${mappedStatus} (webhook status: "${taskStatusData.status}")`);
     
     // Log webhook received after duplicate check
-    await this.loggingService.log(`Webhook received for task ${taskStatusData.task_id}: status changed from ${oldStatus} to ${mappedStatus} (robot: ${taskStatusData.robot_id || 'none'})`);
+    await this.loggingService.log(`Task ${taskStatusData.task_id}: Webhook Received - status from ${oldStatus} to ${mappedStatus} (robot: ${taskStatusData.robot_id || 'none'})`);
     
     await this.taskRepository.update(
       { task_id: parseInt(taskStatusData.task_id) },
@@ -476,7 +476,7 @@ export class WebhookService {
   // Method to free robot by calling the external endpoint
   private async freeRobot(robotId: string): Promise<void> {
     if (!robotId) {
-      await this.loggingService.log('Cannot free robot: robot_id is null or empty');
+      // await this.loggingService.log('Cannot free robot: robot_id is null or empty');
       return;
     }
 
@@ -486,12 +486,12 @@ export class WebhookService {
       }).toPromise();
 
       if (response && response.data) {
-        await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
+        // await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
       } else {
-        await this.loggingService.log(`Robot ${robotId} freed successfully`);
+        // await this.loggingService.log(`Robot ${robotId} freed successfully`);
       }
     } catch (error) {
-      await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
+      // await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
       // Don't throw error to avoid breaking the main process
     }
   }

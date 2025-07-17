@@ -325,7 +325,8 @@ export class OrchestratorService {
             
             // Send task to WMS
             await this.sendSingleTaskToWms(returnTask);
-            this.logger.log(`Created return task ${returnTaskId} for product ${task.product_id} from waiting location ${waitingLocation.location_id} to original inventory ${originalInventoryId}`);
+            this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${originalInventoryId} (inventory)`);
+            await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${originalInventoryId} (inventory)`);
           }
           continue;
         }
@@ -371,7 +372,8 @@ export class OrchestratorService {
               }
               // Reserve the station and send task to WMS
               await this.reserveStationAndSendTask(returnTask, station);
-
+              this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
+              await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
               break; // Exit loop after processing first available station
             }
           }
@@ -448,7 +450,8 @@ export class OrchestratorService {
             
             // Send task to WMS
             await this.sendSingleTaskToWms(returnTask);
-            this.logger.log(`Created return task ${returnTaskId} for product ${inventory.product_id} from inventory ${inventory.id} to waiting location ${waitingLocation.location_id}`);
+            this.logger.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
+            await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
             break;
           } else {
             this.logger.error(`Failed to create return task for product ${inventory.product_id} from inventory ${inventory.id} to waiting location ${waitingLocation.location_id}`);
@@ -565,11 +568,12 @@ export class OrchestratorService {
         await this.inventoryRepository.save(inventory);
         await this.reserveStationAndSendTask(task, targetStation);
       }
-      this.logger.log(`Created single task ${taskId} for batch ${batchId}: inventory ${inventory.id} → station ${targetStation.station_id} (${inventory.quantity} units)`);
+      this.logger.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
+      await this.loggingService.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${task?.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
       return taskId;
     } else {
       // No station is available - create task without station and add station request for first required station only
-      this.logger.warn(`No available stations found for (inventory ${inventory.id}) - skipping task creation`);
+      // this.logger.warn(`No available stations found for (inventory ${inventory.id}) - skipping task creation`);
       return null;
     }
   }
@@ -627,8 +631,8 @@ export class OrchestratorService {
     const savedTask = await this.taskRepository.save(task);
     this.logger.log(`Created task ${savedTask.task_id}: ${taskData.taskType} - ${taskData.quantity} units of ${taskData.productId}${taskData.taskDependency ? ` (depends on task ${taskData.taskDependency})` : ''}`);
     
-    // Log task creation
-    await this.loggingService.log(`Task ${savedTask.task_id} created: ${taskData.taskType} - ${taskData.quantity} units of ${taskData.productId} from ${startLocation.location_id} to ${endLocation.location_id}${taskData.taskDependency ? ` (depends on task ${taskData.taskDependency})` : ''}`);
+    // // Log task creation
+    // await this.loggingService.log(`Task ${savedTask.task_id} created: ${taskData.taskType} - ${taskData.quantity} units of ${taskData.productId} from ${startLocation.location_id} to ${endLocation.location_id}${taskData.taskDependency ? ` (depends on task ${taskData.taskDependency})` : ''}`);
     
     // Update batch total_tasks count
     await this.batchRepository.increment(
@@ -1494,16 +1498,9 @@ export class OrchestratorService {
       return {"message": "Service is already running, Try again in few seconds."};
     }
     this.orchestratorWorking  = true;
-    this.logger.log('Manually triggering orchestrator...');
-    
-    // Log orchestrator trigger
-    await this.loggingService.log(`Orchestrator triggered ${mannual_trigger ? 'manually' : 'automatically via cron job'}`);
     
     const res = await this.processAssignedOrderItems(mannual_trigger);
     this.orchestratorWorking = false;
-    
-    // Log orchestrator completion
-    await this.loggingService.log(`Orchestrator completed: ${res.message}`);
     
     return res;
   }

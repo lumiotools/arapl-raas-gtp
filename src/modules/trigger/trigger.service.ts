@@ -83,7 +83,7 @@ export class TriggerService {
     currentTask.status = TaskStatus.TRIGERRED;
 
     // Log trigger action
-    await this.loggingService.log(`Station ${stationId} triggered successfully - Task ${currentTask.task_id} status updated to TRIGGERED`);
+    await this.loggingService.log(`Station ${stationId} triggered - Task ${currentTask.task_id} status updated to TRIGGERED`);
 
     // Note: Station will become available when webhook receives PROCESSING status
     // for the next task that has this station as source location
@@ -314,7 +314,7 @@ export class TriggerService {
   // Method to free robot by calling the external endpoint
   private async freeRobot(robotId: string): Promise<void> {
     if (!robotId) {
-      await this.loggingService.log('Cannot free robot: robot_id is null or empty');
+      // await this.loggingService.log('Cannot free robot: robot_id is null or empty');
       return;
     }
 
@@ -324,12 +324,12 @@ export class TriggerService {
       }).toPromise();
 
       if (response && response.data) {
-        await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
+        // await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
       } else {
-        await this.loggingService.log(`Robot ${robotId} freed successfully`);
+        // await this.loggingService.log(`Robot ${robotId} freed successfully`);
       }
     } catch (error) {
-      await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
+      // await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
       // Don't throw error to avoid breaking the main process
     }
   }
