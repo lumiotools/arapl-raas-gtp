@@ -14,6 +14,7 @@ import { TriggerModule } from './modules/trigger/trigger.module';
 import { LoggingModule } from './modules/logging/logging.module';
 import { DatabaseResetModule } from './modules/database-reset/database-reset.module';
 import { WaitingLocationModule } from './modules/waiting_location/waiting_location.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { WaitingLocationModule } from './modules/waiting_location/waiting_locati
     TriggerModule,
     DatabaseResetModule,
     WaitingLocationModule,
+    DashboardModule,
   ],
   controllers: [],
   providers: [],
