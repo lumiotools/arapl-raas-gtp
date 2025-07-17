@@ -10,10 +10,11 @@ import { Station } from 'src/entities/station.entity';
 import { WaitingLocation } from 'src/entities/waiting-location.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { LoggingModule } from '../logging/logging.module';
+import { dashboard } from 'src/entities/dashboard.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation]),
+    TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation,dashboard]),
     HttpModule,
     forwardRef(() => OrchestratorModule),
     LoggingModule,

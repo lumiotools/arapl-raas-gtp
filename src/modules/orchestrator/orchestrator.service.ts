@@ -5,7 +5,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, last, min, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderItem, OrderItemStatus } from 'src/entities/order-item.entity';
-import { Task, TaskType, TaskStatus } from 'src/entities/task.entity';
+import { Task, TaskType, TaskStatus, MOVE_TYPE } from 'src/entities/task.entity';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Station, LocationStatus } from 'src/entities/station.entity';
@@ -302,6 +302,7 @@ export class OrchestratorService {
             destinationInventoryId: originalInventoryId,
             quantity: task.quantity,
             taskType: TaskType.GOODS_TO_PERSON,
+            move_type: MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY,
             sequenceOrder: lastTaskOfBatch.sequence_order + 1, // Next sequence order
             taskDependency: lastTaskOfBatch.task_id // Use last task of batch as dependency
           });
@@ -357,6 +358,7 @@ export class OrchestratorService {
                 destinationStationId: station.station_id,
                 quantity: task.quantity,
                 taskType: TaskType.GOODS_TO_PERSON,
+                move_type: MOVE_TYPE.WAITING_LOCATION_TO_STATION,
                 sequenceOrder: lastTaskOfBatch.sequence_order + 1, // Next sequence order
                 taskDependency: lastTaskOfBatch.task_id // Use last task of batch as dependency
               });
@@ -418,6 +420,7 @@ export class OrchestratorService {
             destinationWaitingLocationId: waitingLocation.location_id,
             quantity: inventory.quantity,
             taskType: TaskType.GOODS_TO_PERSON,
+            move_type: MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
             sequenceOrder: 1, // First task in this batch
             taskDependency: null // No dependency for first task
           });
@@ -546,6 +549,7 @@ export class OrchestratorService {
         destinationStationId: targetStation.station_id,
         quantity: inventory.quantity, // Move entire available quantity
         taskType: TaskType.GOODS_TO_PERSON,
+        move_type: MOVE_TYPE.INVENTORY_TO_STATION,
         sequenceOrder: 1, // First (and only) task in this batch
         taskDependency: null // May depend on previous batch
       });
@@ -581,6 +585,7 @@ export class OrchestratorService {
     destinationWaitingLocationId?: string;
     quantity: number;
     taskType: TaskType;
+    move_type:MOVE_TYPE;
     sequenceOrder: number;
     taskDependency?: number | null;
   }): Promise<number> {
@@ -614,6 +619,7 @@ export class OrchestratorService {
       status: TaskStatus.PENDING,
       start_location: startLocation,
       end_location: endLocation,
+      move_type: taskData.move_type,
       wait: waitObject,
       cargos: cargosArray
     });
@@ -1214,6 +1220,7 @@ export class OrchestratorService {
         sourceStationId: completedTask.end_location.location_id,
         destinationStationId: nextAvailableStation.station_id,
         quantity: remainingQuantity, // Use remaining quantity after previous drop
+        move_type: MOVE_TYPE.STATION_TO_STATION,    
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: nextSequenceOrder,
         taskDependency: completedTask.task_id
@@ -1270,6 +1277,7 @@ export class OrchestratorService {
         sourceStationId: completedTask.end_location.location_id,
         destinationStationId: firstRequiredStation.station_id,
         quantity: remainingQuantity, // Use remaining quantity
+        move_type: MOVE_TYPE.STATION_TO_STATION,
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: nextSequenceOrder,
         taskDependency: completedTask.task_id
@@ -1297,6 +1305,7 @@ export class OrchestratorService {
       sourceStationId: completedTask.end_location.location_id,
       destinationWaitingLocationId: availableWaitingLocation.location_id,
       quantity: remainingQuantity, // Use remaining quantity
+      move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION,
       taskType: TaskType.GOODS_TO_PERSON,
       sequenceOrder: sequenceOrder,
       taskDependency: completedTask.task_id
@@ -1360,6 +1369,7 @@ export class OrchestratorService {
       sourceStationId: completedTask.end_location.location_id,
       destinationInventoryId: originalInventoryId,
       quantity: remainingQuantity, // Return remaining quantity
+      move_type: MOVE_TYPE.STATION_TO_INVENTORY,
       taskType: TaskType.GOODS_TO_PERSON, // Always GOODS_TO_PERSON as you specified
       sequenceOrder: nextSequenceOrder,
       taskDependency: completedTask.task_id
@@ -1643,6 +1653,7 @@ export class OrchestratorService {
         sourceWaitingLocationId: completedTask.end_location.location_id,
         destinationStationId: availableStation.station_id,
         quantity: remainingQuantity, // Waiting location doesn't consume quantity
+        move_type: MOVE_TYPE.WAITING_LOCATION_TO_STATION, 
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: nextSequenceOrder,
         taskDependency: completedTask.task_id

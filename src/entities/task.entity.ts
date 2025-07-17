@@ -24,6 +24,10 @@ export  enum MOVE_TYPE {
   INVENTORY_TO_STATION = 'InventoryToStation',
   STATION_TO_INVENTORY = 'StationToInventory',
   STATION_TO_STATION = 'StationToStation',
+  STATION_TO_WAITING_LOCATION = 'StationToWaitingLocation',
+  WAITING_LOCATION_TO_STATION = 'WaitingLocationToStation',
+  INVENTORY_TO_WAITING_LOCATION = 'InventoryToWaitingLocation',
+  WAITING_LOCATION_TO_INVENTORY = 'WaitingLocationToInventory',
 }
 
 
@@ -66,6 +70,13 @@ export class Task {
     default: TaskStatus.PENDING,
   })
   status: TaskStatus;
+
+  @Column({
+    type: 'enum',
+    enum: MOVE_TYPE,
+    nullable: true,
+  })
+  move_type: MOVE_TYPE;
 
   @Column({ type: 'int' })
   sequence_order: number;

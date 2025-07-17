@@ -10,10 +10,11 @@ import { StationRequest } from '../../entities/station-request.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { Inventory } from 'src/entities';
 import { LoggingModule } from '../logging/logging.module';
+import { dashboard } from 'src/entities/dashboard.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Station, WaitingLocation, Task, StationRequest, Inventory]),
+    TypeOrmModule.forFeature([Station, WaitingLocation, Task, StationRequest, Inventory,dashboard]),
     HttpModule,
     OrchestratorModule,
     LoggingModule,

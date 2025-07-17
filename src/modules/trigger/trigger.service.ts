@@ -10,6 +10,7 @@ import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { Inventory } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { MessageCode } from './trigger.controller';
+import { dashboard } from 'src/entities/dashboard.entity';
 
 @Injectable()
 export class TriggerService {
@@ -24,6 +25,8 @@ export class TriggerService {
     private readonly stationRequestRepository: Repository<StationRequest>,
     @InjectRepository(Inventory)
     private readonly inventoryRepository: Repository<Inventory>,
+    @InjectRepository(dashboard)
+    private readonly dashRepository: Repository<dashboard>,
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly httpService: HttpService,
@@ -56,16 +59,27 @@ export class TriggerService {
       where: { task_id: station.holded_by },
     });
 
+    
+
     if (!currentTask) {
       throw new NotFoundException(`No task found holding station ${stationId}`);
     }
 
+    let dashboardTask = await this.dashRepository.findOne({
+      where: { task_id: currentTask.task_id }
+    });
+    if (!dashboardTask) {
+      dashboardTask = await this.dashRepository.save({
+        task_id: currentTask.task_id,
+      })
+    }
     // Update task status to TRIGGERED
     await this.taskRepository.update(
       { task_id: currentTask.task_id },
       { status: TaskStatus.TRIGERRED }
     );
-
+    dashboardTask.triggered = new Date();
+    await this.dashRepository.save(dashboardTask);
     currentTask.status = TaskStatus.TRIGERRED;
 
     // Log trigger action
