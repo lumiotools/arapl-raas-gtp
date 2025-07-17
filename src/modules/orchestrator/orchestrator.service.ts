@@ -1455,7 +1455,7 @@ export class OrchestratorService {
   }
 
   // Cron job that runs every 30 seconds to automatically trigger orchestrator
-  @Cron('*/30 * * * * *') // Every 30 seconds
+  @Cron('*/5 * * * * *') // Every 30 seconds
   async handleOrchestratorCron() {
     this.logger.log('🕒 Cron job triggered - running orchestrator...');
     
