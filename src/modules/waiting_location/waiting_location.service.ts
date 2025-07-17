@@ -39,7 +39,7 @@ export class WaitingLocationService {
       throw new ConflictException(`Cannot change location_id of waiting location ${id}`);
     }
     if (existing.holded_by) {
-      throw new ConflictException(`Cannot update waiting location ${id} as it is currently holded by ${existing.holded_by}`);
+      throw new ConflictException(`Cannot update waiting location ${id}. Some robot is holding it.`);
     }
     if (existing.status !== 'AVAILABLE') {
       throw new ConflictException(`Cannot update waiting location ${id} as it is not in AVAILABLE status`);
@@ -54,7 +54,7 @@ export class WaitingLocationService {
       throw new Error(`Waiting location with id ${id} not found`);
     }
     if (existing.holded_by){
-      throw new ConflictException(`Cannot delete waiting location ${id} as it is currently holded by ${existing.holded_by}`);
+      throw new ConflictException(`Cannot delete waiting location ${id}. Some robot is holding it.`);
     }
     await this.waitingLocationRepository.delete({ location_id: id });
     return { message: `Waiting location with id ${id} deleted successfully` };
