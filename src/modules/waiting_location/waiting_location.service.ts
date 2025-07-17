@@ -16,7 +16,7 @@ export class WaitingLocationService {
       where:{location_id: createWaitingLocationDto.location_id}
     });
     if (existingWaitLocation) {
-      throw new Error(`Waiting location with id ${createWaitingLocationDto.location_id} already exists`);
+      throw new ConflictException(`Waiting location with id ${createWaitingLocationDto.location_id} already exists`);
     }
     const newWaitingLocation = this.waitingLocationRepository.create(createWaitingLocationDto);
     return this.waitingLocationRepository.save(newWaitingLocation);
@@ -37,6 +37,12 @@ export class WaitingLocationService {
     }
     if (existing.location_id !== updateWaitingLocationDto.location_id) {
       throw new ConflictException(`Cannot change location_id of waiting location ${id}`);
+    }
+    if (existing.holded_by) {
+      throw new ConflictException(`Cannot update waiting location ${id} as it is currently holded by ${existing.holded_by}`);
+    }
+    if (existing.status !== 'AVAILABLE') {
+      throw new ConflictException(`Cannot update waiting location ${id} as it is not in AVAILABLE status`);
     }
     await this.waitingLocationRepository.update({ location_id: id }, updateWaitingLocationDto);
     return await this.waitingLocationRepository.findOne({ where: { location_id: id } });
