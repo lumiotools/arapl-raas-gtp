@@ -6,7 +6,7 @@ import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Task, TaskStatus } from 'src/entities/task.entity';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Station, LocationStatus } from 'src/entities/station.entity';
-import { WaitingLocation, WaitingLocationStatus } from 'src/entities/waiting-location.entity';
+import { WaitingLocation} from 'src/entities/waiting-location.entity';
 import { WebhookRequestDto } from './dto/webhook-request.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { LoggingService } from '../../services/logging.service';
@@ -375,7 +375,7 @@ export class WebhookService {
       await this.waitingLocationRepository.update(
         { location_id: waitingLocationId },
         { 
-          status: WaitingLocationStatus.AVAILABLE,
+          status: LocationStatus.AVAILABLE,
           holded_by: null
         }
       );
@@ -391,7 +391,7 @@ export class WebhookService {
       await this.waitingLocationRepository.update(
         { location_id: waitingLocationId },
         { 
-          status: WaitingLocationStatus.OCCUPIED,
+          status: LocationStatus.OCCUPIED,
           holded_by: task.task_id
         }
       );

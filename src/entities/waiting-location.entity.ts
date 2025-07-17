@@ -5,12 +5,8 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { LocationStatus } from './station.entity';
 
-export enum WaitingLocationStatus {
-  AVAILABLE = 'AVAILABLE',
-  OCCUPIED = 'OCCUPIED',
-  RESERVED = 'RESERVED'
-}
 export enum WaitingLocationType {
   STATION_TO_STATION = 'STATION_TO_STATION', 
   INVENTORY_TO_STATION = 'INVENTORY_TO_STATION' 
@@ -24,8 +20,8 @@ export class WaitingLocation {
   @Column({ type: 'varchar', length: 100 })
   location_name: string;
 
-  @Column({ type: 'enum', enum: WaitingLocationStatus, default: WaitingLocationStatus.AVAILABLE })
-  status: WaitingLocationStatus;
+  @Column({ type: 'enum', enum: LocationStatus, default: LocationStatus.AVAILABLE })
+  status: LocationStatus;
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;

@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { Station, LocationStatus } from '../../entities/station.entity';
-import { WaitingLocation, WaitingLocationStatus } from '../../entities/waiting-location.entity';
+import { WaitingLocation} from '../../entities/waiting-location.entity';
 import { Task, TaskStatus } from '../../entities/task.entity';
 import { StationRequest } from '../../entities/station-request.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
