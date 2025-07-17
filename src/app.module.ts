@@ -13,6 +13,7 @@ import { WebhookModule } from './modules/webhook/webhook.module';
 import { TriggerModule } from './modules/trigger/trigger.module';
 import { LoggingModule } from './modules/logging/logging.module';
 import { DatabaseResetModule } from './modules/database-reset/database-reset.module';
+import { WaitingLocationModule } from './modules/waiting_location/waiting_location.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { DatabaseResetModule } from './modules/database-reset/database-reset.mod
     WebhookModule,
     TriggerModule,
     DatabaseResetModule,
+    WaitingLocationModule,
   ],
   controllers: [],
   providers: [],
