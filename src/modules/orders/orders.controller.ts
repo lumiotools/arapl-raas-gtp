@@ -11,6 +11,7 @@ import {
   HttpCode,
   Param,
   Body,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -26,6 +27,7 @@ import {
   BadRequestDto,
   InternalServerErrorDto,
 } from './dto/error-responses.dto';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
 
 @ApiTags('Orders')
 @Controller('orders')
@@ -239,6 +241,7 @@ export class OrdersController {
   }
 
   @Get('order-items')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all order items',

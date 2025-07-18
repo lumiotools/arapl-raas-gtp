@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { CreateAuthDto } from './dto/create-auth.dto';
 import { UpdateAuthDto } from './dto/update-auth.dto';
 import { User } from 'src/entities/user.entity';
@@ -6,12 +6,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Role } from 'src/entities/user.entity';
+import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private jwtService: JwtService,
   ) {}
   async create(createAuthDto: CreateAuthDto) {
     const existingUser = await this.userRepository.findOne({
@@ -37,6 +39,25 @@ export class AuthService {
       "user_name": newUser.user_name,
       "role": newUser.role, 
     }
+  }
+  async login(user_name: string, password: string) {
+    const user = await this.userRepository.findOne({ where: { user_name } });
+    if (!user) {
+      throw new UnauthorizedException('Invalid Username or Password');
+    }
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid Username or Password');
+    }
+    // Generate a JWT token
+    const payload = { sub: user.id, username: user.user_name, role: user.role };
+    const token = await this.jwtService.signAsync(payload);
+    let res = {
+      user_name: user.user_name,
+      role: user.role,
+      token: token,
+    };
+    return res;
   }
 
   findAll() {

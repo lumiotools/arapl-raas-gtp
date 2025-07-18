@@ -12,13 +12,18 @@ import {
 
 export enum Role {
     ADMIN = 'admin',
-    StationWorker = 'station_worker',
-    Robot = 'robot'
+    SYSTEM_ADMIN = 'system_admin',
+    HEAD_STATION_MANAGER = 'head_station_manager',
+    STATION_WORKER = 'station_worker',
+    ROBOT = 'robot'
 }
 
 @Entity('users')
 export class User {
-    @PrimaryColumn({ name: 'user_name', type: 'varchar', length: 255})
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Column({ name: 'user_name', type: 'varchar', length: 255, unique: true })
     user_name: string;
 
     @Column({name:'role', type: 'enum', enum: Role})
