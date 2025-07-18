@@ -21,11 +21,11 @@ export class User {
     @PrimaryColumn({ name: 'user_name', type: 'varchar', length: 255})
     user_name: string;
 
-    @Column({name:'roles', type: 'enum', enum: Role})
+    @Column({name:'role', type: 'enum', enum: Role})
     role: Role ;
 
-    @Column({ name: 'password_hash', type: 'varchar', length: 255 })
-    passwordHash: string;
+    @Column({ name: 'password', type: 'varchar', length: 255 })
+    password: string;
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
