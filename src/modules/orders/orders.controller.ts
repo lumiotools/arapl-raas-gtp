@@ -241,7 +241,6 @@ export class OrdersController {
   }
 
   @Get('order-items')
-  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all order items',
