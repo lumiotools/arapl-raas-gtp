@@ -13,6 +13,9 @@ import { Repository } from 'typeorm';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  static register(jwt_config: any): import("@nestjs/common").Type<any> | import("@nestjs/common").DynamicModule | Promise<import("@nestjs/common").DynamicModule> | import("@nestjs/common").ForwardReference<any> {
+    throw new Error('Method not implemented.');
+  }
   constructor(
     @InjectRepository(User)
     private userService: Repository<User>,
