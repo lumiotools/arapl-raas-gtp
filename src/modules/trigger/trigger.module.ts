@@ -11,10 +11,11 @@ import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { Inventory } from 'src/entities';
 import { LoggingModule } from '../logging/logging.module';
 import { dashboard } from 'src/entities/dashboard.entity';
+import { User } from 'src/entities/user.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Station, WaitingLocation, Task, StationRequest, Inventory,dashboard]),
+    TypeOrmModule.forFeature([Station, WaitingLocation, Task, StationRequest, Inventory,dashboard,User]),
     HttpModule,
     OrchestratorModule,
     LoggingModule,

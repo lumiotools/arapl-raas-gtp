@@ -8,6 +8,7 @@ import {
   Delete,
   HttpStatus,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { StationsService } from './stations.service';
@@ -20,6 +21,9 @@ import {
   ValidationErrorResponseDto, 
   ConflictResponseDto 
 } from 'src/common/dto/common-responses.dto';
+import { Roles } from '../auth/guard/roles.decorator';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
 
 @ApiTags('Stations')
 @Controller('stations')
@@ -47,6 +51,8 @@ export class StationsController {
     description: 'Station with this ID already exists',
     type: ConflictResponseDto
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   async create(@Body() createStationDto: CreateStationDto) {
     return await this.stationsService.create(createStationDto);
   }
@@ -61,6 +67,8 @@ export class StationsController {
     description: 'List of all stations',
     type: [StationResponseDto]
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async findAll() {
     return await this.stationsService.findAll();
   }
@@ -81,6 +89,8 @@ export class StationsController {
     description: 'Station not found',
     type: NotFoundResponseDto
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async findOne(@Param('id') id: string) {
     const station = await this.stationsService.findOne(id);
     return station;
@@ -108,6 +118,8 @@ export class StationsController {
     description: 'Invalid input data or validation errors',
     type: ValidationErrorResponseDto
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   async update(@Param('id') id: string, @Body() updateStationDto: UpdateStationDto) {
     // Validate that URL parameter ID matches DTO ID if provided
     if (updateStationDto.station_id && updateStationDto.station_id !== id) {
@@ -135,6 +147,8 @@ export class StationsController {
     description: 'Station not found',
     type: NotFoundResponseDto
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   async remove(@Param('id') id: string) {
     return await this.stationsService.remove(id);
   }

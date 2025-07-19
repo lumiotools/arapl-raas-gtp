@@ -13,6 +13,7 @@ import { GtpLocation } from 'src/entities/gtp-location.entity';
 import { StationRequest } from 'src/entities/station-request.entity';
 import { ProductRequirement } from 'src/entities/product-requirement.entity';
 import { InventoryModule } from '../inventory/inventory.module';
+import { User } from 'src/entities/user.entity';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { InventoryModule } from '../inventory/inventory.module';
       GtpLocation,
       StationRequest,
       ProductRequirement,
+      User,
     ]),
     HttpModule,
     InventoryModule,

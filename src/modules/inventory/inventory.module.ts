@@ -5,9 +5,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Product } from 'src/entities/product.entity';
 import { ProductRequirement } from 'src/entities/product-requirement.entity';
+import { User } from 'src/entities/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Inventory, Product, ProductRequirement])],
+  imports: [TypeOrmModule.forFeature([Inventory, Product, ProductRequirement, User])],
   controllers: [InventoryController],
   providers: [InventoryService],
   exports: [InventoryService],

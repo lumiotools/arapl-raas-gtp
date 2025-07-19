@@ -6,6 +6,7 @@ import {
   HttpStatus,
   HttpException,
   Body,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,6 +19,9 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { TriggerService } from './trigger.service';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
+import { Roles } from '../auth/guard/roles.decorator';
 
 export enum MessageCode {
   NO_PROBLEM = 'NO_PROBLEM',
@@ -97,6 +101,8 @@ export class TriggerController {
       },
     },
   })
+  @UseGuards (JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async triggerStation(
     @Param('station_id') stationId: string,
     @Body() body: { dropped_quantity: number; message_code: MessageCode }
@@ -337,6 +343,8 @@ export class TriggerController {
       }
     }
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   getMessageCodes() {
     return { codes: Object.values(MessageCode) };
   }

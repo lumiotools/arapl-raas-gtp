@@ -1,7 +1,10 @@
-import { Controller, Get, Post, Param, HttpStatus, NotFoundException, Put } from '@nestjs/common';
+import { Controller, Get, Post, Param, HttpStatus, NotFoundException, Put, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { OrchestratorService } from './orchestrator.service';
 import { BatchResponseDto } from './dto/batch-response.dto';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { Roles } from '../auth/guard/roles.decorator';
+import { RolesGuard } from '../auth/guard/roles.guard';
 
 @ApiTags('Orchestrator')
 @Controller('orchestrator')
@@ -23,6 +26,8 @@ export class OrchestratorController {
       }
     }
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async triggerOrchestrator() {
     return await this.orchestratorService.triggerOrchestrator(true);
   }
@@ -87,6 +92,8 @@ export class OrchestratorController {
       }
     }
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async getAllProductRequirements() {
     return await this.orchestratorService.getAllProductRequirements();
   }
@@ -115,6 +122,8 @@ export class OrchestratorController {
     status: HttpStatus.OK,
     description: 'Product requirements for the specified station',
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async getProductRequirementsByStationId(@Param('stationId') stationId: string) {
     return await this.orchestratorService.getProductRequirementsByStationId(stationId);
   }
@@ -141,6 +150,8 @@ export class OrchestratorController {
   }
 
   @Get('tasks')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   @ApiOperation({
     summary: 'Get all tasks in the system',
     description: 'Retrieve all tasks from the database with their complete details including locations, status, and dependencies.',
@@ -397,6 +408,8 @@ export class OrchestratorController {
       }
     }
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async pauseAllProductRequirements() {
     const result = await this.orchestratorService.pauseAllProductRequirements();
     return {
@@ -423,6 +436,8 @@ export class OrchestratorController {
       }
     }
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async ResumeAllProductRequirements() {
     const result = await this.orchestratorService.resumeAllProductRequirements();
     return {

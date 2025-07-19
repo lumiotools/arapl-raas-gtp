@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus, BadRequestException, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { GtpService } from './gtp.service';
 import { CreateGtpDto } from './dto/create-gtp.dto';
@@ -11,6 +11,9 @@ import {
   ValidationErrorResponseDto, 
   ConflictResponseDto 
 } from 'src/common/dto/common-responses.dto';
+import { Roles } from '../auth/guard/roles.decorator';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
 
 @ApiTags('GTP Locations')
 @Controller('gtp')
@@ -38,6 +41,8 @@ export class GtpController {
     description: 'GTP location with this ID already exists',
     type: ConflictResponseDto
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   async create(@Body() createGtpDto: CreateGtpDto) {
     return await this.gtpService.create(createGtpDto as any);
   }
@@ -52,6 +57,8 @@ export class GtpController {
     description: 'List of all GTP locations',
     type: [GtpLocationResponseDto]
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   findAll() {
     return this.gtpService.findAll();
   }
@@ -72,6 +79,8 @@ export class GtpController {
     description: 'GTP location not found',
     type: NotFoundResponseDto
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   async findOne(@Param('id') id: string) {
     return await this.gtpService.findOne(id);
   }
@@ -98,6 +107,8 @@ export class GtpController {
     description: 'Invalid input data or validation errors',
     type: ValidationErrorResponseDto
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   async update(@Param('id') id: string, @Body() updateGtpDto: UpdateGtpDto) {
     // Validate that URL parameter ID matches DTO ID if provided
     if (updateGtpDto.gtp_location_id && updateGtpDto.gtp_location_id !== id) {
@@ -125,6 +136,8 @@ export class GtpController {
     description: 'GTP location not found',
     type: NotFoundResponseDto
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
   async remove(@Param('id') id: string) {
     return await this.gtpService.remove(id);
   }

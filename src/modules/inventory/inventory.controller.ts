@@ -13,7 +13,8 @@ import {
   HttpStatus, 
   HttpCode,
   NotFoundException,
-  Res
+  Res,
+  UseGuards
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -30,6 +31,9 @@ import {
   ValidationErrorResponseDto, 
   ConflictResponseDto 
 } from 'src/common/dto/common-responses.dto';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
+import { Roles } from '../auth/guard/roles.decorator';
 
 @ApiTags('Inventory')
 @Controller('inventory')
@@ -67,6 +71,8 @@ export class InventoryController {
   }
 
   @Post('upload')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ 
     summary: 'Upload inventory data from CSV file',
@@ -121,6 +127,8 @@ export class InventoryController {
     description: 'List of all inventory entries',
     type: [InventoryResponseDto]
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async findAll() {
     return await this.inventoryService.findAll();
   }
@@ -235,6 +243,8 @@ export class InventoryController {
   @ApiTags('inventory')
   @Put(':id/barcode-image')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   @UseInterceptors(FileInterceptor('barcode_image', {
     fileFilter: (req, file, callback) => {
       // Only allow image files

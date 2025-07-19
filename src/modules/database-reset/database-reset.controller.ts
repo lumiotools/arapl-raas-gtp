@@ -1,7 +1,10 @@
-import { Controller, Post, HttpStatus, HttpCode } from '@nestjs/common';
+import { Controller, Post, HttpStatus, HttpCode, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { DatabaseResetService } from './database-reset.service';
 import { ResetResponseDto } from './dto/reset-response.dto';
+import { Roles } from '../auth/guard/roles.decorator';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
 
 @ApiTags('Database Reset')
 @Controller('database-reset')
@@ -10,6 +13,8 @@ export class DatabaseResetController {
 
   @Post()
   @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   @ApiOperation({
     summary: 'Reset database to clean state',
     description: `

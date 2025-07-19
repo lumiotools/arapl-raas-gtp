@@ -28,6 +28,8 @@ import {
   InternalServerErrorDto,
 } from './dto/error-responses.dto';
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
+import { Roles } from '../auth/guard/roles.decorator';
 
 @ApiTags('Orders')
 @Controller('orders')
@@ -36,6 +38,8 @@ export class OrdersController {
 
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({
     summary: 'Upload orders from CSV/Excel file',
@@ -175,6 +179,8 @@ export class OrdersController {
     description: 'Bad request',
     type: BadRequestDto,
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator') 
   async getAvailableLicensePlates() {
     return await this.ordersService.getAvailableLicensePlates();
   }
@@ -231,6 +237,8 @@ export class OrdersController {
       }
     }
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async mapLicensePlateToGtpLocation(
     @Body() mappingData: { licensePlateId: string; gtpLocationId: string }
   ) {
@@ -241,7 +249,8 @@ export class OrdersController {
   }
 
   @Get('order-items')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all order items',
@@ -339,6 +348,8 @@ export class OrdersController {
       }
     }
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async removeLicensePlateMapping(
     @Param('licensePlateId') licensePlateId: string
   ) {

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus, BadRequestException, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
 import { Product } from 'src/entities/product.entity';
@@ -11,6 +11,9 @@ import {
   ValidationErrorResponseDto, 
   ConflictResponseDto 
 } from 'src/common/dto/common-responses.dto';
+import { Roles } from '../auth/guard/roles.decorator';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
 
 @ApiTags('Products')
 @Controller('products')
@@ -43,6 +46,8 @@ export class ProductsController {
   }
 
   @Get()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   @ApiOperation({ 
     summary: 'Get all products',
     description: 'Retrieve a list of all products in the catalog.'
@@ -57,6 +62,8 @@ export class ProductsController {
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   @ApiOperation({ 
     summary: 'Get a product by ID',
     description: 'Retrieve a specific product by its unique identifier.'
@@ -67,7 +74,7 @@ export class ProductsController {
     description: 'Product found',
     type: ProductResponseDto
   })
-  @ApiResponse({ 
+  @ApiResponse({
     status: HttpStatus.NOT_FOUND, 
     description: 'Product not found',
     type: NotFoundResponseDto
@@ -77,7 +84,7 @@ export class ProductsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Update a product',
     description: 'Update an existing product with new details. Only provided fields will be updated.'
   })
@@ -98,6 +105,8 @@ export class ProductsController {
     description: 'Invalid input data or validation errors',
     type: ValidationErrorResponseDto
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto) {
     // Validate that URL parameter ID matches DTO ID if provided
     if (updateProductDto.product_id && updateProductDto.product_id !== id) {

@@ -1,6 +1,9 @@
-import { Controller, Get, Query, Param, HttpStatus, Delete } from '@nestjs/common';
+import { Controller, Get, Query, Param, HttpStatus, Delete, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { LoggingService } from '../../services/logging.service';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
+import { Roles } from '../auth/guard/roles.decorator';
 
 @ApiTags('Logs')
 @Controller('logs')
@@ -33,6 +36,8 @@ export class LogsController {
       }
     }
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async getAllLogs(@Query('limit') limit?: number) {
     return await this.loggingService.getAllLogs(limit);
   }
@@ -57,6 +62,8 @@ export class LogsController {
     status: HttpStatus.OK,
     description: 'Search results retrieved successfully'
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async searchLogs(
     @Query('q') searchTerm: string,
     @Query('limit') limit?: number
@@ -89,6 +96,8 @@ export class LogsController {
     status: HttpStatus.OK,
     description: 'Time range logs retrieved successfully'
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async getLogsByTimeRange(
     @Query('startTime') startTime: string,
     @Query('endTime') endTime: string,
@@ -120,6 +129,8 @@ export class LogsController {
     status: HttpStatus.INTERNAL_SERVER_ERROR,
     description: 'Failed to delete logs'
   })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
   async deleteAllLogs() {
     const result = await this.loggingService.deleteAllLogs();
     return {
