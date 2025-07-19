@@ -101,7 +101,7 @@ export class OrchestratorService {
       // first check waiting locations for this product.
       const waitingLocations = await this.waitingLocationRepository.find({
         where: {
-          holded_by: Not(IsNull())
+          status: LocationStatus.OCCUPIED,
         }
       });
       console.log(`waiting locations: ${JSON.stringify(waitingLocations)}`);
@@ -340,7 +340,7 @@ export class OrchestratorService {
     // first check waiting locations for this product.
     const waitingLocations = await this.waitingLocationRepository.find({
       where: {
-        holded_by: Not(IsNull())
+        status: LocationStatus.OCCUPIED,
       }
     });
     console.log(`waiting locations: ${JSON.stringify(waitingLocations)}`);
@@ -1929,7 +1929,25 @@ export class OrchestratorService {
       // Only release if source is a station (not inventory or waiting location)
       if (sourceLocationType === 'station') {
         await this.releaseStation(sourceStationId, processingTask.task_id);
-      } else {
+      } 
+      else if (sourceLocationType === 'waiting_location') {
+        const waitingLocation = await this.waitingLocationRepository.findOne({
+          where: { location_id: sourceStationId }
+        });
+        if (waitingLocation) {
+          // Release waiting location
+          await this.waitingLocationRepository.update(
+            { location_id: sourceStationId },
+            { 
+              status: LocationStatus.AVAILABLE,
+              holded_by: null
+            }
+          );
+          this.logger.log(`✅ Waiting location ${sourceStationId} released and marked as AVAILABLE`);
+        }
+      }
+        
+        else {
         this.logger.log(`Task ${processingTask.task_id} source is ${sourceLocationType} (${sourceStationId}) - no station release needed`);
       }
     } catch (error) {
