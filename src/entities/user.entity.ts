@@ -11,11 +11,8 @@ import {
 } from 'typeorm';
 
 export enum Role {
-    ADMIN = 'admin',
-    SYSTEM_ADMIN = 'system_admin',
-    HEAD_STATION_MANAGER = 'head_station_manager',
-    STATION_WORKER = 'station_worker',
-    ROBOT = 'robot'
+  OPERATOR = 'operator',
+  ADMIN = 'admin',
 }
 
 @Entity('users')
