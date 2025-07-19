@@ -14,6 +14,7 @@ import { StationRequest } from 'src/entities/station-request.entity';
 import { ProductRequirement } from 'src/entities/product-requirement.entity';
 import { InventoryModule } from '../inventory/inventory.module';
 import { User } from 'src/entities/user.entity';
+import { StationsService } from '../stations/stations.service';
 
 @Module({
   imports: [
@@ -28,12 +29,13 @@ import { User } from 'src/entities/user.entity';
       StationRequest,
       ProductRequirement,
       User,
+      Station
     ]),
     HttpModule,
     InventoryModule,
   ],
   controllers: [OrchestratorController],
-  providers: [OrchestratorService],
+  providers: [OrchestratorService, StationsService],
   exports: [OrchestratorService],
 })
 export class OrchestratorModule {}

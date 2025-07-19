@@ -25,6 +25,9 @@ export class ProductRequirement {
   @Column({ type: 'boolean', default: false })
   isPaused: boolean;
 
+  @Column({ type: 'boolean', default: false })
+  isCancelled: boolean; 
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

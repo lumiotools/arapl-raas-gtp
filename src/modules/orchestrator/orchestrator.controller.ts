@@ -419,6 +419,34 @@ export class OrchestratorController {
     };
   }
 
+  @Put('product-requirements/cancel')
+  @ApiOperation({
+    summary: 'Cancel all product requirements',
+    description: 'Sets the isCancel attribute of all entries in the product_requirement table to true.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'All product requirements Cancelled successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'All product requirements cancelled successfully' },
+        affected: { type: 'number', example: 42 }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  async cancelAllProductRequirements() {
+    const result = await this.orchestratorService.cancelAllProductRequirements();
+    return {
+      success: true,
+      message: 'All product requirements cancelled successfully',
+      affected: result.affected
+    };
+  }
+
   @Put('product-requirements/resume')
   @ApiOperation({
     summary: 'Resume all product requirements',

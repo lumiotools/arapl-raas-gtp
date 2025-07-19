@@ -159,4 +159,30 @@ export class StationsService {
       return { message: `Station with id ${id} has been removed` };
     });
   }
+
+  async isStationCancelled(station_id: string): Promise<boolean> {
+    const productRequirements = await this.productRequirementRepository.find({
+      where: { station_id, isCancelled: true }
+    });
+    return productRequirements.length > 0;
+  }
+
+  async getCancelledStations(): Promise<string[]> {
+    const cancelledRequirements = await this.productRequirementRepository.find({
+      where: { isCancelled: true }
+    });
+    const cancelledStationIds = new Set(cancelledRequirements.map(req => req.station_id))
+    return Array.from(cancelledStationIds);
+  }
+
+  async removeProductRequirment(station_id: string): Promise<void> {
+    const productRequirements = await this.productRequirementRepository.find({
+      where: { station_id }
+    });
+    if (productRequirements.length === 0) {
+      throw new NotFoundException(`No product requirements found for station ${station_id}`);
+    }
+    
+    await this.productRequirementRepository.remove(productRequirements);
+  }
 }

@@ -19,6 +19,7 @@ import { Cargo, CargoDimension, CargoAttribute } from 'src/entities/cargo.entity
 import { InventoryService } from '../inventory/inventory.service';
 import { LoggingService } from '../../services/logging.service';
 import { MessageCode } from '../trigger/trigger.controller';
+import { StationsService } from '../stations/stations.service';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -78,6 +79,7 @@ export class OrchestratorService {
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
     private readonly loggingService: LoggingService,
+    private readonly stationService: StationsService
   ) {}
 
   async processAssignedOrderItems(mannual_trigger=false) {
@@ -95,6 +97,100 @@ export class OrchestratorService {
       } else {
         // Automatic trigger: Load from product_requirement table
         productRequirements = await this.loadProductRequirementsFromDatabase();
+      }
+      // first check waiting locations for this product.
+      const waitingLocations = await this.waitingLocationRepository.find({
+        where: {
+          holded_by: Not(IsNull())
+        }
+      });
+      console.log(`waiting locations: ${JSON.stringify(waitingLocations)}`);
+      if (waitingLocations.length > 0) {
+        // this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
+        for (const waitingLocation of waitingLocations) {
+          const taskId = waitingLocation.holded_by;
+          if (!taskId){
+            // this.logger.warn(`Waiting location ${waitingLocation.location_id} has no task ID associated`);
+            continue;
+          }
+          const task = await this.taskRepository.findOne({
+            where: { task_id: taskId }
+          });
+          if (!task){
+            // this.logger.warn(`Task ${taskId} not found for waiting location ${waitingLocation.location_id}`);
+            continue;
+          }
+          // Check if this task's product is in the current requirements
+          const hasRequirement = productRequirements.some(req => req.productId === task.product_id);
+          const productIsPaused = await this.productRequirementRepository.findOne({
+            where: { product_id: task.product_id, isPaused: true }
+          });
+          if (!hasRequirement && !productIsPaused) {
+            // Product not in current requirements - return to original inventory
+            const firstTaskInBatch = await this.taskRepository.findOne({
+              where: { batch_id: task.batch_id, sequence_order: 1 }
+            });
+            
+            if (!firstTaskInBatch) {
+              // this.logger.warn(`First task not found for batch ${task.batch_id} - cannot determine original inventory`);
+              continue;
+            }
+            // Check if this batch already has a return to inventory task (skip if yes)
+            const existingReturnTask = await this.taskRepository
+              .createQueryBuilder('task')
+              .where('task.batch_id = :batchId', { batchId: task.batch_id })
+              .andWhere(`task.end_location->'location_attribute'->>'attribute_value' = :attrValue`, { attrValue: 'inventory' })
+              .getOne();
+
+            if (existingReturnTask) {
+              // this.logger.log(`Batch ${task.batch_id} already has return to inventory task ${existingReturnTask.task_id} - skipping return task creation`);
+              continue;
+            }
+            const lastTaskOfBatch = await this.taskRepository.findOne({
+              where: { batch_id: task.batch_id},
+              order: { sequence_order: 'DESC' }
+            });
+            if (!lastTaskOfBatch) {
+              // this.logger.warn(`Last task not found for batch ${task.batch_id} - cannot determine original inventory`);
+              continue;
+            }
+            const originalInventoryId = firstTaskInBatch.start_location.location_id;
+            const returnTaskId = await this.createTask({
+              batchId: task.batch_id,
+              productId: task.product_id,
+              sourceWaitingLocationId: waitingLocation.location_id,
+              destinationInventoryId: originalInventoryId,
+              quantity: task.quantity,
+              taskType: TaskType.GOODS_TO_PERSON,
+              move_type: MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY,
+              sequenceOrder: lastTaskOfBatch.sequence_order + 1, // Next sequence order
+              taskDependency: lastTaskOfBatch.task_id // Use last task of batch as dependency
+            });
+            
+            const returnTask = await this.taskRepository.findOne({
+              where: { task_id: returnTaskId }
+            });
+
+            console.log(`returnTask: ${returnTask?.task_id}`);
+            
+            if (returnTask) {
+              // Reserve the inventory location
+              const inventory = await this.inventoryRepository.findOne({
+                where: { id: originalInventoryId }
+              });
+              if (inventory) {
+                inventory.status = LocationStatus.RESERVED;
+                await this.inventoryRepository.save(inventory);
+              }
+              
+              // Send task to WMS
+              await this.sendSingleTaskToWms(returnTask);
+              this.logger.log(`New Task: ${returnTaskId}, Product ID: ${task.product_id}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${originalInventoryId} (inventory)`);
+              await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${task.product_id}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${originalInventoryId} (inventory)`);
+            }
+            continue;
+          }
+        }
       }
       // now process all the product requirements
       for (const requirement of productRequirements) {
@@ -261,73 +357,6 @@ export class OrchestratorService {
         });
         if (!task){
           // this.logger.warn(`Task ${taskId} not found for waiting location ${waitingLocation.location_id}`);
-          continue;
-        }
-        // Check if this task's product is in the current requirements
-        const hasRequirement = productRequirements.some(req => req.productId === task.product_id);
-        if (!hasRequirement) {
-          // Product not in current requirements - return to original inventory
-          const firstTaskInBatch = await this.taskRepository.findOne({
-            where: { batch_id: task.batch_id, sequence_order: 1 }
-          });
-          
-          if (!firstTaskInBatch) {
-            // this.logger.warn(`First task not found for batch ${task.batch_id} - cannot determine original inventory`);
-            continue;
-          }
-          // Check if this batch already has a return to inventory task (skip if yes)
-          const existingReturnTask = await this.taskRepository
-            .createQueryBuilder('task')
-            .where('task.batch_id = :batchId', { batchId: task.batch_id })
-            .andWhere(`task.end_location->'location_attribute'->>'attribute_value' = :attrValue`, { attrValue: 'inventory' })
-            .getOne();
-
-          if (existingReturnTask) {
-            // this.logger.log(`Batch ${task.batch_id} already has return to inventory task ${existingReturnTask.task_id} - skipping return task creation`);
-            continue;
-          }
-          const lastTaskOfBatch = await this.taskRepository.findOne({
-            where: { batch_id: task.batch_id},
-            order: { sequence_order: 'DESC' }
-          });
-          if (!lastTaskOfBatch) {
-            // this.logger.warn(`Last task not found for batch ${task.batch_id} - cannot determine original inventory`);
-            continue;
-          }
-          const originalInventoryId = firstTaskInBatch.start_location.location_id;
-          const returnTaskId = await this.createTask({
-            batchId: task.batch_id,
-            productId: task.product_id,
-            sourceWaitingLocationId: waitingLocation.location_id,
-            destinationInventoryId: originalInventoryId,
-            quantity: task.quantity,
-            taskType: TaskType.GOODS_TO_PERSON,
-            move_type: MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY,
-            sequenceOrder: lastTaskOfBatch.sequence_order + 1, // Next sequence order
-            taskDependency: lastTaskOfBatch.task_id // Use last task of batch as dependency
-          });
-          
-          const returnTask = await this.taskRepository.findOne({
-            where: { task_id: returnTaskId }
-          });
-
-          console.log(`returnTask: ${returnTask?.task_id}`);
-          
-          if (returnTask) {
-            // Reserve the inventory location
-            const inventory = await this.inventoryRepository.findOne({
-              where: { id: originalInventoryId }
-            });
-            if (inventory) {
-              inventory.status = LocationStatus.RESERVED;
-              await this.inventoryRepository.save(inventory);
-            }
-            
-            // Send task to WMS
-            await this.sendSingleTaskToWms(returnTask);
-            this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${originalInventoryId} (inventory)`);
-            await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${originalInventoryId} (inventory)`);
-          }
           continue;
         }
         if (task.product_id == productId && task.quantity > 0){
@@ -1489,20 +1518,104 @@ export class OrchestratorService {
     });
   }
 
+  private async freeRobot(robotId: string): Promise<void> {
+    if (!robotId) {
+      // await this.loggingService.log('Cannot free robot: robot_id is null or empty');
+      return;
+    }
+
+    try {
+      const response = await this.httpService.post('http://localhost:3000/orchestrator/robot/set-available', {
+        robot_id: robotId
+      }).toPromise();
+
+      if (response && response.data) {
+        // await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
+      } else {
+        // await this.loggingService.log(`Robot ${robotId} freed successfully`);
+      }
+    } catch (error) {
+      // await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
+      // Don't throw error to avoid breaking the main process
+    }
+  }
+
   // Manual trigger method for testing
 
   public async triggerOrchestrator(mannual_trigger = false) {
-    // orchestratorWorking is a flag to prevent multiple triggers at the same time
     if (this.orchestratorWorking) {
       this.logger.warn('Orchestrator is already running - skipping manual trigger');
       return {"message": "Service is already running, Try again in few seconds."};
     }
-    this.orchestratorWorking  = true;
+    try{
+      this.orchestratorWorking  = true;
+
+      const cancelledStationIds = await this.stationService.getCancelledStations();
+      this.logger.log(`Cancelled Stations: ${cancelledStationIds} found`);
+      for (const stationId of cancelledStationIds) {
+        await this.stationService.removeProductRequirment(stationId);
+        this.logger.log(`Processing cancelled station ${stationId}`);
+        const station  =  await this.stationRepository.findOne({
+          where: { station_id: stationId }
+        });
+        if (station) {
+          const task_id = station.holded_by;
+          if (task_id) {
+            const lastTask = await this.taskRepository.findOne({
+              where: { task_id: task_id }
+            });
+            const firstTask = await this.taskRepository.findOne({
+              where: { batch_id: lastTask?.batch_id, sequence_order: 1 }
+            });
+            const inventory = await this.inventoryRepository.findOne({
+              where: { id: firstTask?.start_location?.location_id}
+            });
+            const robotId = lastTask?.robot_id;
+            if (robotId){
+              await this.freeRobot(robotId);
+            }
+            if (firstTask && lastTask && inventory && inventory.status === LocationStatus.AVAILABLE) {
+              inventory.status = LocationStatus.RESERVED;
+              await this.inventoryRepository.save(inventory);
+              const newTaskID = await this.createTask({
+                batchId: lastTask.batch_id,
+                productId: lastTask.product_id,
+                sourceStationId: station.station_id,
+                destinationInventoryId: firstTask.start_location.location_id,
+                quantity: lastTask.quantity,
+                taskType: TaskType.GOODS_TO_PERSON,
+                move_type: MOVE_TYPE.STATION_TO_INVENTORY,
+                sequenceOrder: lastTask.sequence_order + 1,
+                taskDependency: lastTask.task_id
+              });
+              const newTask = await this.taskRepository.findOne({
+                where: { task_id: newTaskID }
+              });
+              if (!newTask){console.error(`New task ${newTaskID} not found after creation`); break;}
+              await this.sendSingleTaskToWms(newTask);
+              this.loggingService.log(`New Task: ${newTaskID} created for cancelled station ${stationId} - returning to inventory`);
+            }
+          }
+        } else {
+          this.logger.warn(`Station ${stationId} not found for cancellation`);
+        }
+      }
+      console.log('Cancelled Stations:', cancelledStationIds);
+      
+      const res = await this.processAssignedOrderItems(mannual_trigger);
+      this.orchestratorWorking = false;
+      
+      return res;
+    }
+    catch (error) {
+      this.orchestratorWorking = false;
+      this.logger.error(`Error during orchestrator trigger: ${error.message}`);
+      throw new Error(`Failed to trigger orchestrator: ${error.message}`);
+    }
+    finally {
+      this.orchestratorWorking = false;
+    }
     
-    const res = await this.processAssignedOrderItems(mannual_trigger);
-    this.orchestratorWorking = false;
-    
-    return res;
   }
 
   // Cron job that runs every 30 seconds to automatically trigger orchestrator
@@ -1852,14 +1965,14 @@ export class OrchestratorService {
     
     // Load all product requirements from database
     const dbRequirements = await this.productRequirementRepository.find({
-      where: { isPaused: false },
+      where: { isPaused: false , isCancelled: false},
       order: { product_id: 'ASC', station_id: 'ASC' }
     });
 
-    if (dbRequirements.length === 0) {
-      this.logger.log('No product requirements found in database');
-      return [];
-    }
+    // if (dbRequirements.length === 0) {
+    //   this.logger.log('No product requirements found in database');
+    //   return [];
+    // }
 
     // Group by product_id and format to match ProductRequirement interface
     const requirementMap = new Map<string, ProductRequirement>();
@@ -1910,6 +2023,21 @@ export class OrchestratorService {
       .update()
       .set({ isProcessing: false })
       .where("isProcessing = :isProcessing", { isProcessing: true })
+      .execute();
+    return result;
+  }
+
+  async cancelAllProductRequirements(){
+    const result = await this.productRequirementRepository
+      .createQueryBuilder()
+      .update()
+      .set({ isCancelled: true })
+      .execute();
+    const result2 = await this.orderItemRepository
+      .createQueryBuilder()
+      .update()
+      .set({ status: OrderItemStatus.CANCELLED, assigned_gtp_location: null })
+      .where("status = :status", { status: OrderItemStatus.IN_PROGRESS })
       .execute();
     return result;
   }
