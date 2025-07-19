@@ -1,10 +1,12 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Res, Req, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Res, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateAuthDto } from './dto/create-auth.dto';
 import { UpdateAuthDto } from './dto/update-auth.dto';
-import { User } from 'src/entities/user.entity';
+import { RolesGuard } from './guard/roles.guard';
+import { Roles } from './guard/roles.decorator';
 import { JwtService } from '@nestjs/jwt';
 import { jwtConfig } from 'src/config/jwt.config';
+import { JwtAuthGuard } from './guard/auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -62,23 +64,26 @@ export class AuthController {
     return payload; // or return the user object if you fetch from database
   }
 
-  @Get()
-  findAll() {
-    return this.authService.findAll();
+  // Protected route - any authenticated user
+  @Get('/profile')
+  @UseGuards(JwtAuthGuard)
+  async getProfile(@Req() req) {
+    return { user: req.user };
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.authService.findOne(+id);
+  // Admin only route
+  @Get('/admin/users')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  async getAllUsers() {
+    return { message: 'Only admins can see this' };
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateAuthDto: UpdateAuthDto) {
-    return this.authService.update(+id, updateAuthDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.authService.remove(+id);
+  // Multiple roles allowed
+  @Get('/admin/reports')
+  @UseGuards(JwtAuthGuard, RolesGuard) 
+  @Roles('admin', 'operator')
+  async getReports() {
+    return { message: 'Admins and operators can see this' };
   }
 }
