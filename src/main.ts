@@ -11,6 +11,7 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'https://arapl-raas-gtp-ui.vercel.app', // Added Vercel frontend URL
+      // 'http://localhost:3030', // Local development URL
     ],
     credentials: true, // Important for cookies
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],

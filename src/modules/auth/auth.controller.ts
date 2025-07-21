@@ -25,7 +25,7 @@ export class AuthController {
       
       // Set cookie with proper configuration
       res.cookie('token', result.token, {
-        httpOnly: false, // Prevents JavaScript access, more secure
+        httpOnly: true, // Prevents JavaScript access, more secure
         secure: process.env.NODE_ENV === 'production', // Only sent over HTTPS in production
         sameSite: 'none', // Allows cross-site requests (frontend/backend on different domains)
         maxAge: 10 * 60 * 60 * 1000 // 10 hours
@@ -35,33 +35,19 @@ export class AuthController {
   }
 
   @Post('/verify')
+  @UseGuards(JwtAuthGuard)
   async verify(@Req() req) {
-    const authHeader = req.headers.authorization;
-    let token = null;
     
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7); // Remove 'Bearer ' prefix
-    }
-    
-    // Fallback: check cookies if no Authorization header
-    if (!token) {
-      token = req.cookies?.token;
-    }
+    const token = req.cookies?.token;
     
     if (!token) {
       throw new UnauthorizedException('No token found');
     }
-    
     // Verify the token
     const payload = await this.jwtService.verifyAsync(token, {
       secret: jwtConfig.secret // Make sure this matches your JWT secret
     });
-    
-    // You might want to fetch additional user data from database
-    // const user = await this.userService.findById(payload.sub);
-    
-    // Return user data that frontend expects
-    return payload; // or return the user object if you fetch from database
+    return payload; 
   }
 
   // Protected route - any authenticated user
