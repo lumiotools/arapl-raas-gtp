@@ -81,7 +81,7 @@ export class AuthController {
 
   // Multiple roles allowed
   @Get('/admin/reports')
-  @UseGuards(JwtAuthGuard, RolesGuard) 
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'operator')
   async getReports() {
     return { message: 'Admins and operators can see this' };
