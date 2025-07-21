@@ -3,6 +3,6 @@ import { config } from 'dotenv';
 config(); // Load environment variables from .env file
 export const jwtConfig: JwtModuleOptions = {
   global: true,
-  secret: config().parsed?.JWT_SECRET ,
+  secret: process.env.JWT_SECRET  ,
   signOptions: { expiresIn: '10h' },
 };
