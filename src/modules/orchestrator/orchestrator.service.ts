@@ -105,7 +105,7 @@ export class OrchestratorService {
         }
       });
       console.log(`waiting locations: ${JSON.stringify(waitingLocations)}`);
-      if (waitingLocations.length > 0) {
+      if (waitingLocations.length > 0 &&  !mannual_trigger) {
         // this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
         for (const waitingLocation of waitingLocations) {
           const taskId = waitingLocation.holded_by;
