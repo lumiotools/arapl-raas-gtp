@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
@@ -10,11 +10,13 @@ import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { JwtModule } from '@nestjs/jwt';
 import { jwtConfig } from 'src/config/jwt.config';
 import { User } from 'src/entities/user.entity';
+import { LoggingService } from 'src/services/logging.service';
+import { Log } from 'src/entities';
 
 @Module({
   imports: [JwtModule.register(jwtConfig),
-    TypeOrmModule.forFeature([Order, OrderItem, Product, GtpLocation, User])],
+    TypeOrmModule.forFeature([Order, OrderItem, Product, GtpLocation, User, Log])],
   controllers: [OrdersController],
-  providers: [OrdersService],
+  providers: [OrdersService, LoggingService],
 })
 export class OrdersModule {}

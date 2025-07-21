@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException, LoggerService } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import * as XLSX from 'xlsx';
@@ -13,6 +13,8 @@ import {
   ProcessedOrderItemDto,
   UploadResponseDto,
 } from './dto/upload-order.dto';
+import { Log } from 'src/entities';
+import { LoggingService } from '../../services/logging.service';
 
 @Injectable()
 export class OrdersService {
@@ -25,6 +27,9 @@ export class OrdersService {
     private productRepository: Repository<Product>,
     @InjectRepository(GtpLocation)
     private gtpLocationRepository: Repository<GtpLocation>,
+
+    private readonly loggingService: LoggingService
+
   ) {}
 
   async processFile(file: Express.Multer.File): Promise<UploadResponseDto> {
@@ -144,6 +149,7 @@ export class OrdersService {
             continue;
           }
         } else {
+          await this.loggingService.log(`Order ${orderId}: Creating new Order.`);
           const order = this.orderRepository.create({
             order_id: orderId,
             order_date: new Date(),
@@ -186,7 +192,7 @@ export class OrdersService {
               `Product ${item['Product Id']} not found`,
             );
           }
-
+          await this.loggingService.log(`Order ${orderId}: Creating new OrderItem for product ${item['Product Id']}, quantity ${item['Qty']}.`);
           const orderItem = this.orderItemRepository.create({
             order_id: orderId,
             product_id: item['Product Id'],

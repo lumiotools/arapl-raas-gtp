@@ -5,6 +5,9 @@ import { Log } from '../entities/log.entity';
 
 @Injectable()
 export class LoggingService {
+  static log(arg0: string) {
+    throw new Error('Method not implemented.');
+  }
   private readonly logger = new Logger(LoggingService.name);
 
   constructor(

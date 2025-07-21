@@ -905,16 +905,10 @@ export class OrchestratorService {
       };
       const warehouse_name = config().parsed?.WMS_WAREHOUSE_NAME || 'warehouse';
       const warehosue_key = config().parsed?.WMS_WAREHOUSE_AUTH_kEY || 'test';
-      this.logger.log(`Sending single task ${task.task_id} to WMS API`);
-      console.log('=== WMS API Single Task Request ===');
-      console.log('URL: http://localhost:3000/robot-job/WH_001/tasks');
-      console.log('Method: POST');
-      console.log('Headers: { authorization: "test" }');
-      console.log('Body:', JSON.stringify(requestBody, null, 2));
-      console.log('===================================');
+      const wms_base_url = config().parsed?.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
 
       const response = await firstValueFrom(
-        this.httpService.post(`http://localhost:3000/robot-job/${warehouse_name}/tasks`, requestBody, {
+        this.httpService.post(`${wms_base_url}/robot-job/${warehouse_name}/tasks`, requestBody, {
           headers: {
             'authorization': `${warehosue_key}`,
             'Content-Type': 'application/json'
@@ -1451,6 +1445,7 @@ export class OrchestratorService {
             order_item.assigned_gtp_location = null;
             order_item.quantity = 0;
             await this.orderItemRepository.save(order_item);
+            await this.loggingService.log(`Order ${order_item.order_id}: Product ${productId} at GTP Location ${gtpLocation.gtp_location_id} completed.`);
           }
           else{
             order_item.quantity -= droppedQuantity;
