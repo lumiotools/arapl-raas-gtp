@@ -903,9 +903,9 @@ export class OrchestratorService {
           cargos: task.cargos
         }]
       };
-      const warehouse_name = config().parsed?.WMS_WAREHOUSE_NAME || 'warehouse';
-      const warehosue_key = config().parsed?.WMS_WAREHOUSE_AUTH_kEY || 'test';
-      const wms_base_url = config().parsed?.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
+      const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
 
       const response = await firstValueFrom(
         this.httpService.post(`${wms_base_url}/robot-job/${warehouse_name}/tasks`, requestBody, {
