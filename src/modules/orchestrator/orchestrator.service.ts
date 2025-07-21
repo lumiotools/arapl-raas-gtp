@@ -20,6 +20,7 @@ import { InventoryService } from '../inventory/inventory.service';
 import { LoggingService } from '../../services/logging.service';
 import { MessageCode } from '../trigger/trigger.controller';
 import { StationsService } from '../stations/stations.service';
+import {config} from 'dotenv';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -902,7 +903,8 @@ export class OrchestratorService {
           cargos: task.cargos
         }]
       };
-
+      const warehouse_name = config().parsed?.WMS_WAREHOUSE_NAME || 'warehouse';
+      const warehosue_key = config().parsed?.WMS_WAREHOUSE_AUTH_kEY || 'test';
       this.logger.log(`Sending single task ${task.task_id} to WMS API`);
       console.log('=== WMS API Single Task Request ===');
       console.log('URL: http://localhost:3000/robot-job/WH_001/tasks');
@@ -912,9 +914,9 @@ export class OrchestratorService {
       console.log('===================================');
 
       const response = await firstValueFrom(
-        this.httpService.post('http://localhost:3000/robot-job/WH_001/tasks', requestBody, {
+        this.httpService.post(`http://localhost:3000/robot-job/${warehouse_name}/tasks`, requestBody, {
           headers: {
-            'authorization': 'test',
+            'authorization': `${warehosue_key}`,
             'Content-Type': 'application/json'
           }
         })
