@@ -26,7 +26,7 @@ export class AuthController {
       // Set cookie with proper configuration
       res.cookie('token', result.token, {
         httpOnly: false, // Set to false if you need to access via JavaScript
-        // secure: process.env.NODE_ENV === 'production', // Only over HTTPS in production
+        secure: process.env.NODE_ENV === 'production', // Only over HTTPS in production
         sameSite: 'lax', // Allow same-site requests
         maxAge: 10 * 60 * 60 * 1000 // 24 hours
       });
