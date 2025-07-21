@@ -481,7 +481,7 @@ export class WebhookService {
     }
 
     try {
-      const response = await this.httpService.post('http://localhost:3000/orchestrator/robot/set-available', {
+      const response = await this.httpService.post(`${process.env.WMS_BASE_URL}/orchestrator/robot/set-available`, {
         robot_id: robotId
       }).toPromise();
 
