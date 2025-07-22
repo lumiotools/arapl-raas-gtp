@@ -1442,7 +1442,7 @@ export class OrchestratorService {
           if (droppedQuantity >= order_item.quantity) {
             droppedQuantity -= order_item.quantity;
             order_item.status = OrderItemStatus.COMPLETED;
-            order_item.assigned_gtp_location = null;
+            // order_item.assigned_gtp_location = null;
             order_item.quantity = 0;
             await this.orderItemRepository.save(order_item);
             await this.loggingService.log(`Order ${order_item.order_id}: Product ${productId} at GTP Location ${gtpLocation.gtp_location_id} completed.`);
@@ -2051,7 +2051,7 @@ export class OrchestratorService {
     const result2 = await this.orderItemRepository
       .createQueryBuilder()
       .update()
-      .set({ status: OrderItemStatus.CANCELLED, assigned_gtp_location: null })
+      .set({ status: OrderItemStatus.CANCELLED}) // , assigned_gtp_location: null 
       .where("status = :status", { status: OrderItemStatus.IN_PROGRESS })
       .execute();
     return result;

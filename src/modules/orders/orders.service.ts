@@ -310,7 +310,7 @@ export class OrdersService {
           // Update all matching order items with the GTP location
           for (const orderItem of orderItems) {
             await this.orderItemRepository.update(
-              { order_item_id: orderItem.order_item_id },
+              { order_item_id: orderItem.order_item_id, status: OrderItemStatus.PENDING },
               { 
                 assigned_gtp_location: gtpLocation,
                 status: OrderItemStatus.ASSIGNED 
@@ -377,7 +377,8 @@ export class OrdersService {
       // Check if the GTP location is already assigned to a different license plate
       const existingAssignment = await this.orderItemRepository.findOne({
         where: { 
-          assigned_gtp_location: gtpLocationId
+          assigned_gtp_location: gtpLocationId,
+          status: OrderItemStatus.ASSIGNED
         },
         select: ['license_plate_id']
       });
@@ -400,7 +401,8 @@ export class OrdersService {
       // Update all matching order items
       const updateResult = await this.orderItemRepository.update(
         { 
-          license_plate_id: licensePlateId
+          license_plate_id: licensePlateId,
+          status: OrderItemStatus.PENDING  // Ensure we only update items that are pending
         },
         { 
           assigned_gtp_location: gtpLocationId,
