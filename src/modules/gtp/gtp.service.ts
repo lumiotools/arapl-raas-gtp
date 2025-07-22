@@ -86,7 +86,12 @@ export class GtpService {
     if (!existing) {
       throw new NotFoundException(`GTP with id ${id} not found`);
     }
-    
+    const exisingOrder = await this.orderItemRepository.findOne({
+      where: { assigned_gtp_location: id }
+    });
+    if (exisingOrder) {
+      throw new ForbiddenException(`Cannot delete GTP location ${id}: A license plate number was assigned to this location.`);
+    }
     // Check if this GTP location is assigned to any order items in IN_PROGRESS state
     const inProgressOrderItems = await this.orderItemRepository.find({
       where: { 

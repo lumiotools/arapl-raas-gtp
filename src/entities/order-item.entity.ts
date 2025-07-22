@@ -34,6 +34,10 @@ export class OrderItem {
   @Column({ type: 'int' })
   quantity: number;
 
+  @Column({ type: 'int'})
+  remaining_quantity: number;
+
+
   @Column({ type: 'varchar', length: 10, nullable: true })
   license_plate_id: string;
 

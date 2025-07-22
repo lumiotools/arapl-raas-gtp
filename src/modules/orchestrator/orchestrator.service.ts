@@ -1439,16 +1439,16 @@ export class OrchestratorService {
         console.log(`Order Item Product ID: ${order_item ? order_item.product_id : 'None'}`);
         if (order_item && order_item.product_id == productId) {
           console.log(`Processing Order Item ${order_item.order_item_id} for Product ${productId} at GTP Location ${gtpLocation.gtp_location_id}`);
-          if (droppedQuantity >= order_item.quantity) {
-            droppedQuantity -= order_item.quantity;
+          if (droppedQuantity >= order_item.remaining_quantity) {
+            droppedQuantity -= order_item.remaining_quantity;
             order_item.status = OrderItemStatus.COMPLETED;
             // order_item.assigned_gtp_location = null;
-            order_item.quantity = 0;
+            order_item.remaining_quantity = 0;
             await this.orderItemRepository.save(order_item);
             await this.loggingService.log(`Order ${order_item.order_id}: Product ${productId} at GTP Location ${gtpLocation.gtp_location_id} completed.`);
           }
           else{
-            order_item.quantity -= droppedQuantity;
+            order_item.remaining_quantity -= droppedQuantity;
             droppedQuantity = 0;
             await this.orderItemRepository.save(order_item);
             break;
@@ -2048,6 +2048,14 @@ export class OrchestratorService {
       .update()
       .set({ isCancelled: true })
       .execute();
+    
+    const inprogressOrderItems = await this.orderItemRepository.find({
+      where: { status: OrderItemStatus.IN_PROGRESS }
+    });
+    for (const orderItem of inprogressOrderItems) {
+      this.loggingService.log(`Order ${orderItem.order_id}: Cancelled - Product ${orderItem.product_id}`);
+    }
+
     const result2 = await this.orderItemRepository
       .createQueryBuilder()
       .update()

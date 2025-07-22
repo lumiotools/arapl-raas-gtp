@@ -197,6 +197,7 @@ export class OrdersService {
             order_id: orderId,
             product_id: item['Product Id'],
             quantity: item['Qty'],
+            remaining_quantity: item['Qty'],
             license_plate_id: item['License Plate ID'],
             status: OrderItemStatus.PENDING,
           });
