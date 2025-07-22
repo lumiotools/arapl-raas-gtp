@@ -1540,10 +1540,10 @@ export class OrchestratorService {
   // Manual trigger method for testing
 
   public async triggerOrchestrator(mannual_trigger = false) {
-    if (this.orchestratorWorking) {
-      this.logger.warn('Orchestrator is already running - skipping manual trigger');
-      return {"message": "Service is already running, Try again in few seconds."};
-    }
+    // if (this.orchestratorWorking) {
+    //   this.logger.warn('Orchestrator is already running - skipping manual trigger');
+    //   return {"message": "Service is already running, Try again in few seconds."};
+    // }
     try{
       this.orchestratorWorking  = true;
 
@@ -1616,7 +1616,7 @@ export class OrchestratorService {
   }
 
   // Cron job that runs every 30 seconds to automatically trigger orchestrator
-  @Cron('*/5 * * * * *') // Every 30 seconds
+  @Cron('*/10 * * * * *') // Every 30 seconds
   async handleOrchestratorCron() {
     // Use manual_trigger = false for automatic cron job execution
     try {
