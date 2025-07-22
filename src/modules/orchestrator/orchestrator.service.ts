@@ -193,6 +193,7 @@ export class OrchestratorService {
           }
         }
       }
+      console.log(`productRequirements: ${JSON.stringify(productRequirements)}`);
       // now process all the product requirements
       for (const requirement of productRequirements) {
         await this.processProductRequirement(requirement.productId, productRequirements);
@@ -304,6 +305,8 @@ export class OrchestratorService {
       where : { product_id: productId , isPaused: false},
       order: { station_id: 'ASC' }
     });
+    
+    console.log(`databaseRequirement: ${JSON.stringify(databaseRequirement)}`);
 
     const totalDataBaseRequirement = databaseRequirement.reduce((sum, req) => sum + req.requirement, 0);
 
@@ -353,6 +356,7 @@ export class OrchestratorService {
           // this.logger.warn(`Waiting location ${waitingLocation.location_id} has no task ID associated`);
           continue;
         }
+        console.log(` waiting_location ${waitingLocation.location_id} taskId: ${taskId}`);
         const task = await this.taskRepository.findOne({
           where: { task_id: taskId }
         });
@@ -369,6 +373,7 @@ export class OrchestratorService {
             this.logger.warn(`Last task not found for batch ${task.batch_id} - cannot determine original inventory`);
             continue;
           }
+          console.log(`product ID: ${productId} sortedStations: ${JSON.stringify(sortedStations)}`);
           for (const stat in sortedStations){
             const stationID = sortedStations[stat].station_id;
             const station = await  this.stationRepository.findOne({
@@ -1537,84 +1542,88 @@ export class OrchestratorService {
     }
   }
 
-  // Manual trigger method for testing
+  // Manual trigger method for testin
 
-  
-public async triggerOrchestrator(mannual_trigger = false) {
-    if (this.orchestratorWorking) {
-      this.logger.warn('Orchestrator is already running - skipping manual trigger');
-      return {"message": "Service is already running, Try again in few seconds."};
-    }
-    try{
-      this.orchestratorWorking  = true;
-
-      const cancelledStationIds = await this.stationService.getCancelledStations();
-      this.logger.log(`Cancelled Stations: ${cancelledStationIds} found`);
-      for (const stationId of cancelledStationIds) {
-        await this.stationService.removeProductRequirment(stationId);
-        this.logger.log(`Processing cancelled station ${stationId}`);
-        const station  =  await this.stationRepository.findOne({
-          where: { station_id: stationId }
-        });
-        if (station) {
-          const task_id = station.holded_by;
-          if (task_id) {
-            const lastTask = await this.taskRepository.findOne({
-              where: { task_id: task_id }
-            });
-            const firstTask = await this.taskRepository.findOne({
-              where: { batch_id: lastTask?.batch_id, sequence_order: 1 }
-            });
-            const inventory = await this.inventoryRepository.findOne({
-              where: { id: firstTask?.start_location?.location_id}
-            });
-            const robotId = lastTask?.robot_id;
-            if (robotId){
-              await this.freeRobot(robotId);
-            }
-            if (firstTask && lastTask && inventory && inventory.status === LocationStatus.AVAILABLE) {
-              inventory.status = LocationStatus.RESERVED;
-              await this.inventoryRepository.save(inventory);
-              const newTaskID = await this.createTask({
-                batchId: lastTask.batch_id,
-                productId: lastTask.product_id,
-                sourceStationId: station.station_id,
-                destinationInventoryId: firstTask.start_location.location_id,
-                quantity: lastTask.quantity,
-                taskType: TaskType.GOODS_TO_PERSON,
-                move_type: MOVE_TYPE.STATION_TO_INVENTORY,
-                sequenceOrder: lastTask.sequence_order + 1,
-                taskDependency: lastTask.task_id
-              });
-              const newTask = await this.taskRepository.findOne({
-                where: { task_id: newTaskID }
-              });
-              if (!newTask){console.error(`New task ${newTaskID} not found after creation`); break;}
-              await this.sendSingleTaskToWms(newTask);
-              this.loggingService.log(`New Task: ${newTaskID} created for cancelled station ${stationId} - returning to inventory`);
-            }
-          }
-        } else {
-          this.logger.warn(`Station ${stationId} not found for cancellation`);
-        }
-      }
-      console.log('Cancelled Stations:', cancelledStationIds);
-      
-      const res = await this.processAssignedOrderItems(mannual_trigger);
-      this.orchestratorWorking = false;
-      
-      return res;
-    }
-    catch (error) {
-      this.orchestratorWorking = false;
-      this.logger.error(`Error during orchestrator trigger: ${error.message}`);
-      throw new Error(`Failed to trigger orchestrator: ${error.message}`);
-    }
-    finally {
-      this.orchestratorWorking = false;
-    }
-    
+  @Cron('*/10 * * * * *')
+  async orchestratorCronJob() {
+    await this.triggerOrchestrator(false);
   }
+  
+  public async triggerOrchestrator(mannual_trigger = false) {
+      if (this.orchestratorWorking) {
+        this.logger.warn('Orchestrator is already running - skipping manual trigger');
+        return {"message": "Service is already running, Try again in few seconds."};
+      }
+      try{
+        this.orchestratorWorking  = true;
+
+        const cancelledStationIds = await this.stationService.getCancelledStations();
+        this.logger.log(`Cancelled Stations: ${cancelledStationIds} found`);
+        for (const stationId of cancelledStationIds) {
+          await this.stationService.removeProductRequirment(stationId);
+          this.logger.log(`Processing cancelled station ${stationId}`);
+          const station  =  await this.stationRepository.findOne({
+            where: { station_id: stationId }
+          });
+          if (station) {
+            const task_id = station.holded_by;
+            if (task_id) {
+              const lastTask = await this.taskRepository.findOne({
+                where: { task_id: task_id }
+              });
+              const firstTask = await this.taskRepository.findOne({
+                where: { batch_id: lastTask?.batch_id, sequence_order: 1 }
+              });
+              const inventory = await this.inventoryRepository.findOne({
+                where: { id: firstTask?.start_location?.location_id}
+              });
+              const robotId = lastTask?.robot_id;
+              if (robotId){
+                await this.freeRobot(robotId);
+              }
+              if (firstTask && lastTask && inventory && inventory.status === LocationStatus.AVAILABLE) {
+                inventory.status = LocationStatus.RESERVED;
+                await this.inventoryRepository.save(inventory);
+                const newTaskID = await this.createTask({
+                  batchId: lastTask.batch_id,
+                  productId: lastTask.product_id,
+                  sourceStationId: station.station_id,
+                  destinationInventoryId: firstTask.start_location.location_id,
+                  quantity: lastTask.quantity,
+                  taskType: TaskType.GOODS_TO_PERSON,
+                  move_type: MOVE_TYPE.STATION_TO_INVENTORY,
+                  sequenceOrder: lastTask.sequence_order + 1,
+                  taskDependency: lastTask.task_id
+                });
+                const newTask = await this.taskRepository.findOne({
+                  where: { task_id: newTaskID }
+                });
+                if (!newTask){console.error(`New task ${newTaskID} not found after creation`); break;}
+                await this.sendSingleTaskToWms(newTask);
+                this.loggingService.log(`New Task: ${newTaskID} created for cancelled station ${stationId} - returning to inventory`);
+              }
+            }
+          } else {
+            this.logger.warn(`Station ${stationId} not found for cancellation`);
+          }
+        }
+        console.log('Cancelled Stations:', cancelledStationIds);
+        
+        const res = await this.processAssignedOrderItems(mannual_trigger);
+        this.orchestratorWorking = false;
+        
+        return res;
+      }
+      catch (error) {
+        this.orchestratorWorking = false;
+        this.logger.error(`Error during orchestrator trigger: ${error.message}`);
+        throw new Error(`Failed to trigger orchestrator: ${error.message}`);
+      }
+      finally {
+        this.orchestratorWorking = false;
+      }
+      
+    }
 
 // Original logic moved to separate method for timeout protection
 private async executeOrchestratorLogic(mannual_trigger = false) {
@@ -2055,6 +2064,7 @@ private async executeOrchestratorLogic(mannual_trigger = false) {
       const requirement = requirementMap.get(productId)!;
       requirement.totalRequirement += dbReq.requirement;
       requirement.stationRequirements.set(dbReq.station_id, dbReq.requirement);
+      requirementMap.set(productId, requirement);
     }
 
     // Convert to array and sort by descending total requirement
