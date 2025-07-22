@@ -29,7 +29,7 @@ export class OrchestratorController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'operator')
   async triggerOrchestrator() {
-    return await this.orchestratorService.triggerOrchestrator(true);
+    return await this.orchestratorService.writeInDatabase();
   }
 
   @Get('batches')

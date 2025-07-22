@@ -1544,9 +1544,19 @@ export class OrchestratorService {
 
   // Manual trigger method for testin
 
-  @Cron('*/10 * * * * *')
+  @Cron('*/5 * * * * *')
   async orchestratorCronJob() {
     await this.triggerOrchestrator(false);
+  }
+
+  public async writeInDatabase(){
+    const assignedItems = await this.getAndUpdateAssignedItems();
+        
+    if (assignedItems.length === 0) {
+      return { message: 'No assigned order items found' };
+    }
+    await this.calculateProductRequirements(assignedItems);
+    return { message: 'Assigned order items processed successfully'};
   }
   
   public async triggerOrchestrator(mannual_trigger = false) {
