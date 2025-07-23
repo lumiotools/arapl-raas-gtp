@@ -28,4 +28,22 @@ export class CreateInventoryDto {
   @IsNumber()
   @Min(0)
   quantity: number;
+
+  @ApiProperty({
+    description: 'Defective quantity of the product in inventory',
+    example: 5,
+    minimum: 0,
+  })
+  @IsNumber()
+  @Min(0)
+  defective_quantity: number;
+
+  @ApiProperty({
+    description: 'Missing quantity of the product in inventory',
+    example: 2,
+    minimum: 0,
+  })
+  @IsNumber()
+  @Min(0)
+  missing_quantity: number;
 }

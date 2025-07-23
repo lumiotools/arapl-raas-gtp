@@ -322,12 +322,12 @@ export class OrchestratorService {
 
     // filter inventories - status - available and quantity > 0
     const filteredInventories = allInventories.filter(inv => 
-      inv.status === LocationStatus.AVAILABLE && inv.quantity > 0
+      inv.status === LocationStatus.AVAILABLE && inv.quantity - inv.defective_quantity - inv.missing_quantity > 0
     );
 
     const selectedInventories = this.selectOptimalInventories(filteredInventories, effectiveSystemRequirement);
 
-    const totalSelectedQuantity = selectedInventories.reduce((sum, inv) => sum + inv.quantity, 0);
+    const totalSelectedQuantity = selectedInventories.reduce((sum, inv) => sum + inv.quantity - inv.defective_quantity - inv.missing_quantity, 0);
     
     // if (totalSelectedQuantity < effectiveSystemRequirement) {
     //   this.logger.warn(`Partial fulfillment for product ${productId}: selected ${totalSelectedQuantity}/${effectiveSystemRequirement} units from ${selectedInventories.length} inventories`);
@@ -503,7 +503,7 @@ export class OrchestratorService {
    */
   private selectOptimalInventories(inventories: Inventory[], totalRequired: number): Inventory[] {
     // Sort inventories by quantity descending (prefer larger inventories first)
-    const sortedInventories = [...inventories].sort((a, b) => b.quantity - a.quantity);
+    const sortedInventories = [...inventories].sort((a, b) => (b.quantity-b.defective_quantity-b.missing_quantity) - (a.quantity-a.defective_quantity-a.missing_quantity));
     
     // Calculate total available inventory
     const totalAvailable = sortedInventories.reduce((sum, inv) => sum + inv.quantity, 0);
@@ -1075,7 +1075,7 @@ export class OrchestratorService {
         this.logger.warn(`⚠️  Next task ${existingNextTask.task_id} already exists with dependency on completed task ${completedTask.task_id} - skipping duplicate creation`);
         return;
       }
-
+      let back_to_inventory : boolean = false;
       let remainingQuantity: number;
       let droppedQuantity: number;
 
@@ -1087,12 +1087,13 @@ export class OrchestratorService {
         await this.loggingService.log(`Skip task ${completedTask.task_id}: preserved quantity ${remainingQuantity}, no product requirements updated`);
       } else {
         // For normal completion: calculate dropped quantity and update requirements
+        
         remainingQuantity = completedTask.quantity - dropped_quantity;
         if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
-          remainingQuantity = 0; // If defective, all quantity is dropped
+          back_to_inventory = true;
         }
         if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
-          remainingQuantity = 0; // If insufficient quantity, all quantity is dropped
+          back_to_inventory = true;
         }
         droppedQuantity = dropped_quantity
 
@@ -1113,10 +1114,10 @@ export class OrchestratorService {
         }
         inventory.quantity_in_system -= droppedQuantity;
         if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
-          inventory.quantity_in_system = 0;
+          inventory.defective_quantity = remainingQuantity;
         }
         if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
-          inventory.quantity_in_system = 0;
+          inventory.missing_quantity = remainingQuantity;
         }
         await this.inventoryRepository.save(inventory);
 
@@ -1127,7 +1128,7 @@ export class OrchestratorService {
         this.logger.log(`📦 Normal completion: dropped ${droppedQuantity} units, remaining ${remainingQuantity} units`);
       }
       
-      if (remainingQuantity > 0) {
+      if (remainingQuantity > 0 && !back_to_inventory) {
         // Still have quantity to process - check for more stations
         const remainingRequirements = await this.getRemainingProductRequirements(
           completedTask.product_id,
@@ -1141,7 +1142,12 @@ export class OrchestratorService {
           // All stations visited but still have remaining quantity - return to inventory
           await this.createReturnToInventoryTask(completedTask, remainingQuantity);
         }
-      } else {
+      }
+      else if (remainingQuantity > 0 && back_to_inventory) {
+        // Still have quantity to process - return to inventory
+        await this.createReturnToInventoryTask(completedTask, remainingQuantity);
+      } 
+      else {
         // No remaining quantity (all quantity dropped at stations) - return to inventory to complete the batch
         await this.createReturnToInventoryTask(completedTask, 0);
       }

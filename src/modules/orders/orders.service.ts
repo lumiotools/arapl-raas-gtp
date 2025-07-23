@@ -15,6 +15,7 @@ import {
 } from './dto/upload-order.dto';
 import { Log } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
+import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
 @Injectable()
 export class OrdersService {
@@ -27,10 +28,61 @@ export class OrdersService {
     private productRepository: Repository<Product>,
     @InjectRepository(GtpLocation)
     private gtpLocationRepository: Repository<GtpLocation>,
-
+    @InjectRepository(ScheduleMapping)
+    private scheduleMappingRepository: Repository<ScheduleMapping>,
     private readonly loggingService: LoggingService
-
   ) {}
+
+  async processScheduleMappingFile(file: Express.Multer.File): Promise<{ success: boolean; message: string; errors?: string[] }> {
+    const results: { success: boolean; message: string; errors?: string[] } = {
+      success: true,
+      message: '',
+      errors: [],
+    };
+    try {
+      const csvData = file.buffer.toString('utf8');
+      const lines = csvData.split('\n').filter(line => line.trim());
+      if (lines.length === 0) {
+        throw new BadRequestException('CSV file is empty');
+      }
+      // Parse header
+      const headers = lines[0].split(',').map(h => h.trim());
+      const expectedHeaders = ['GTP Location', 'License Plate ID'];
+      if (!expectedHeaders.every(header => headers.includes(header))) {
+        throw new BadRequestException(`Invalid CSV format. Expected headers: ${expectedHeaders.join(', ')}`);
+      }
+      let created = 0;
+      // Process each row (skip header)
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        if (values.length < 2) {
+          results.errors?.push(`Row ${i + 1}: Invalid number of columns`);
+          continue;
+        }
+        const gtpLocationId = values[0];
+        const licensePlateId = values[1];
+        if (!gtpLocationId || !licensePlateId) {
+          results.errors?.push(`Row ${i + 1}: Missing required fields (GTP Location or License Plate ID)`);
+          continue;
+        }
+        try {
+          const mapping = this.scheduleMappingRepository.create({
+            gtp_location_id: gtpLocationId,
+            license_plate_id: licensePlateId,
+          });
+          await this.scheduleMappingRepository.save(mapping);
+          created++;
+        } catch (error) {
+          results.errors?.push(`Row ${i + 1}: ${error.message}`);
+        }
+      }
+      results.success = results.errors?.length === 0;
+      results.message = `Successfully uploaded ${created} schedule mappings.`;
+      return results;
+    } catch (error) {
+      throw new BadRequestException(`Failed to process schedule mapping CSV file: ${error.message}`);
+    }
+  }
 
   async processFile(file: Express.Multer.File, body: any): Promise<UploadResponseDto> {
     const fileExtension = this.getFileExtension(file.originalname);

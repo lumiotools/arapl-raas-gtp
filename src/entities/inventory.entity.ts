@@ -23,6 +23,12 @@ export class Inventory {
   quantity: number;
 
   @Column({ type: 'int', default: 0 })
+  defective_quantity: number;
+
+  @Column({ type: 'int', default: 0 })
+  missing_quantity: number;
+  
+  @Column({ type: 'int', default: 0 })
   quantity_in_system: number;
 
   @Column({ type: 'boolean', default: false })

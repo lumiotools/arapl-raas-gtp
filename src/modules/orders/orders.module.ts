@@ -12,10 +12,11 @@ import { jwtConfig } from 'src/config/jwt.config';
 import { User } from 'src/entities/user.entity';
 import { LoggingService } from 'src/services/logging.service';
 import { Log } from 'src/entities';
+import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
 @Module({
   imports: [JwtModule.register(jwtConfig),
-    TypeOrmModule.forFeature([Order, OrderItem, Product, GtpLocation, User, Log])],
+    TypeOrmModule.forFeature([Order, OrderItem, Product, GtpLocation, User, Log, ScheduleMapping])],
   controllers: [OrdersController],
   providers: [OrdersService, LoggingService],
 })

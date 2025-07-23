@@ -31,10 +31,76 @@ import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
 
+
 @ApiTags('Orders')
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
+
+  @Post('schedule-mapping/upload')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({
+    summary: 'Upload schedule mappings from CSV file',
+    description:
+      'Upload a CSV file containing schedule mapping data to create ScheduleMapping records in the system.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description:
+            'CSV file containing schedule mapping data with columns: GTP Location, License Plate ID',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'File processed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Successfully uploaded 3 schedule mappings.' },
+        errors: { type: 'array', items: { type: 'string' }, example: [] },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid file format, missing file, or processing error',
+    type: BadRequestDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Internal server error',
+    type: InternalServerErrorDto,
+  })
+  async uploadScheduleMappings(
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<{ success: boolean; message: string; errors?: string[] }> {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const allowedExtensions = ['csv'];
+    const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
+
+    if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
+      throw new BadRequestException(
+        'Invalid file format. Please upload a CSV file (.csv)',
+      );
+    }
+    return await this.ordersService.processScheduleMappingFile(file);
+  }
 
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
