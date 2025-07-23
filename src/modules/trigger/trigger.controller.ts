@@ -24,10 +24,8 @@ import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
 
 export enum MessageCode {
-  NO_PROBLEM = 'NO_PROBLEM',
+  DEFECTIVE_PRODUCT = 'DEFECTIVE_PRODUCT',
   INSUFFICIENT_QUANTITY = 'INSUFFICIENT_QUANTITY',
-  OTHER = 'OTHER',
-  NOT_REQUIRED = 'NOT_REQUIRED',
 }
 
 @ApiTags('Trigger')

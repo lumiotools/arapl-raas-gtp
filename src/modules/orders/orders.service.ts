@@ -32,9 +32,10 @@ export class OrdersService {
 
   ) {}
 
-  async processFile(file: Express.Multer.File): Promise<UploadResponseDto> {
+  async processFile(file: Express.Multer.File, body: any): Promise<UploadResponseDto> {
     const fileExtension = this.getFileExtension(file.originalname);
     let data: UploadOrderItemDto[] = [];
+    let batch_order_id: string | null = body?.batch_order_id || null;
 
     try {
       if (fileExtension === 'csv') {
@@ -47,7 +48,7 @@ export class OrdersService {
         );
       }
 
-      return await this.saveToDatabase(data);
+      return await this.saveToDatabase(data, batch_order_id);
     } catch (error) {
       throw new BadRequestException(`Error processing file: ${error.message}`);
     }
@@ -90,9 +91,8 @@ export class OrdersService {
 
   private async saveToDatabase(
     data: UploadOrderItemDto[],
+    batch_order_id: string | null,
   ): Promise<UploadResponseDto> {
-    const processedOrders = new Set<string>();
-    const skippedOrders = new Set<string>();
     let processedItems = 0;
 
     if (data.length === 0) {
@@ -122,44 +122,7 @@ export class OrdersService {
           throw new BadRequestException('Invalid Order ID found in data');
         }
 
-        const existingOrder = await this.orderRepository.findOne({
-          where: { order_id: orderId },
-        });
-
-        if (existingOrder) {
-          let hasNewItems = false;
-
-          for (const item of items) {
-            const existingOrderItem = await this.orderItemRepository.findOne({
-              where: {
-                order_id: orderId,
-                product_id: item['Product Id'],
-                license_plate_id: item['License Plate ID'],
-              },
-            });
-
-            if (!existingOrderItem) {
-              hasNewItems = true;
-              break;
-            }
-          }
-
-          if (!hasNewItems) {
-            skippedOrders.add(orderId);
-            continue;
-          }
-        } else {
-          await this.loggingService.log(`Order ${orderId}: Creating new Order.`);
-          const order = this.orderRepository.create({
-            order_id: orderId,
-            order_date: new Date(),
-            total_items: items.reduce((sum, item) => sum + item['Qty'], 0),
-            order_status: OrderStatus.PENDING,
-          });
-          await this.orderRepository.save(order);
-          processedOrders.add(orderId);
-        }
-
+        await this.loggingService.log(`Order ${orderId}: Creating new Order.`);
         for (const item of items) {
           if (
             !item['Product Id'] ||
@@ -200,6 +163,7 @@ export class OrdersService {
             remaining_quantity: item['Qty'],
             license_plate_id: item['License Plate ID'],
             status: OrderItemStatus.PENDING,
+            order_batch_id: batch_order_id,
           });
 
           await this.orderItemRepository.save(orderItem);
@@ -210,17 +174,9 @@ export class OrdersService {
       }
     }
 
-    if (processedOrders.size === 0 && skippedOrders.size > 0) {
-      return {
-        success: true,
-        message: `All ${skippedOrders.size} orders already exist`,
-        errors: undefined,
-      };
-    }
-
     return {
       success: true,
-      message: `Successfully processed ${processedOrders.size} orders and ${processedItems} items`,
+      message: `Successfully uploaded ${processedItems} order items.`,
       errors: undefined,
     };
   }

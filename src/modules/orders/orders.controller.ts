@@ -78,6 +78,7 @@ export class OrdersController {
   })
   async uploadOrders(
     @UploadedFile() file: Express.Multer.File,
+    @Body() body: any, // Body is not used but can be included for future extensions
   ): Promise<UploadResponseDto> {
     if (!file) {
       throw new BadRequestException('No file uploaded');
@@ -91,8 +92,8 @@ export class OrdersController {
         'Invalid file format. Please upload a CSV or Excel file (.csv, .xlsx, .xls)',
       );
     }
-
-    return await this.ordersService.processFile(file);
+    return await this.ordersService.processFile(file, body);
+    // return await this.ordersService.processFile(file);
   }
 
   @Post('assignments/upload')

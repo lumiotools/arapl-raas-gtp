@@ -1088,7 +1088,13 @@ export class OrchestratorService {
       } else {
         // For normal completion: calculate dropped quantity and update requirements
         remainingQuantity = completedTask.quantity - dropped_quantity;
-        droppedQuantity = dropped_quantity;
+        if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
+          remainingQuantity = 0; // If defective, all quantity is dropped
+        }
+        if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
+          remainingQuantity = 0; // If insufficient quantity, all quantity is dropped
+        }
+        droppedQuantity = dropped_quantity
 
         // Update inventory quantity (reduce by dropped amount)
         const firstTask = await this.taskRepository.findOne({
@@ -1106,6 +1112,12 @@ export class OrchestratorService {
           return;
         }
         inventory.quantity_in_system -= droppedQuantity;
+        if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
+          inventory.quantity_in_system = 0;
+        }
+        if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
+          inventory.quantity_in_system = 0;
+        }
         await this.inventoryRepository.save(inventory);
 
         // Remove the fulfilled product requirement from database (quantity has been dropped at this station)

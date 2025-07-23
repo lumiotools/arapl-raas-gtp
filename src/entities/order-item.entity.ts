@@ -37,6 +37,8 @@ export class OrderItem {
   @Column({ type: 'int'})
   remaining_quantity: number;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  order_batch_id: string | null;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
   license_plate_id: string;
@@ -62,9 +64,9 @@ export class OrderItem {
   updated_at: Date;
 
   // Relations - using Relation type with type-only imports
-  @ManyToOne('Order', 'orderItems')
-  @JoinColumn({ name: 'order_id' })
-  order: Relation<Order>;
+  // @ManyToOne('Order', 'orderItems')
+  // @JoinColumn({ name: 'order_id' })
+  // order: Relation<Order>;
 
   @ManyToOne('Product', 'orderItems')
   @JoinColumn({ name: 'product_id' })

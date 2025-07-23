@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
 import { TriggerController } from './trigger.controller';
@@ -12,12 +12,13 @@ import { Inventory } from 'src/entities';
 import { LoggingModule } from '../logging/logging.module';
 import { dashboard } from 'src/entities/dashboard.entity';
 import { User } from 'src/entities/user.entity';
+import { OrchestratorService } from '../orchestrator/orchestrator.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Station, WaitingLocation, Task, StationRequest, Inventory,dashboard,User]),
+    forwardRef(() => OrchestratorModule),
     HttpModule,
-    OrchestratorModule,
     LoggingModule,
   ],
   controllers: [TriggerController],

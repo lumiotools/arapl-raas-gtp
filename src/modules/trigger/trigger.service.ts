@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
@@ -27,6 +27,8 @@ export class TriggerService {
     private readonly inventoryRepository: Repository<Inventory>,
     @InjectRepository(dashboard)
     private readonly dashRepository: Repository<dashboard>,
+
+    @Inject(forwardRef(() => OrchestratorService))
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly httpService: HttpService,
@@ -292,7 +294,7 @@ export class TriggerService {
     try {
       // For skip operations, call orchestrator with isSkipOperation=true
       // This preserves full quantity and doesn't update product requirements
-      await this.orchestratorService.handleTaskCompletion(currentTask, true, 0, MessageCode.NOT_REQUIRED);
+      await this.orchestratorService.handleTaskCompletion(currentTask, true, 0, MessageCode.INSUFFICIENT_QUANTITY);
 
       await this.loggingService.log(`Skip operation completed for task ${currentTask.task_id} - orchestrator handled next task creation with full quantity ${currentTask.quantity} (no product requirements updated)`);
 
