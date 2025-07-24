@@ -1680,7 +1680,7 @@ export class OrchestratorService {
         // Process each GTP location
         for (const gtpLocation of gtpLocations) {
             const gtpLocationId = gtpLocation.gtp_location_id;
-            
+            console.log(`Processing GTP Location ID: ${gtpLocationId}`);
             // 2. Check if this GTP location is already assigned to any order item 
             // in pending, assigned, or in_progress state
             const existingAssignment = await this.orderItemRepository.findOne({
@@ -1694,6 +1694,7 @@ export class OrchestratorService {
             if (existingAssignment) {
                 continue;
             }
+            console.log(`Existing Assignment: ${existingAssignment ? 'Found' : 'Not Found'} for GTP Location ID: ${gtpLocationId}`);
             
             // 3. Find all mappings for this available GTP location
             const scheduleMappings = await this.scheduleMappingRepository.find({
@@ -1701,6 +1702,8 @@ export class OrchestratorService {
                     gtp_location_id: gtpLocationId
                 }
             });
+
+            console.log(`Found ${scheduleMappings.length} schedule mappings for GTP Location ID: ${gtpLocationId}`);
             
             // 4. Iterate over those mappings
             for (const scheduleMapping of scheduleMappings) {
@@ -1726,6 +1729,9 @@ export class OrchestratorService {
                     
                     // Remove the schedule mapping since it's been used
                     await this.scheduleMappingRepository.remove(scheduleMapping);
+
+                    // 6. Write in database
+                    await this.writeInDatabase();
                     
                     console.log(`Assigned ${unassignedOrderItems.length} order items with LP ${license_plate_id} to GTP ${gtpLocationId}`);
                     
@@ -1736,8 +1742,7 @@ export class OrchestratorService {
             }
         }
         
-        // Call writeInDatabase only once at the end
-        await this.writeInDatabase();
+        
         
     } catch (error) {
         console.error('Error in scheduleLPtoPickLocation:', error);
