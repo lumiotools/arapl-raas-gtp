@@ -38,22 +38,6 @@ export class InventoryService {
     if (existingInventory) {
       throw new BadRequestException(`Inventory with id ${createInventoryDto.id} already exists`);
     }
-    if (createInventoryDto.barcode_number){
-      try {
-        const barcodeBuffer = await toBuffer({
-          bcid: 'code128', // Barcode type
-          text: createInventoryDto.barcode_number, // Barcode number
-          scale: 3,
-          height: 10,
-          includetext: true,
-          textxalign: 'center',
-        });
-        createInventoryDto.barcode_image = barcodeBuffer;
-      } catch (err) {
-        throw new BadRequestException(`Failed to generate barcode image: ${err.message}`);
-      }
-    }
-
     const newInventory = this.inventoryRepository.create(createInventoryDto);
     return await this.inventoryRepository.save(newInventory);
   }
@@ -68,21 +52,21 @@ export class InventoryService {
     if (existingInventory) {
       throw new BadRequestException(`Inventory with id ${createInventoryDto.id} already exists`);
     }
-    if (createInventoryDto.barcode_number){
-      try {
-        const barcodeBuffer = await toBuffer({
-          bcid: 'code128', // Barcode type
-          text: createInventoryDto.barcode_number, // Barcode number
-          scale: 3,
-          height: 10,
-          includetext: true,
-          textxalign: 'center',
-        });
-        createInventoryDto.barcode_image = barcodeBuffer;
-      } catch (err) {
-        throw new BadRequestException(`Failed to generate barcode image: ${err.message}`);
-      }
-    }
+    // if (createInventoryDto.barcode_number){
+    //   try {
+    //     const barcodeBuffer = await toBuffer({
+    //       bcid: 'code128', // Barcode type
+    //       text: createInventoryDto.barcode_number, // Barcode number
+    //       scale: 3,
+    //       height: 10,
+    //       includetext: true,
+    //       textxalign: 'center',
+    //     });
+    //     createInventoryDto.barcode_image = barcodeBuffer;
+    //   } catch (err) {
+    //     throw new BadRequestException(`Failed to generate barcode image: ${err.message}`);
+    //   }
+    // }
 
     const newInventory = this.inventoryRepository.create(createInventoryDto);
     return await this.inventoryRepository.save(newInventory);
@@ -324,23 +308,23 @@ export class InventoryService {
     }
   }
 
-  async updateBarcodeImage(
-    id: string,
-    barcodeData: {
-      barcode_image: Buffer;
-      barcode_image_name: string;
-      barcode_image_mimetype: string;
-      barcode_image_size: number;
-    }
-  ): Promise<Inventory> {
-    const result = await this.inventoryRepository.update(id, barcodeData);
+  // async updateBarcodeImage(
+  //   id: string,
+  //   barcodeData: {
+  //     barcode_image: Buffer;
+  //     barcode_image_name: string;
+  //     barcode_image_mimetype: string;
+  //     barcode_image_size: number;
+  //   }
+  // ): Promise<Inventory> {
+  //   const result = await this.inventoryRepository.update(id, barcodeData);
     
-    if (result.affected === 0) {
-      throw new NotFoundException(`Inventory item with ID ${id} not found`);
-    }
+  //   if (result.affected === 0) {
+  //     throw new NotFoundException(`Inventory item with ID ${id} not found`);
+  //   }
 
-    // Return the updated inventory item
-    const updatedInventory = await this.findOne(id);
-    return updatedInventory!;
-  }
+  //   // Return the updated inventory item
+  //   const updatedInventory = await this.findOne(id);
+  //   return updatedInventory!;
+  // }
 }

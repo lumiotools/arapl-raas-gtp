@@ -46,4 +46,13 @@ export class CreateInventoryDto {
   @IsNumber()
   @Min(0)
   missing_quantity: number;
+
+  @ApiProperty({
+    description: 'Barcode number associated with the inventory item',
+    example: '1234567890123',
+    maxLength: 20,
+  })
+  @IsString()
+  @IsNotEmpty()
+  barcode_number: string;
 }

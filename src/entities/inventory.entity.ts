@@ -37,21 +37,6 @@ export class Inventory {
   @Column({ type: 'varchar', length: 255, nullable: true })
   barcode_number: string;
 
-  @Column({ 
-    type: 'bytea', 
-    nullable: true 
-  })
-  barcode_image: Buffer; // Store image as binary data
-  
-  @Column({ nullable: true })
-  barcode_image_name: string; // Original filename
-
-  @Column({ nullable: true })
-  barcode_image_mimetype: string; // Image MIME type
-
-  @Column({ nullable: true })
-  barcode_image_size: number;
-
   @Column({
     type: 'enum',
     enum: LocationStatus,
