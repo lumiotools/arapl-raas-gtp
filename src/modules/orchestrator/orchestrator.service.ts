@@ -1127,7 +1127,7 @@ export class OrchestratorService {
 
         // Remove the fulfilled product requirement from database (quantity has been dropped at this station)
         const currentStationId = completedTask.end_location.location_id;
-        await this.removeProductRequirement(completedTask.product_id, currentStationId, droppedQuantity);
+        await this.removeProductRequirement(completedTask.product_id, currentStationId, droppedQuantity, message_code);
         
         this.logger.log(`📦 Normal completion: dropped ${droppedQuantity} units, remaining ${remainingQuantity} units`);
       }
@@ -1443,7 +1443,7 @@ export class OrchestratorService {
     this.logger.log(`Created return to inventory task ${returnTaskId}: station ${completedTask.end_location.location_id} → inventory ${originalInventoryId} with ${remainingQuantity} units (task sent to WMS)`);
   }
 
-  private async removeProductRequirement(productId: string, stationId: string, droppedQuantity: number): Promise<void> {
+  private async removeProductRequirement(productId: string, stationId: string, droppedQuantity: number, message_code: MessageCode): Promise<void> {
     try {
       this.logger.log(`Removing product requirement for Product ${productId} at Station ${stationId} - dropped quantity: ${droppedQuantity}`);
       const existingRequirement = await this.productRequirementRepository.findOne({
@@ -1453,15 +1453,27 @@ export class OrchestratorService {
         this.logger.warn(`No product requirement found for Product ${productId} at Station ${stationId} - nothing to remove`);
         return;
       }
+      // if (message_code == MessageCode.NOT_REQUIRED) {
+      //   this.productRequirementRepository.delete({
+      //     product_id: productId,
+      //     station_id: stationId
+      //   });
+      //   return;
+      // }
       existingRequirement.requirement -= droppedQuantity;
       const gtpLocations = await this.gtpLocationRepository.find({
-        where: { station_id: stationId}
+        where: { station_id: stationId }
       });
       console.log(`GTP Locations for Station ${stationId}:`, JSON.stringify(gtpLocations, null, 2));
       for (const gtpLocation of gtpLocations) {
         const order_item = await this.orderItemRepository.findOne({
           where: { assigned_gtp_location: gtpLocation.gtp_location_id, product_id: productId }
         });
+        if (order_item && message_code == MessageCode.NOT_REQUIRED) {
+          order_item.status = OrderItemStatus.COMPLETED;
+          order_item.remaining_quantity = 0;
+          await this.orderItemRepository.save(order_item);
+        }
         console.log(`Order Item for GTP Location ${gtpLocation.gtp_location_id}:`, JSON.stringify(order_item, null, 2));
         console.log(`Order Item Product ID: ${order_item ? order_item.product_id : 'None'}`);
         if (order_item && order_item.product_id == productId) {
@@ -1483,7 +1495,7 @@ export class OrchestratorService {
           console.log(`Updated Order Item ${order_item.order_item_id} - new quantity: ${order_item.quantity}`);
         }
       }
-      if (existingRequirement.requirement == 0){
+      if (existingRequirement.requirement == 0 || message_code == MessageCode.NOT_REQUIRED) {
         const result = await this.productRequirementRepository.delete({
           product_id: productId,
           station_id: stationId
@@ -1495,7 +1507,7 @@ export class OrchestratorService {
           this.logger.warn(`No product requirement found to remove for Product ${productId} at Station ${stationId}`);
         }
       }
-      if (existingRequirement.requirement > 0) {
+      else if (existingRequirement.requirement > 0) {
         // If requirement is still greater than 0, just update it
         await this.productRequirementRepository.save(existingRequirement);
         this.logger.log(`Updated product requirement: Product ${productId} at Station ${stationId} - remaining requirement: ${existingRequirement.requirement}`);
