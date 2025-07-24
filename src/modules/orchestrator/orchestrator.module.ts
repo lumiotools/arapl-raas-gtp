@@ -15,6 +15,7 @@ import { ProductRequirement } from 'src/entities/product-requirement.entity';
 import { InventoryModule } from '../inventory/inventory.module';
 import { User } from 'src/entities/user.entity';
 import { StationsService } from '../stations/stations.service';
+import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
 @Module({
   imports: [
@@ -29,7 +30,8 @@ import { StationsService } from '../stations/stations.service';
       StationRequest,
       ProductRequirement,
       User,
-      Station
+      Station,
+      ScheduleMapping
     ]),
     HttpModule,
     InventoryModule,

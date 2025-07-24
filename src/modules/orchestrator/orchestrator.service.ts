@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, MoreThan, Not, Repository } from 'typeorm';
+import { In, IsNull, MoreThan, Not, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, last, min, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -21,6 +21,8 @@ import { LoggingService } from '../../services/logging.service';
 import { MessageCode } from '../trigger/trigger.controller';
 import { StationsService } from '../stations/stations.service';
 import {config} from 'dotenv';
+import { Order } from 'src/entities';
+import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -77,6 +79,8 @@ export class OrchestratorService {
     private readonly stationRequestRepository: Repository<StationRequest>,
     @InjectRepository(ProductRequirementEntity)
     private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
+    @InjectRepository(ScheduleMapping)
+    private readonly scheduleMappingRepository: Repository<ScheduleMapping>,
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
     private readonly loggingService: LoggingService,
@@ -1585,6 +1589,8 @@ export class OrchestratorService {
       try{
         this.orchestratorWorking  = true;
 
+        await this.scheduleLPtoPickLocation();
+
         const cancelledStationIds = await this.stationService.getCancelledStations();
         this.logger.log(`Cancelled Stations: ${cancelledStationIds} found`);
         for (const stationId of cancelledStationIds) {
@@ -1653,63 +1659,79 @@ export class OrchestratorService {
       
     }
 
-// Original logic moved to separate method for timeout protection
-private async executeOrchestratorLogic(mannual_trigger = false) {
-  const cancelledStationIds = await this.stationService.getCancelledStations();
-  this.logger.log(`Cancelled Stations: ${cancelledStationIds} found`);
-  
-  for (const stationId of cancelledStationIds) {
-    await this.stationService.removeProductRequirment(stationId);
-    this.logger.log(`Processing cancelled station ${stationId}`);
-    const station = await this.stationRepository.findOne({
-      where: { station_id: stationId }
-    });
-    if (station) {
-      const task_id = station.holded_by;
-      if (task_id) {
-        const lastTask = await this.taskRepository.findOne({
-          where: { task_id: task_id }
-        });
-        const firstTask = await this.taskRepository.findOne({
-          where: { batch_id: lastTask?.batch_id, sequence_order: 1 }
-        });
-        const inventory = await this.inventoryRepository.findOne({
-          where: { id: firstTask?.start_location?.location_id}
-        });
-        const robotId = lastTask?.robot_id;
-        if (robotId){
-          await this.freeRobot(robotId);
+
+  async scheduleLPtoPickLocation() {
+    try {
+        // 1. Get all GTP locations
+        const gtpLocations = await this.gtpLocationRepository.find();
+        
+        // Process each GTP location
+        for (const gtpLocation of gtpLocations) {
+            const gtpLocationId = gtpLocation.gtp_location_id;
+            
+            // 2. Check if this GTP location is already assigned to any order item 
+            // in pending, assigned, or in_progress state
+            const existingAssignment = await this.orderItemRepository.findOne({
+                where: { 
+                    assigned_gtp_location: gtpLocationId,
+                    status: In([OrderItemStatus.PENDING, OrderItemStatus.IN_PROGRESS, OrderItemStatus.ASSIGNED])
+                }
+            });
+            
+            // If GTP location is already assigned, skip it
+            if (existingAssignment) {
+                continue;
+            }
+            
+            // 3. Find all mappings for this available GTP location
+            const scheduleMappings = await this.scheduleMappingRepository.find({
+                where: { 
+                    gtp_location_id: gtpLocationId
+                }
+            });
+            
+            // 4. Iterate over those mappings
+            for (const scheduleMapping of scheduleMappings) {
+                const { license_plate_id } = scheduleMapping;
+                
+                // Find unassigned order items with this license plate
+                const unassignedOrderItems = await this.orderItemRepository.find({
+                    where: { 
+                        license_plate_id, 
+                        assigned_gtp_location: IsNull() 
+                    },
+                });
+                
+                // If we found unassigned order items with this LP
+                if (unassignedOrderItems.length > 0) {
+                    // 5. Assign current GTP location to ALL order items with this LP
+                    // and set their status to assigned
+                    for (const orderItem of unassignedOrderItems) {
+                        orderItem.assigned_gtp_location = gtpLocationId;
+                        orderItem.status = OrderItemStatus.ASSIGNED;
+                        await this.orderItemRepository.save(orderItem);
+                    }
+                    
+                    // Remove the schedule mapping since it's been used
+                    await this.scheduleMappingRepository.remove(scheduleMapping);
+                    
+                    console.log(`Assigned ${unassignedOrderItems.length} order items with LP ${license_plate_id} to GTP ${gtpLocationId}`);
+                    
+                    // Break out of mappings loop since this GTP is now occupied
+                    // (one GTP can't be assigned to multiple license plates at the same time)
+                    break;
+                }
+            }
         }
-        if (firstTask && lastTask && inventory && inventory.status === LocationStatus.AVAILABLE) {
-          inventory.status = LocationStatus.RESERVED;
-          await this.inventoryRepository.save(inventory);
-          const newTaskID = await this.createTask({
-            batchId: lastTask.batch_id,
-            productId: lastTask.product_id,
-            sourceStationId: station.station_id,
-            destinationInventoryId: firstTask.start_location.location_id,
-            quantity: lastTask.quantity,
-            taskType: TaskType.GOODS_TO_PERSON,
-            move_type: MOVE_TYPE.STATION_TO_INVENTORY,
-            sequenceOrder: lastTask.sequence_order + 1,
-            taskDependency: lastTask.task_id
-          });
-          const newTask = await this.taskRepository.findOne({
-            where: { task_id: newTaskID }
-          });
-          if (!newTask){
-            console.error(`New task ${newTaskID} not found after creation`); 
-            break;
-          }
-          await this.sendSingleTaskToWms(newTask);
-          this.loggingService.log(`New Task: ${newTaskID} created for cancelled station ${stationId} - returning to inventory`);
-        }
-      }
-    } else {
-      this.logger.warn(`Station ${stationId} not found for cancellation`);
+        
+        // Call writeInDatabase only once at the end
+        await this.writeInDatabase();
+        
+    } catch (error) {
+        console.error('Error in scheduleLPtoPickLocation:', error);
+        throw error;
     }
   }
-}
 
   // Get batch status
   public async getBatchStatus(batchId: string) {
