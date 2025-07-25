@@ -360,7 +360,7 @@ export class OrchestratorService {
           // this.logger.warn(`Waiting location ${waitingLocation.location_id} has no task ID associated`);
           continue;
         }
-        console.log(` waiting_location ${waitingLocation.location_id} taskId: ${taskId}`);
+        console.log(` waiting_location ${waitingLocation.location_id} taskId: ${taskId}, productID: ${productId}`);
         const task = await this.taskRepository.findOne({
           where: { task_id: taskId }
         });
@@ -1578,7 +1578,7 @@ export class OrchestratorService {
 
   // Manual trigger method for testin
 
-  @Cron('*/5 * * * * *')
+  @Cron('*/10 * * * * *')
   async orchestratorCronJob() {
     await this.triggerOrchestrator(false);
   }
@@ -1674,6 +1674,48 @@ export class OrchestratorService {
 
   async scheduleLPtoPickLocation() {
     try {
+        // get all the orderitems with pending status in order of creation.
+        // const pendingOrderItems = await this.orderItemRepository.find({
+        //     where: { status: OrderItemStatus.PENDING },
+        //     order: { created_at: 'ASC' }
+        // });
+        // if (pendingOrderItems.length === 0) {
+        //     console.log('No pending order items found');
+        //     return;
+        // }
+        // for (const orderItem of pendingOrderItems){
+        //   const lp = orderItem.license_plate_id;
+        //   const scheduleMappings = await this.scheduleMappingRepository.find({
+        //     where: { license_plate_id: lp }
+        //   });
+        //   for (const scheduleMapping of scheduleMappings) {
+        //     const gtpLocationId = scheduleMapping.gtp_location_id;
+        //     // Check if this GTP location is already assigned to any order item 
+        //     // in pending, assigned, or in_progress state
+        //     const existingAssignment = await this.orderItemRepository.findOne({
+        //         where: { 
+        //             assigned_gtp_location: gtpLocationId,
+        //             status: In([OrderItemStatus.PENDING, OrderItemStatus.IN_PROGRESS, OrderItemStatus.ASSIGNED])
+        //         }
+        //     });
+        //     if (existingAssignment) {
+        //         console.log(`GTP Location ID ${gtpLocationId} is already assigned to an order item`);
+        //         continue;
+        //     }
+        //     console.log(`Processing GTP Location ID: ${gtpLocationId} for License Plate ID: ${lp}`);
+        //     // Assign current GTP location to the order item
+        //     orderItem.assigned_gtp_location = gtpLocationId;
+        //     orderItem.status = OrderItemStatus.ASSIGNED;
+        //     await this.orderItemRepository.save(orderItem);
+        //     console.log(`Assigned Order Item ID ${orderItem.order_item_id} to GTP Location ID ${gtpLocationId}`);
+        //     // Remove the schedule mapping since it's been used
+        //     await this.scheduleMappingRepository.remove(scheduleMapping);
+        //     // Write in database
+        //     const writeResult = await this.writeInDatabase();
+
+        //   }
+        // }
+
         // 1. Get all GTP locations
         const gtpLocations = await this.gtpLocationRepository.find();
         
@@ -1698,7 +1740,7 @@ export class OrchestratorService {
             
             // 3. Find all mappings for this available GTP location
             const scheduleMappings = await this.scheduleMappingRepository.find({
-                where: { 
+                where: {
                     gtp_location_id: gtpLocationId
                 }
             });
