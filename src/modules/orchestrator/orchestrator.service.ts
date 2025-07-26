@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, MoreThan, Not, Repository } from 'typeorm';
+import { In, IsNull, MoreThan, Not, OneToOne, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, last, min, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -195,6 +195,61 @@ export class OrchestratorService {
             }
             continue;
           }
+          else if (hasRequirement && !productIsPaused && task.quantity > 0){
+            const lastTaskOfBatch = await this.taskRepository.findOne({
+              where: { batch_id: task.batch_id},
+              order: { sequence_order: 'DESC' }
+            });
+            if (!lastTaskOfBatch) {
+              this.logger.warn(`Last task not found for batch ${task.batch_id} - cannot determine original inventory`);
+              continue;
+            }
+            const productId = task.product_id;
+            const databaseRequirement = await this.productRequirementRepository.find({
+              where : { product_id: productId , isPaused: false},
+              order: { station_id: 'ASC' }
+            });
+            const stationIds = databaseRequirement.map(pr => pr.station_id);
+            const sortedStations = await this.getStationsSortedByPriority(stationIds);
+            for (const stat in sortedStations){
+              const stationID = sortedStations[stat].station_id;
+              const station = await  this.stationRepository.findOne({
+                where: { station_id: stationID }
+              });
+              if (!station){
+                this.logger.warn(`Station ${stationID} not found for task ${taskId}`);
+                continue;
+              }
+              if (station.status === LocationStatus.AVAILABLE) {
+                // Create a task to return the product to inventory
+                const batchId = lastTaskOfBatch.batch_id || await this.generateBatchId();
+                
+                const returnTaskId = await this.createTask({
+                  batchId,
+                  productId,
+                  sourceWaitingLocationId: waitingLocation.location_id,
+                  destinationStationId: station.station_id,
+                  quantity: task.quantity,
+                  taskType: TaskType.GOODS_TO_PERSON,
+                  move_type: MOVE_TYPE.WAITING_LOCATION_TO_STATION,
+                  sequenceOrder: lastTaskOfBatch.sequence_order + 1, // Next sequence order
+                  taskDependency: lastTaskOfBatch.task_id // Use last task of batch as dependency
+                });
+                const returnTask = await this.taskRepository.findOne({
+                  where: { task_id: returnTaskId }
+                });
+                if (!returnTask) {
+                  this.logger.error(`Failed to create return task for waiting location ${waitingLocation.location_id} and task ${taskId}`);
+                  continue;
+                }
+                // Reserve the station and send task to WMS
+                await this.reserveStationAndSendTask(returnTask, station);
+                this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
+                await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
+                break; // Exit loop after processing first available station
+              }
+            }
+          }
         }
       }
       console.log(`productRequirements: ${JSON.stringify(productRequirements)}`);
@@ -346,79 +401,79 @@ export class OrchestratorService {
     const sortedStations = await this.getStationsSortedByPriority(stationIds);
 
     // first check waiting locations for this product.
-    const waitingLocations = await this.waitingLocationRepository.find({
-      where: {
-        status: LocationStatus.OCCUPIED,
-      }
-    });
-    console.log(`waiting locations: ${JSON.stringify(waitingLocations)}`);
-    if (waitingLocations.length > 0) {
-      // this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
-      for (const waitingLocation of waitingLocations) {
-        const taskId = waitingLocation.holded_by;
-        if (!taskId){
-          // this.logger.warn(`Waiting location ${waitingLocation.location_id} has no task ID associated`);
-          continue;
-        }
-        console.log(` waiting_location ${waitingLocation.location_id} taskId: ${taskId}, productID: ${productId}`);
-        const task = await this.taskRepository.findOne({
-          where: { task_id: taskId }
-        });
-        if (!task){
-          // this.logger.warn(`Task ${taskId} not found for waiting location ${waitingLocation.location_id}`);
-          continue;
-        }
-        if (task.product_id == productId && task.quantity > 0){
-          const lastTaskOfBatch = await this.taskRepository.findOne({
-            where: { batch_id: task.batch_id},
-            order: { sequence_order: 'DESC' }
-          });
-          if (!lastTaskOfBatch) {
-            this.logger.warn(`Last task not found for batch ${task.batch_id} - cannot determine original inventory`);
-            continue;
-          }
-          console.log(`product ID: ${productId} sortedStations: ${JSON.stringify(sortedStations)}`);
-          for (const stat in sortedStations){
-            const stationID = sortedStations[stat].station_id;
-            const station = await  this.stationRepository.findOne({
-              where: { station_id: stationID }
-            });
-            if (!station){
-              this.logger.warn(`Station ${stationID} not found for task ${taskId}`);
-              continue;
-            }
-            if (station.status === LocationStatus.AVAILABLE) {
-              // Create a task to return the product to inventory
-              const batchId = lastTaskOfBatch.batch_id || await this.generateBatchId();
+    // const waitingLocations = await this.waitingLocationRepository.find({
+    //   where: {
+    //     status: LocationStatus.OCCUPIED,
+    //   }
+    // });
+    // console.log(`waiting locations: ${JSON.stringify(waitingLocations)}`);
+    // if (waitingLocations.length > 0) {
+    //   // this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
+    //   for (const waitingLocation of waitingLocations) {
+    //     const taskId = waitingLocation.holded_by;
+    //     if (!taskId){
+    //       // this.logger.warn(`Waiting location ${waitingLocation.location_id} has no task ID associated`);
+    //       continue;
+    //     }
+    //     console.log(` waiting_location ${waitingLocation.location_id} taskId: ${taskId}, productID: ${productId}`);
+    //     const task = await this.taskRepository.findOne({
+    //       where: { task_id: taskId }
+    //     });
+    //     if (!task){
+    //       // this.logger.warn(`Task ${taskId} not found for waiting location ${waitingLocation.location_id}`);
+    //       continue;
+    //     }
+    //     if (task.product_id == productId && task.quantity > 0){
+    //       const lastTaskOfBatch = await this.taskRepository.findOne({
+    //         where: { batch_id: task.batch_id},
+    //         order: { sequence_order: 'DESC' }
+    //       });
+    //       if (!lastTaskOfBatch) {
+    //         this.logger.warn(`Last task not found for batch ${task.batch_id} - cannot determine original inventory`);
+    //         continue;
+    //       }
+    //       console.log(`product ID: ${productId} sortedStations: ${JSON.stringify(sortedStations)}`);
+    //       for (const stat in sortedStations){
+    //         const stationID = sortedStations[stat].station_id;
+    //         const station = await  this.stationRepository.findOne({
+    //           where: { station_id: stationID }
+    //         });
+    //         if (!station){
+    //           this.logger.warn(`Station ${stationID} not found for task ${taskId}`);
+    //           continue;
+    //         }
+    //         if (station.status === LocationStatus.AVAILABLE) {
+    //           // Create a task to return the product to inventory
+    //           const batchId = lastTaskOfBatch.batch_id || await this.generateBatchId();
               
-              const returnTaskId = await this.createTask({
-                batchId,
-                productId,
-                sourceWaitingLocationId: waitingLocation.location_id,
-                destinationStationId: station.station_id,
-                quantity: task.quantity,
-                taskType: TaskType.GOODS_TO_PERSON,
-                move_type: MOVE_TYPE.WAITING_LOCATION_TO_STATION,
-                sequenceOrder: lastTaskOfBatch.sequence_order + 1, // Next sequence order
-                taskDependency: lastTaskOfBatch.task_id // Use last task of batch as dependency
-              });
-              const returnTask = await this.taskRepository.findOne({
-                where: { task_id: returnTaskId }
-              });
-              if (!returnTask) {
-                this.logger.error(`Failed to create return task for waiting location ${waitingLocation.location_id} and task ${taskId}`);
-                continue;
-              }
-              // Reserve the station and send task to WMS
-              await this.reserveStationAndSendTask(returnTask, station);
-              this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
-              await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
-              break; // Exit loop after processing first available station
-            }
-          }
-        }
-      }
-    }
+    //           const returnTaskId = await this.createTask({
+    //             batchId,
+    //             productId,
+    //             sourceWaitingLocationId: waitingLocation.location_id,
+    //             destinationStationId: station.station_id,
+    //             quantity: task.quantity,
+    //             taskType: TaskType.GOODS_TO_PERSON,
+    //             move_type: MOVE_TYPE.WAITING_LOCATION_TO_STATION,
+    //             sequenceOrder: lastTaskOfBatch.sequence_order + 1, // Next sequence order
+    //             taskDependency: lastTaskOfBatch.task_id // Use last task of batch as dependency
+    //           });
+    //           const returnTask = await this.taskRepository.findOne({
+    //             where: { task_id: returnTaskId }
+    //           });
+    //           if (!returnTask) {
+    //             this.logger.error(`Failed to create return task for waiting location ${waitingLocation.location_id} and task ${taskId}`);
+    //             continue;
+    //           }
+    //           // Reserve the station and send task to WMS
+    //           await this.reserveStationAndSendTask(returnTask, station);
+    //           this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
+    //           await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
+    //           break; // Exit loop after processing first available station
+    //         }
+    //       }
+    //     }
+    //   }
+    // }
 
     if (effectiveSystemRequirement <= 0) {
       this.logger.warn(`No additional requirement for product ${productId} - already satisfied by current inventory`);
@@ -1467,7 +1522,7 @@ export class OrchestratorService {
       console.log(`GTP Locations for Station ${stationId}:`, JSON.stringify(gtpLocations, null, 2));
       for (const gtpLocation of gtpLocations) {
         const order_item = await this.orderItemRepository.findOne({
-          where: { assigned_gtp_location: gtpLocation.gtp_location_id, product_id: productId }
+          where: { assigned_gtp_location: gtpLocation.gtp_location_id, product_id: productId, status: OrderItemStatus.IN_PROGRESS }
         });
         if (order_item && message_code == MessageCode.NOT_REQUIRED) {
           order_item.status = OrderItemStatus.COMPLETED;
@@ -1674,47 +1729,6 @@ export class OrchestratorService {
 
   async scheduleLPtoPickLocation() {
     try {
-        // get all the orderitems with pending status in order of creation.
-        // const pendingOrderItems = await this.orderItemRepository.find({
-        //     where: { status: OrderItemStatus.PENDING },
-        //     order: { created_at: 'ASC' }
-        // });
-        // if (pendingOrderItems.length === 0) {
-        //     console.log('No pending order items found');
-        //     return;
-        // }
-        // for (const orderItem of pendingOrderItems){
-        //   const lp = orderItem.license_plate_id;
-        //   const scheduleMappings = await this.scheduleMappingRepository.find({
-        //     where: { license_plate_id: lp }
-        //   });
-        //   for (const scheduleMapping of scheduleMappings) {
-        //     const gtpLocationId = scheduleMapping.gtp_location_id;
-        //     // Check if this GTP location is already assigned to any order item 
-        //     // in pending, assigned, or in_progress state
-        //     const existingAssignment = await this.orderItemRepository.findOne({
-        //         where: { 
-        //             assigned_gtp_location: gtpLocationId,
-        //             status: In([OrderItemStatus.PENDING, OrderItemStatus.IN_PROGRESS, OrderItemStatus.ASSIGNED])
-        //         }
-        //     });
-        //     if (existingAssignment) {
-        //         console.log(`GTP Location ID ${gtpLocationId} is already assigned to an order item`);
-        //         continue;
-        //     }
-        //     console.log(`Processing GTP Location ID: ${gtpLocationId} for License Plate ID: ${lp}`);
-        //     // Assign current GTP location to the order item
-        //     orderItem.assigned_gtp_location = gtpLocationId;
-        //     orderItem.status = OrderItemStatus.ASSIGNED;
-        //     await this.orderItemRepository.save(orderItem);
-        //     console.log(`Assigned Order Item ID ${orderItem.order_item_id} to GTP Location ID ${gtpLocationId}`);
-        //     // Remove the schedule mapping since it's been used
-        //     await this.scheduleMappingRepository.remove(scheduleMapping);
-        //     // Write in database
-        //     const writeResult = await this.writeInDatabase();
-
-        //   }
-        // }
 
         // 1. Get all GTP locations
         const gtpLocations = await this.gtpLocationRepository.find();
@@ -1746,41 +1760,38 @@ export class OrchestratorService {
             });
 
             console.log(`Found ${scheduleMappings.length} schedule mappings for GTP Location ID: ${gtpLocationId}`);
-            
-            // 4. Iterate over those mappings
-            for (const scheduleMapping of scheduleMappings) {
-                const { license_plate_id } = scheduleMapping;
-                
-                // Find unassigned order items with this license plate
-                const unassignedOrderItems = await this.orderItemRepository.find({
-                    where: { 
-                        license_plate_id, 
-                        assigned_gtp_location: IsNull() 
-                    },
-                });
-                
-                // If we found unassigned order items with this LP
-                if (unassignedOrderItems.length > 0) {
-                    // 5. Assign current GTP location to ALL order items with this LP
-                    // and set their status to assigned
-                    for (const orderItem of unassignedOrderItems) {
-                        orderItem.assigned_gtp_location = gtpLocationId;
-                        orderItem.status = OrderItemStatus.ASSIGNED;
-                        await this.orderItemRepository.save(orderItem);
-                    }
-                    
-                    // Remove the schedule mapping since it's been used
-                    await this.scheduleMappingRepository.remove(scheduleMapping);
 
-                    // 6. Write in database
-                    await this.writeInDatabase();
-                    
-                    console.log(`Assigned ${unassignedOrderItems.length} order items with LP ${license_plate_id} to GTP ${gtpLocationId}`);
-                    
-                    // Break out of mappings loop since this GTP is now occupied
-                    // (one GTP can't be assigned to multiple license plates at the same time)
-                    break;
-                }
+            // take out all the license plate ID for schedule mappings
+            const allLicensePlates = scheduleMappings.map(mapping => mapping.license_plate_id);
+            const orderItemsWithLP = await this.orderItemRepository.findOne({
+              where: { license_plate_id: In(allLicensePlates) },
+              order: { order_item_id: 'ASC' }
+            });
+
+            // most recently included license plate ID
+            const mostRecentLP = orderItemsWithLP ? orderItemsWithLP.license_plate_id : null;
+            if (mostRecentLP){
+              // fetch all the order_items with this license plate ID
+              const orderItemsWithMostRecentLP = await this.orderItemRepository.find({
+                where: { license_plate_id: mostRecentLP, assigned_gtp_location: IsNull() },
+              });
+              console.log(`Found ${orderItemsWithMostRecentLP.length} unassigned order items with most recent LP: ${mostRecentLP}`);
+              for (const orderItem of orderItemsWithMostRecentLP) {
+                // 5. Assign current GTP location to ALL order items with this LP
+                // and set their status to assigned
+                orderItem.assigned_gtp_location = gtpLocationId;
+                orderItem.status = OrderItemStatus.ASSIGNED;
+                await this.orderItemRepository.save(orderItem);
+              }
+              console.log(`Assigned ${orderItemsWithMostRecentLP.length} order items with LP ${mostRecentLP} to GTP ${gtpLocationId}`);
+              // 6. Write in database
+              await this.writeInDatabase();
+              // Remove the schedule mapping since it's been used
+              const scheduleToRemove = scheduleMappings.find(mapping => mapping.license_plate_id === mostRecentLP);
+              if (scheduleToRemove) {
+                console.log(`Removing schedule mapping for LP ${mostRecentLP} and GTP ${gtpLocationId}`);
+                await this.scheduleMappingRepository.remove(scheduleToRemove);
+              }
             }
         }
         
@@ -2230,6 +2241,19 @@ export class OrchestratorService {
       .set({ status: OrderItemStatus.CANCELLED}) // , assigned_gtp_location: null 
       .where("status = :status", { status: OrderItemStatus.IN_PROGRESS })
       .execute();
+    
+    const findAllmapping = await this.scheduleMappingRepository.find();
+    for (const mapping of findAllmapping) {
+      const lp = mapping.license_plate_id;
+      await this.orderItemRepository.update(
+        {
+          license_plate_id: lp,
+          status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS])
+        },
+        { status: OrderItemStatus.CANCELLED }
+      )
+    }
+    const result3 = await this.scheduleMappingRepository.deleteAll();
     return result;
   }
 
