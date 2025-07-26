@@ -16,6 +16,7 @@ import { DatabaseResetModule } from './modules/database-reset/database-reset.mod
 import { WaitingLocationModule } from './modules/waiting_location/waiting_location.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { BotModule } from './modules/bot/bot.module';
 
 @Module({
   imports: [
@@ -38,7 +39,8 @@ import { AuthModule } from './modules/auth/auth.module';
     DatabaseResetModule,
     WaitingLocationModule,
     DashboardModule,
-    AuthModule
+    AuthModule,
+    BotModule
   ],
   controllers: [],
   providers: [],
