@@ -4,6 +4,12 @@ import { Inventory, OrderItem, Product, Station, GtpLocation, WaitingLocation } 
 import { Repository } from "typeorm";
 import { ChatCompletionTool } from 'openai/resources/chat/completions';
 
+enum ContextParams {
+    ORDER_ITEMS = 'order_items',
+    GTP_LOCATIONS = 'gtp_locations',
+    STATIONS = 'stations'
+}
+
 @Injectable()
 export class ToolService {
     constructor(
@@ -88,6 +94,21 @@ export class ToolService {
 
     async getWaitingLocations(): Promise<WaitingLocation[]> {
         return await this.waitingLocationRepository.find();
+    }
+
+    async getContext(param: ContextParams): Promise<string>{
+        const contexts = {
+            [ContextParams.ORDER_ITEMS]: `
+            1. assigned_gtp_location: ID of the GTP location or Pick Location. One License Plate can be assigned to only 
+            one Pick Location. Assigned GTP (Pick Location) location can be used to find corresponding station.
+            `,
+            [ContextParams.GTP_LOCATIONS]: `
+            1. gtp_location_id: ID of the GTP location or Pick Location.
+            2. station_id: ID of the station to which this GTP location is assigned.`,
+            [ContextParams.STATIONS]: `
+            1. station_id: ID of the station.`,
+        };
+        return contexts[param] || '';
     }
 }
 
@@ -246,6 +267,24 @@ export const Tools: ChatCompletionTool[] = [
                 type: 'object',
                 properties: {},
                 required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'getContext',
+            description: 'Get context information for the bot to understand the system better',
+            parameters: {
+                type: 'object',
+                properties: {
+                    param: {
+                        type: 'string',
+                        enum: Object.values(ContextParams),
+                        description: 'The context parameter to retrieve information for'
+                    }
+                },
+                required: ['param']
             }
         }
     }

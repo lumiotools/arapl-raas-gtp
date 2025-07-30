@@ -45,7 +45,7 @@ export class BotService {
             stream: false,
             tool_choice: 'auto',
             max_tokens: 1000,
-            temperature: 0.7,
+            temperature: 0.3,
         });
         
         const responseMessage = response.choices[0].message;
@@ -64,6 +64,7 @@ export class BotService {
                 "getLicensePlateNumberInitialRequirement": this.toolService.getLicensePlateNumberInitialRequirement.bind(this.toolService),
                 "getOrderItemAssignedToPickLocation": this.toolService.getOrderItemAssignedToPickLocation.bind(this.toolService),
                 "getWaitingLocations": this.toolService.getWaitingLocations.bind(this.toolService),
+                "getContext": this.toolService.getContext.bind(this.toolService),
             };
 
             // Add the assistant's message with tool calls
@@ -143,19 +144,5 @@ export class BotService {
         }
         
         return { response: responseMessage.content };
-    }
-
-    private async calculate(expression: string): Promise<string> {
-        try {
-            // Basic validation to prevent dangerous code execution
-            if (!/^[0-9+\-*/.() ]+$/.test(expression)) {
-                throw new Error('Invalid characters in expression');
-            }
-            
-            const result = new Function(`return ${expression}`)();
-            return String(result); // Ensure it returns a string
-        } catch (error) {
-            throw new Error(`Invalid expression: ${error.message}`);
-        }
     }
 }

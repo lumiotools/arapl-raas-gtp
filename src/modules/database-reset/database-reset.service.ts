@@ -22,6 +22,7 @@ export class DatabaseResetService {
         'DELETE FROM order_items',
         'DELETE FROM "schedule-mapping"',
         'DELETE FROM order_items',
+        'DELETE FROM dashboard',
         'DELETE FROM station_requests',
         'DELETE FROM product_requirements',
         'DELETE FROM tasks',
