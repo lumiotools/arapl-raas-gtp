@@ -39,15 +39,9 @@ export class WebhookService {
     this.logger.log(`Received ${webhookData.tasks_status.length} task status updates`);
     
     try {
-      // Update batch status
-      // await this.updateBatchStatus(webhookData.batch_job_id, webhookData.batch_job_status);
-
-      // Update individual task statuses
       for (const taskStatus of webhookData.tasks_status) {
         await this.updateTaskStatus(webhookData.batch_job_id, taskStatus);
       }
-
-      this.logger.log(`Successfully processed webhook for batch ${webhookData.batch_job_id}`);
       return { message: 'Webhook processed successfully' };
     } catch (error) {
       this.logger.error(`Error processing webhook: ${error.message}`);
@@ -78,15 +72,9 @@ export class WebhookService {
   private async updateTaskStatus(batchId: string, taskStatusData: any): Promise<void> {
     // Find task by task_id only (ignore batch_id as instructed)
     const task = await this.taskRepository.findOne({
-      where: { 
-        task_id: parseInt(taskStatusData.task_id)
-      }
+      where: { task_id: parseInt(taskStatusData.task_id)}
     });
-
-    if (!task) {
-      this.logger.warn(`Task with ID ${taskStatusData.task_id} not found, skipping task status update`);
-      return;
-    }
+    if (!task) {return;}
 
     const oldStatus = task.status;
     const mappedStatus = this.mapTaskStatus(taskStatusData.status);
@@ -116,8 +104,6 @@ export class WebhookService {
     }
     await this.dashRepository.save(dashboardTask);
     
-    this.logger.log(`🔄 Updating task ${taskStatusData.task_id} status from ${oldStatus} to ${mappedStatus} (webhook status: "${taskStatusData.status}")`);
-    
     // Log webhook received after duplicate check
     await this.loggingService.log(`Task ${taskStatusData.task_id}: Webhook Received - status from ${oldStatus} to ${mappedStatus} (robot: ${taskStatusData.robot_id || 'none'})`);
     
@@ -139,34 +125,22 @@ export class WebhookService {
     
     // Handle task completion based on destination type
     if (mappedStatus === TaskStatus.COMPLETED) {
-      this.logger.log(`🎯 Task ${task.task_id} COMPLETED - checking destination type`);
       const currentTask = await this.taskRepository.findOne({
         where: { task_id: task.task_id }
       });
-      
       if (currentTask && currentTask.status === TaskStatus.COMPLETED) {
         const destinationType = task.end_location?.location_attribute.attribute_value;
-        this.logger.log(`📍 Task ${task.task_id} destination type: ${destinationType}`);
-        
+
         if (destinationType === 'waiting_location') {
           // Task completed at waiting location - handle waiting location completion
           this.logger.log(`🏁 Calling waiting location completion handler for task ${task.task_id}`);
           await this.handleWaitingLocationCompletion(task);
-          
-          // Free robot when task is completed at waiting location
-          // if (currentTask.robot_id) {
-          //   await this.freeRobot(currentTask.robot_id);
-          // }
         } else if (destinationType === 'inventory') {
-          // Task completed at inventory (return task) - free robot
           this.logger.log(`🏁 Task ${task.task_id} completed at inventory - freeing robot`);
-          
-          // Free robot when task is completed at inventory
           if (currentTask.robot_id) {
             await this.freeRobot(currentTask.robot_id);
           }
         }
-        // Note: Station completions are handled by trigger API when task is TRIGGERED
       }
     }
     
@@ -233,7 +207,8 @@ export class WebhookService {
         id: inventoryLocationId,
         product_id: productId 
       },
-      { quantity: 0 ,
+      {
+        isProcessing: true,
         status: LocationStatus.AVAILABLE,
       }
     );
@@ -266,15 +241,13 @@ export class WebhookService {
 
   private async handleInventoryUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus, batchId: string): Promise<void> {
     try {
-      // Case 1: FIRST task from inventory goes to INPROGRESS or PROCESSING - set inventory to 
-      if ((newStatus === TaskStatus.INPROGRESS || newStatus === TaskStatus.PROCESSING) && 
+      // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
+      if ((newStatus === TaskStatus.PROCESSING) && 
           this.isTaskFromInventory(task) && 
           await this.isFirstTaskInBatch(task, batchId)) {
-        await this.setInventoryToZero(task);
+        // await this.setInventoryToZero(task);
         await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
       }
-
-      // Case 2: Last task returning to inventory goes to COMPLETED - update inventory with task quantity
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
           await this.updateInventoryWithTaskQuantity(task);
       }
@@ -305,21 +278,6 @@ export class WebhookService {
            this.isTaskToInventory(lastTask));
   }
 
-  private async setInventoryToZero(task: Task): Promise<void> {
-    const inventoryLocationId = task.start_location.location_id;
-    const productId = task.product_id;
-
-    this.logger.log(`Setting inventory to 0 for product ${productId} at location ${inventoryLocationId}`);
-
-    await this.inventoryRepository.update(
-      { 
-        id: inventoryLocationId,
-        product_id: productId 
-      },
-      { quantity: 0 }
-    );
-  }
-
   private async updateInventoryWithTaskQuantity(task: Task): Promise<void> {
     const inventoryLocationId = task.end_location.location_id;
     const productId = task.product_id;
@@ -330,10 +288,7 @@ export class WebhookService {
         product_id: productId 
       }
     });
-    if (!inventory) {
-      this.logger.warn(`Inventory location ${inventoryLocationId} for product ${productId} not found`);
-      return;
-    }
+    if (!inventory) {return;}
 
     this.logger.log(`Updating inventory for product ${productId} at location ${inventoryLocationId} with quantity ${quantity}`);
     console.log(`Current inventory quantity: ${inventory.quantity}, quantity in system: ${inventory.quantity_in_system}`);
@@ -342,10 +297,9 @@ export class WebhookService {
         id: inventoryLocationId,
         product_id: productId 
       },
-      { quantity: quantity + (inventory?.quantity || 0) ,
-        quantity_in_system: inventory?.quantity_in_system - quantity,
+      {
         status: LocationStatus.AVAILABLE,
-        isProcessing: inventory?.quantity_in_system - quantity > 0 ? true : false
+        isProcessing: false,
       }
     );
   }
@@ -371,7 +325,6 @@ export class WebhookService {
     // When task status becomes COMPLETED and destination is station - mark station as OCCUPIED
     if (newStatus === TaskStatus.COMPLETED && 
         task.end_location?.location_attribute?.attribute_value === 'station') {
-      
       const stationId = task.end_location.location_id;
       this.logger.log(`Marking station ${stationId} as OCCUPIED (task ${task.task_id} completed)`);
       
@@ -383,8 +336,6 @@ export class WebhookService {
         }
       );
     }
-    
-    // Note: Station release when task goes to PROCESSING is now handled by orchestrator service
   }
 
   private async handleWaitingLocationStatusUpdates(task: Task, newStatus: TaskStatus): Promise<void> {

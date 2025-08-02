@@ -35,11 +35,8 @@ export class TriggerService {
   ) {}
 
   async triggerStationAction(stationId: string, dropped_quantity: number, message_code: MessageCode) {
-    // Find the station
-    const station = await this.stationRepository.findOne({
-      where: { station_id: stationId },
-    });
-
+    // Find the station from the station ID
+    const station = await this.stationRepository.findOne({where: { station_id: stationId },});
     if (!station) {
       throw new NotFoundException(`Station with ID ${stationId} not found`);
     }
@@ -56,22 +53,13 @@ export class TriggerService {
     if (!station.holded_by) {
       throw new NotFoundException(`No task is currently holding station ${stationId}`);
     }
-
-    const currentTask = await this.taskRepository.findOne({
-      where: { task_id: station.holded_by },
-    });
-
-    if (!currentTask) {
-      throw new NotFoundException(`No task found holding station ${stationId}`);
-    }
-
+    // find the task that is holding the station
+    const currentTask = await this.taskRepository.findOne({where: { task_id: station.holded_by },});
+    if (!currentTask) {throw new NotFoundException(`No task found holding station ${stationId}`);}
+    // check if task is already triggered.
     if (currentTask && currentTask.status === TaskStatus.TRIGERRED) {
       throw new ConflictException(`Task ${currentTask.task_id} is already triggered`);
     }
-
-    // Additional logic for handling the task can be added here
-
-    
 
     let dashboardTask = await this.dashRepository.findOne({
       where: { task_id: currentTask.task_id }
@@ -93,10 +81,6 @@ export class TriggerService {
     // Log trigger action
     await this.loggingService.log(`Station ${stationId} triggered - Task ${currentTask.task_id} status updated to TRIGGERED`);
 
-    // Note: Station will become available when webhook receives PROCESSING status
-    // for the next task that has this station as source location
-
-    // Find and process the next task in sequence
     await this.processNextTask(currentTask, dropped_quantity, message_code);
 
     // Free the robot holding this station
@@ -127,43 +111,8 @@ export class TriggerService {
     try {
       // Check if the completed task was at a station and handle station workflow
       if (completedTask.end_location?.location_attribute?.attribute_value === 'station') {
-        console.log(`Task ${completedTask.task_id} completed at station - checking for next required stations`);
         await this.orchestratorService.handleTaskCompletion(completedTask, false, dropped_quantity, message_code);
-        return; // Exit early - orchestrator handles the rest
-      }
-
-      // Handle existing logic for other cases (non-station endpoints)
-      // This is for legacy workflows or non-product-requirement based tasks
-      // Find the next sequence task in the same batch
-      const nextTask = await this.taskRepository.findOne({
-        where: { 
-          batch_id: completedTask.batch_id,
-          sequence_order: completedTask.sequence_order + 1,
-          status: TaskStatus.PENDING
-        }
-      });
-
-      if (nextTask) {
-        console.log(`Found next task ${nextTask.task_id} (sequence ${nextTask.sequence_order}) in batch ${completedTask.batch_id}`);
-        
-        const destinationLocation = nextTask.end_location;
-        
-        if (destinationLocation?.location_attribute?.attribute_value === 'inventory') {
-          // Destination is inventory - send directly to WMS
-          console.log(`Next task ${nextTask.task_id} destination is inventory - sending directly to WMS`);
-          await this.orchestratorService.sendSingleTaskToWms(nextTask);
-        } else if (destinationLocation?.location_attribute?.attribute_value === 'station') {
-          // Destination is station - check availability
-          const stationId = destinationLocation.location_id;
-          await this.handleNextTaskStationRequest(nextTask, stationId);
-        } else if (destinationLocation?.location_attribute?.attribute_value === 'waiting_location') {
-          // Destination is waiting location - send directly to WMS
-          console.log(`Next task ${nextTask.task_id} destination is waiting location - sending directly to WMS`);
-          await this.orchestratorService.sendSingleTaskToWms(nextTask);
-        }
-      } else {
-        // No next task - batch might be completed
-        console.log(`No next task found for batch ${completedTask.batch_id}`);
+        return;
       }
     } catch (error) {
       console.error(`Error processing next task for ${completedTask.task_id}:`, error.message);

@@ -151,6 +151,10 @@ export class InventoryService {
     if (!existingInventory) {
       throw new NotFoundException(`Inventory with id ${id} not found`);
     }
+    
+    if (existingInventory.isProcessing){
+      throw new BadRequestException(`Cannot update inventory ${id} while it is being processed`);
+    }
 
     // If product_id is being updated, check if the new product exists
     if (updateInventoryDto.product_id && updateInventoryDto.product_id !== existingInventory.product_id) {
