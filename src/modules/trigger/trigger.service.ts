@@ -61,11 +61,17 @@ export class TriggerService {
       where: { task_id: station.holded_by },
     });
 
-    
-
     if (!currentTask) {
       throw new NotFoundException(`No task found holding station ${stationId}`);
     }
+
+    if (currentTask && currentTask.status === TaskStatus.TRIGERRED) {
+      throw new ConflictException(`Task ${currentTask.task_id} is already triggered`);
+    }
+
+    // Additional logic for handling the task can be added here
+
+    
 
     let dashboardTask = await this.dashRepository.findOne({
       where: { task_id: currentTask.task_id }
