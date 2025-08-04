@@ -5,7 +5,6 @@ import { HttpService } from '@nestjs/axios';
 import { Station, LocationStatus } from '../../entities/station.entity';
 import { WaitingLocation} from '../../entities/waiting-location.entity';
 import { Task, TaskStatus } from '../../entities/task.entity';
-import { StationRequest } from '../../entities/station-request.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { Inventory } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
@@ -21,8 +20,6 @@ export class TriggerService {
     private readonly taskRepository: Repository<Task>,
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
-    @InjectRepository(StationRequest)
-    private readonly stationRequestRepository: Repository<StationRequest>,
     @InjectRepository(Inventory)
     private readonly inventoryRepository: Repository<Inventory>,
     @InjectRepository(dashboard)
@@ -116,36 +113,6 @@ export class TriggerService {
       }
     } catch (error) {
       console.error(`Error processing next task for ${completedTask.task_id}:`, error.message);
-    }
-  }
-
-  private async handleNextTaskStationRequest(nextTask: Task, stationId: string): Promise<void> {
-    const station = await this.stationRepository.findOne({
-      where: { station_id: stationId }
-    });
-
-    if (!station) {
-      console.warn(`Station ${stationId} not found for next task ${nextTask.task_id}`);
-      return;
-    }
-
-    if (station.status === LocationStatus.AVAILABLE) {
-      // Station is available - reserve it and send task to WMS
-      console.log(`Station ${stationId} is available for next task ${nextTask.task_id} - reserving and sending to WMS`);
-      
-      await this.stationRepository.update(
-        { station_id: stationId },
-        { 
-          status: LocationStatus.RESERVED,
-          holded_by: nextTask.task_id
-        }
-      );
-
-      await this.orchestratorService.sendSingleTaskToWms(nextTask);
-    } else {
-      // Station is not available - add to request queue
-      console.log(`Station ${stationId} is not available for next task ${nextTask.task_id} - adding to request queue`);
-      await this.orchestratorService.addStationRequest(nextTask, stationId);
     }
   }
 

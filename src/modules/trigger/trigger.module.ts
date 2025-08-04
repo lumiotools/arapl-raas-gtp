@@ -6,7 +6,6 @@ import { TriggerService } from './trigger.service';
 import { Station } from '../../entities/station.entity';
 import { WaitingLocation } from '../../entities/waiting-location.entity';
 import { Task } from '../../entities/task.entity';
-import { StationRequest } from '../../entities/station-request.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { Inventory } from 'src/entities';
 import { LoggingModule } from '../logging/logging.module';
@@ -16,7 +15,7 @@ import { OrchestratorService } from '../orchestrator/orchestrator.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Station, WaitingLocation, Task, StationRequest, Inventory,dashboard,User]),
+    TypeOrmModule.forFeature([Station, WaitingLocation, Task, Inventory,dashboard,User]),
     forwardRef(() => OrchestratorModule),
     HttpModule,
     LoggingModule,

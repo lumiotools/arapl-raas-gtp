@@ -1,11 +1,3 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-} from 'typeorm';
-
 export enum LocationType {
   ZONE = 'Zone',
   AISLE = 'Aisle',

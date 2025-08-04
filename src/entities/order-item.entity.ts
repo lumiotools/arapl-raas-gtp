@@ -8,7 +8,6 @@ import {
   JoinColumn,
   Relation,
 } from 'typeorm';
-import type { Order } from './order.entity';
 import type { Product } from './product.entity';
 import type { GtpLocation } from './gtp-location.entity';
 

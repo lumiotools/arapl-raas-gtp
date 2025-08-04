@@ -11,7 +11,6 @@ import { Inventory } from 'src/entities/inventory.entity';
 import { Station, LocationStatus } from 'src/entities/station.entity';
 import { WaitingLocation, WaitingLocationType } from 'src/entities/waiting-location.entity';
 import { GtpLocation } from 'src/entities/gtp-location.entity';
-import { StationRequest } from 'src/entities/station-request.entity';
 import { ProductRequirement as ProductRequirementEntity } from 'src/entities/product-requirement.entity';
 import { Location, LocationType, LocationAction, LocationDimension, LocationAttribute } from 'src/entities/location.entity';
 import { Wait, WaitType, WaitStatus, FallbackAction } from 'src/entities/wait.entity';
@@ -21,7 +20,6 @@ import { LoggingService } from '../../services/logging.service';
 import { MessageCode } from '../trigger/trigger.controller';
 import { StationsService } from '../stations/stations.service';
 import {config} from 'dotenv';
-import { Order } from 'src/entities';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
 /**
@@ -75,8 +73,6 @@ export class OrchestratorService {
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
     @InjectRepository(GtpLocation)
     private readonly gtpLocationRepository: Repository<GtpLocation>,
-    @InjectRepository(StationRequest)
-    private readonly stationRequestRepository: Repository<StationRequest>,
     @InjectRepository(ProductRequirementEntity)
     private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
     @InjectRepository(ScheduleMapping)
@@ -591,108 +587,6 @@ export class OrchestratorService {
     await this.batchRepository.save(batch);
   }
 
-  private async sendBatchToWmsApi(batchId: string) {
-    try {
-      // Get the batch with all its tasks
-      const batch = await this.batchRepository.findOne({
-        where: { batch_id: batchId },
-        relations: ['tasks']
-      });
-
-      if (!batch || !batch.tasks || batch.tasks.length === 0) {
-        this.logger.warn(`Batch ${batchId} not found or has no tasks`);
-        return;
-      }
-
-      // Prepare the request body according to WMS API format
-      const requestBody = {
-        batch_job_id: batchId,
-        batch_priority: 5, // Default priority
-        batch_type: 'Discrete', // Default type
-        tasks: batch.tasks.map(task => ({
-          task_id: task.task_id.toString(),
-          task_type: task.task_type,
-          task_dependency: task.task_dependency?.toString() || null,
-          start_location: task.start_location,
-          end_location: task.end_location,
-          wait: task.wait,
-          cargos: task.cargos
-        }))
-      };
-
-      // Log the request for reference
-      console.log('=== WMS API Request ===');
-      console.log('URL: http://localhost:3000/robot-job/WH_001/tasks');
-      console.log('Method: POST');
-      console.log('Headers: { authorization: "test" }');
-      console.log('Body:', JSON.stringify(requestBody, null, 2));
-      console.log('=====================');
-
-      // Send the request to WMS API layer
-      const response = await firstValueFrom(
-        this.httpService.post('http://localhost:3000/robot-job/WH_001/tasks', requestBody, {
-          headers: {
-            'authorization': 'test',
-            'Content-Type': 'application/json'
-          }
-        })
-      );
-
-      this.logger.log(`Successfully sent batch ${batchId} to WMS API layer. Response received.`);
-      
-    } catch (error) {
-      this.logger.error(`Failed to send batch ${batchId} to WMS API layer:`, error.message);
-      if (error.response) {
-        this.logger.error(`Response status: ${error.response.status}`);
-        this.logger.error(`Response data:`, error.response.data);
-      }
-    }
-  }
-
-  // Process first tasks of all batches
-  private async processFirstTasks(): Promise<void> {
-    this.logger.log('Processing first tasks of all batches...');
-    
-    // Get all first tasks (sequence_order = 1) from inventory to station
-    const firstTasks = await this.taskRepository.find({
-      where: { 
-        sequence_order: 1,
-        status: TaskStatus.PENDING 
-      },
-      order: { created_at: 'ASC' }
-    });
-
-    for (const task of firstTasks) {
-      // Verify it's inventory to station task
-      if (task.start_location?.location_attribute?.attribute_value === 'inventory' &&
-          task.end_location?.location_attribute?.attribute_value === 'station') {
-        
-        const stationId = task.end_location.location_id;
-        await this.handleStationRequest(task, stationId);
-      }
-    }
-  }
-
-  private async handleStationRequest(task: Task, stationId: string): Promise<void> {
-    // Check if station is available
-    const station = await this.stationRepository.findOne({
-      where: { station_id: stationId }
-    });
-
-    if (!station) {
-      this.logger.warn(`Station ${stationId} not found`);
-      return;
-    }
-
-    if (station.status === LocationStatus.AVAILABLE) {
-      // Station is available - reserve it and send task to WMS
-      await this.reserveStationAndSendTask(task, station);
-    } else {
-      // Station is not available - add to request queue
-      await this.addStationRequest(task, stationId);
-    }
-  }
-
   private async reserveStationAndSendTask(task: Task, station: Station): Promise<void> {
     this.logger.log(`Reserving station ${station.station_id} for task ${task.task_id}`);
     
@@ -709,25 +603,6 @@ export class OrchestratorService {
 
     // Send single task to WMS
     await this.sendSingleTaskToWms(task);
-  }
-
-  public async addStationRequest(task: Task, stationId: string): Promise<void> {
-    this.logger.log(`Adding station request for task ${task.task_id}, station ${stationId}`);
-    const existingRequest = await this.stationRequestRepository.findOne({
-      where: { task_id: task.task_id, station_id: stationId }
-    });
-
-    if (existingRequest) {
-      this.logger.warn(`Station request already exists for task ${task.task_id} and station ${stationId}`);
-      return;
-    }
-    
-    const stationRequest = this.stationRequestRepository.create({
-      task_id: task.task_id,
-      station_id: stationId
-    });
-
-    await this.stationRequestRepository.save(stationRequest);
   }
 
   public async sendSingleTaskToWms(task: Task): Promise<void> {
@@ -776,119 +651,6 @@ export class OrchestratorService {
         this.logger.error(`Response status: ${error.response.status}`);
         this.logger.error(`Response data:`, error.response.data);
       }
-    }
-  }
-
-  // Method to be called from webhook when station becomes available
-  async processStationRequests(stationId: string): Promise<void> {
-    this.logger.log(`Processing pending requests for station ${stationId}`);
-    
-    // Use database transaction to prevent race conditions
-    const queryRunner = this.stationRepository.manager.connection.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      // Get the oldest request for this station (FIFO) with lock to prevent race conditions
-      // Note: We can't use relations with pessimistic locking, so we fetch separately
-      const oldestRequest = await queryRunner.manager.findOne(StationRequest, {
-        where: { station_id: stationId },
-        order: { created_at: 'ASC' },
-        lock: { mode: 'pessimistic_write' }
-      });
-
-      if (!oldestRequest) {
-        await queryRunner.commitTransaction();
-        return;
-      }
-
-      // Fetch the associated task separately (outside of the locked query)
-      const task = await queryRunner.manager.findOne(Task, {
-        where: { task_id: oldestRequest.task_id }
-      });
-
-      if (!task) {
-        this.logger.warn(`Task ${oldestRequest.task_id} not found for station request - removing orphaned request`);
-        await queryRunner.manager.remove(oldestRequest);
-        await queryRunner.commitTransaction();
-        
-        // Try to process next request recursively
-        await this.processStationRequests(stationId);
-        return;
-      }
-
-      // Safety check: Only process if task is still PENDING
-      if (task.status !== TaskStatus.PENDING) {
-        this.logger.warn(`Task ${task.task_id} in station request is not PENDING (current: ${task.status}) - removing request`);
-        await queryRunner.manager.remove(oldestRequest);
-        await queryRunner.commitTransaction();
-        
-        // Try to process next request recursively
-        await this.processStationRequests(stationId);
-        return;
-      }
-
-      // ADDITIONAL SAFETY: Check if there's already a next task with this task as dependency
-      // This prevents processing station requests for tasks that already had their next task created
-      if (task.task_dependency) {
-        const siblingTask = await queryRunner.manager
-          .createQueryBuilder(Task, 'task')
-          .where('task.task_dependency = :taskDependency', { taskDependency: task.task_dependency })
-          .andWhere('task.batch_id = :batchId', { batchId: task.batch_id })
-          .andWhere('task.task_id != :taskId', { taskId: task.task_id })
-          .getOne();
-
-        if (siblingTask) {
-          this.logger.warn(`⚠️  Another task ${siblingTask.task_id} already exists with same dependency ${task.task_dependency} - removing duplicate station request for task ${task.task_id}`);
-          await queryRunner.manager.remove(oldestRequest);
-          await queryRunner.commitTransaction();
-          
-          // Try to process next request recursively
-          await this.processStationRequests(stationId);
-          return;
-        }
-      }
-
-      // Get the station and ensure it's still available with lock
-      const station = await queryRunner.manager.findOne(Station, {
-        where: { station_id: stationId },
-        lock: { mode: 'pessimistic_write' }
-      });
-
-      if (!station || station.status !== LocationStatus.AVAILABLE) {
-        this.logger.warn(`Station ${stationId} is no longer available when processing request for task ${task.task_id}`);
-        // Don't re-add to queue if station isn't available - let webhook handle it later
-        await queryRunner.rollbackTransaction();
-        return;
-      }
-
-      // Remove the request from queue
-      await queryRunner.manager.remove(oldestRequest);
-
-      // Reserve the station atomically
-      await queryRunner.manager.update(Station, 
-        { station_id: stationId },
-        { 
-          status: LocationStatus.RESERVED,
-          holded_by: task.task_id
-        }
-      );
-
-      await queryRunner.commitTransaction();
-
-      // Note: Product requirement will be removed when task completes at station
-
-      // Send single task to WMS (outside transaction)
-      await this.sendSingleTaskToWms(task);
-
-      this.logger.log(`Successfully processed station request for task ${task.task_id} on station ${stationId}`);
-
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(`Error processing station requests for ${stationId}:`, error.message);
-      throw error;
-    } finally {
-      await queryRunner.release();
     }
   }
 
@@ -1838,7 +1600,7 @@ export class OrchestratorService {
     this.logger.log(`✅ Station ${stationId} released and marked as AVAILABLE`);
     
     // Immediately process any pending station requests for this station
-    await this.processStationRequests(stationId);
+    // await this.processStationRequests(stationId);
   }
 
   private async loadProductRequirementsFromDatabase(): Promise<ProductRequirement[]> {

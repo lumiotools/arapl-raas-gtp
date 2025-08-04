@@ -2,7 +2,6 @@ import { Logger, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
-import { Order } from '../../entities/order.entity';
 import { OrderItem } from '../../entities/order-item.entity';
 import { Product } from '../../entities/product.entity';
 import { GtpLocation } from '../../entities/gtp-location.entity';
@@ -16,7 +15,7 @@ import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
 @Module({
   imports: [JwtModule.register(jwtConfig),
-    TypeOrmModule.forFeature([Order, OrderItem, Product, GtpLocation, User, Log, ScheduleMapping])],
+    TypeOrmModule.forFeature([OrderItem, Product, GtpLocation, User, Log, ScheduleMapping])],
   controllers: [OrdersController],
   providers: [OrdersService, LoggingService],
 })

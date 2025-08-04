@@ -4,7 +4,6 @@ import { Repository, IsNull } from 'typeorm';
 import * as XLSX from 'xlsx';
 import * as csv from 'csv-parser';
 import { Readable } from 'stream';
-import { Order, OrderStatus } from '../../entities/order.entity';
 import { OrderItem, OrderItemStatus } from '../../entities/order-item.entity';
 import { Product } from '../../entities/product.entity';
 import { GtpLocation } from '../../entities/gtp-location.entity';
@@ -20,8 +19,6 @@ import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 @Injectable()
 export class OrdersService {
   constructor(
-    @InjectRepository(Order)
-    private orderRepository: Repository<Order>,
     @InjectRepository(OrderItem)
     private orderItemRepository: Repository<OrderItem>,
     @InjectRepository(Product)

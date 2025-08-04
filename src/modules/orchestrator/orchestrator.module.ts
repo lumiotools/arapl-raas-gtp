@@ -10,7 +10,6 @@ import { Inventory } from 'src/entities/inventory.entity';
 import { Station } from 'src/entities/station.entity';
 import { WaitingLocation } from 'src/entities/waiting-location.entity';
 import { GtpLocation } from 'src/entities/gtp-location.entity';
-import { StationRequest } from 'src/entities/station-request.entity';
 import { ProductRequirement } from 'src/entities/product-requirement.entity';
 import { InventoryModule } from '../inventory/inventory.module';
 import { User } from 'src/entities/user.entity';
@@ -27,7 +26,6 @@ import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
       Station,
       WaitingLocation,
       GtpLocation,
-      StationRequest,
       ProductRequirement,
       User,
       Station,
