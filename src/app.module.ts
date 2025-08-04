@@ -14,7 +14,6 @@ import { TriggerModule } from './modules/trigger/trigger.module';
 import { LoggingModule } from './modules/logging/logging.module';
 import { DatabaseResetModule } from './modules/database-reset/database-reset.module';
 import { WaitingLocationModule } from './modules/waiting_location/waiting_location.module';
-import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BotModule } from './modules/bot/bot.module';
 
@@ -38,7 +37,6 @@ import { BotModule } from './modules/bot/bot.module';
     TriggerModule,
     DatabaseResetModule,
     WaitingLocationModule,
-    DashboardModule,
     AuthModule,
     BotModule
   ],
