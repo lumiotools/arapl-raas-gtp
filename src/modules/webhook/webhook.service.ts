@@ -10,7 +10,6 @@ import { WaitingLocation} from 'src/entities/waiting-location.entity';
 import { WebhookRequestDto } from './dto/webhook-request.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { LoggingService } from '../../services/logging.service';
-import { dashboard } from 'src/entities/dashboard.entity';
 
 @Injectable()
 export class WebhookService {
@@ -27,8 +26,6 @@ export class WebhookService {
     private readonly stationRepository: Repository<Station>,
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
-    @InjectRepository(dashboard)
-    private readonly dashRepository: Repository<dashboard>,
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly httpService: HttpService,
@@ -83,39 +80,23 @@ export class WebhookService {
       this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
       return; // No change needed
     }
-    // update dashboard time
-    let dashboardTask = await this.dashRepository.findOne({
-      where: { task_id: parseInt(taskStatusData.task_id) }
-    });
-    if (!dashboardTask) {
-      dashboardTask = await this.dashRepository.save({
-        task_id: parseInt(taskStatusData.task_id),
-      })
-    }
-    const currentTime = new Date();
-    if (mappedStatus === TaskStatus.INQUEUE) {
-      dashboardTask.inqueue = currentTime;
-    } else if (mappedStatus === TaskStatus.PROCESSING) {
-      dashboardTask.processing = currentTime;
-    } else if (mappedStatus === TaskStatus.COMPLETED) {
-      dashboardTask.completed = currentTime;
-    } else if (mappedStatus === TaskStatus.TRIGERRED) {
-      dashboardTask.triggered = currentTime;
-    }
-    await this.dashRepository.save(dashboardTask);
     
     // Log webhook received after duplicate check
     await this.loggingService.log(`Task ${taskStatusData.task_id}: Webhook Received - status from ${oldStatus} to ${mappedStatus} (robot: ${taskStatusData.robot_id || 'none'})`);
-    
-    await this.taskRepository.update(
-      { task_id: parseInt(taskStatusData.task_id) },
-      { status: mappedStatus,
-        robot_id: taskStatusData.robot_id || null,
-      }
-    );
-
+  
     task.status = mappedStatus;
-    task.robot_id = taskStatusData.robot_id || null; 
+    task.robot_id = taskStatusData.robot_id || null;
+    const currentTime = new Date();
+    if (mappedStatus === TaskStatus.INQUEUE) {
+      task.inqueue = currentTime;
+    } else if (mappedStatus === TaskStatus.PROCESSING) {
+      task.processing = currentTime;
+    } else if (mappedStatus === TaskStatus.COMPLETED) {
+      task.completed = currentTime;
+    } else if (mappedStatus === TaskStatus.TRIGERRED) {
+      task.triggered = currentTime;
+    }
+    await this.taskRepository.save(task);
 
     // Handle inventory updates based on task status changes
     await this.handleInventoryUpdates(task, oldStatus, mappedStatus, batchId);

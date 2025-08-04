@@ -24,8 +24,8 @@ export const getDBConfig = (
     database: dbCredentials[dbEnv]?.database || dbCredentials.local.database,
     ssl: dbCredentials[dbEnv]?.ssl || false,
     entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-    synchronize: true, // Set to false in production
-    logging: false, // Enable logging for debugging
+    synchronize: true,
+    logging: false,
   };
 };
 

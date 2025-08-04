@@ -9,13 +9,11 @@ import { Task } from '../../entities/task.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { Inventory } from 'src/entities';
 import { LoggingModule } from '../logging/logging.module';
-import { dashboard } from 'src/entities/dashboard.entity';
 import { User } from 'src/entities/user.entity';
-import { OrchestratorService } from '../orchestrator/orchestrator.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Station, WaitingLocation, Task, Inventory,dashboard,User]),
+    TypeOrmModule.forFeature([Station, WaitingLocation, Task, Inventory,User]),
     forwardRef(() => OrchestratorModule),
     HttpModule,
     LoggingModule,

@@ -113,4 +113,16 @@ export class Task {
 
   @Column({ type: 'json' })
   cargos: Cargo[];
+
+  @Column({ type: 'timestamp', precision: 3, nullable: true })
+  inqueue: Date;
+
+  @Column({ type: 'timestamp', precision: 3, nullable: true })
+  processing: Date;
+
+  @Column({ type: 'timestamp', precision: 3, nullable: true })
+  completed: Date;
+
+  @Column({ type: 'timestamp', precision: 3, nullable: true })
+  triggered: Date;
 }
