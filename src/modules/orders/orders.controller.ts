@@ -422,4 +422,35 @@ export class OrdersController {
   ) {
     return await this.ordersService.removeLicensePlateMapping(licensePlateId);
   }
+
+  @Post('order-completed-tasks')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get completed tasks for order items',
+    description: 'Retrieve all completed tasks associated with the provided order_item_id list.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        order_item_ids: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'List of order_item_id to fetch completed tasks for',
+          example: [1, 2, 3]
+        }
+      },
+      required: ['order_item_ids']
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved completed tasks',
+    type: Array,
+  })
+  async getCompletedTasksForOrderItems(
+    @Body() body: { order_item_ids: number[] }
+  ) {
+    return await this.ordersService.getCompletedTasksForOrderItems(body.order_item_ids);
+  }
 }

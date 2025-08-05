@@ -7,9 +7,11 @@ import {
   ManyToOne,
   JoinColumn,
   Relation,
+  ManyToMany,
 } from 'typeorm';
 import type { Product } from './product.entity';
 import type { GtpLocation } from './gtp-location.entity';
+import { Task } from './task.entity';
 
 export enum OrderItemStatus {
   PENDING = 'PENDING',
@@ -74,4 +76,7 @@ export class OrderItem {
   @ManyToOne('GtpLocation', 'orderItems')
   @JoinColumn({ name: 'assigned_gtp_location' })
   assignedGtpLocation: Relation<GtpLocation>;
+
+  @ManyToMany(() => Task, (task) => task.orderItems)
+  completedTasks: Relation<Task[]>;
 }

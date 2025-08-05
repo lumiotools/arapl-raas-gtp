@@ -19,6 +19,7 @@ export class DatabaseResetService {
     try {
       // Execute the SQL queries directly (matches your original script)
       const queries = [
+        'DELETE FROM tasks_order_items_order_items',
         'DELETE FROM order_items',
         'DELETE FROM "schedule-mapping"',
         'DELETE FROM order_items',

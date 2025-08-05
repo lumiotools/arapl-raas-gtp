@@ -715,7 +715,7 @@ export class OrchestratorService {
 
         // Remove the fulfilled product requirement from database (quantity has been dropped at this station)
         const currentStationId = completedTask.end_location.location_id;
-        await this.removeProductRequirement(completedTask.product_id, currentStationId, droppedQuantity, message_code);
+        await this.removeProductRequirement(completedTask, completedTask.product_id, currentStationId, droppedQuantity, message_code);
         
         this.logger.log(`📦 Normal completion: dropped ${droppedQuantity} units, remaining ${remainingQuantity} units`);
       }
@@ -959,7 +959,7 @@ export class OrchestratorService {
     }  
   }
 
-  private async removeProductRequirement(productId: string, stationId: string, droppedQuantity: number, message_code: MessageCode): Promise<void> {
+  private async removeProductRequirement(task: Task, productId: string, stationId: string, droppedQuantity: number, message_code: MessageCode): Promise<void> {
     try {
       this.logger.log(`Removing product requirement for Product ${productId} at Station ${stationId} - dropped quantity: ${droppedQuantity}`);
       const existingRequirement = await this.productRequirementRepository.findOne({
@@ -999,12 +999,21 @@ export class OrchestratorService {
             order_item.status = OrderItemStatus.COMPLETED;
             // order_item.assigned_gtp_location = null;
             order_item.remaining_quantity = 0;
+            if (!order_item.completedTasks) {
+              order_item.completedTasks = [];
+            }
+            order_item.completedTasks.push(task);
             await this.orderItemRepository.save(order_item);
+            console.log(`Order Item ${order_item.order_item_id} completed - remaining quantity: 0`);
             await this.loggingService.log(`Order ${order_item.order_id}: Product ${productId} at GTP Location ${gtpLocation.gtp_location_id} completed.`);
           }
           else{
             order_item.remaining_quantity -= droppedQuantity;
             droppedQuantity = 0;
+            if(!order_item.completedTasks) {
+              order_item.completedTasks = [];
+            }
+            order_item.completedTasks.push(task);
             await this.orderItemRepository.save(order_item);
             break;
           }

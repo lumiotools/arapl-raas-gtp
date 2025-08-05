@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException, LoggerService } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository, IsNull, In } from 'typeorm';
 import * as XLSX from 'xlsx';
 import * as csv from 'csv-parser';
 import { Readable } from 'stream';
@@ -503,6 +503,42 @@ export class OrdersService {
         throw error;
       }
       throw new BadRequestException(`Failed to remove license plate mapping: ${error.message}`);
+    }
+  }
+
+  async getCompletedTasksForOrderItems(orderItemIds: number[]): Promise<Record<string, number[]>> {
+    try {
+      if (!Array.isArray(orderItemIds) || orderItemIds.length === 0) {
+        throw new BadRequestException('Invalid order item IDs provided');
+      }
+      // Find all order items with the given IDs
+      const orderItems = await this.orderItemRepository.find({
+        where: { order_item_id: In(orderItemIds) },
+        relations: ['completedTasks'],
+      });
+      if (orderItems.length === 0) {
+        throw new NotFoundException(`No order items found with the provided IDs: ${orderItemIds.join(', ')}`);
+      }
+      // Build a map of order_id -> array of completed task IDs
+      const result: Record<string, number[]> = {};
+      for (const orderItem of orderItems) {
+        const orderId = orderItem.order_id;
+        if (!result[orderId]) {
+          result[orderId] = [];
+        }
+        const completedTaskIds = (orderItem.completedTasks || []).map(task => task.task_id);
+        result[orderId].push(...completedTaskIds);
+      }
+      // Remove duplicates in each array
+      for (const key in result) {
+        result[key] = Array.from(new Set(result[key]));
+      }
+      return result;
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to get completed tasks for order items: ${error.message}`);
     }
   }
 }

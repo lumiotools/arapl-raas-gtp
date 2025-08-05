@@ -7,11 +7,14 @@ import {
   ManyToOne,
   JoinColumn,
   Relation,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
 import type { Batch } from './batch.entity';
 import { Location } from './location.entity';
 import { Wait } from './wait.entity';
 import { Cargo } from './cargo.entity';
+import { OrderItem } from './order-item.entity';
 
 export enum TaskType {
   CROSSDOCK = 'Crossdock',
@@ -125,4 +128,8 @@ export class Task {
 
   @Column({ type: 'timestamp', precision: 3, nullable: true })
   triggered: Date;
+
+  @ManyToMany(() => OrderItem, (orderItem) => orderItem.completedTasks)
+  @JoinTable() // This should be on one side of the ManyToMany relation
+  orderItems: Relation<OrderItem[]>;
 }
