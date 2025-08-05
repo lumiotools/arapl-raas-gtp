@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { BotRequest } from './bot.controller';
 import { BotResponse } from './bot.controller';
-import OpenAI from "openai";
-import { ChatCompletionCreateParams, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import Groq from "groq-sdk";
+import { ChatCompletionCreateParams, ChatCompletionMessageParam } from 'groq-sdk/resources/chat/completions';
 import { Tools, ToolService } from './tools';
 
-const openai = new OpenAI({ 
-    apiKey: process.env.BOT_API_KEY // or process.env.OPENAI_API_KEY
+const groq = new Groq({ 
+    apiKey: process.env.BOT_API_KEY // Make sure to set this environment variable
 });
-const MODEL = 'gpt-4o-mini'; // or 'gpt-4', 'gpt-3.5-turbo', etc.
+const MODEL = 'llama-3.3-70b-versatile';
 
 @Injectable()
 export class BotService {
@@ -38,7 +38,7 @@ export class BotService {
 
         console.log(`messages: ${JSON.stringify(messages)}`);
 
-        const response = await openai.chat.completions.create({
+        const response = await groq.chat.completions.create({
             model: MODEL,
             messages: messages,
             tools: Tools,
@@ -126,13 +126,13 @@ export class BotService {
             }
 
             // Get the final response
-            const secondResponse = await openai.chat.completions.create({
+            const secondResponse = await groq.chat.completions.create({
                 model: MODEL,
                 messages: messages
             });
             
             if (!secondResponse.choices || secondResponse.choices.length === 0 || !secondResponse.choices[0].message || !secondResponse.choices[0].message.content) {
-                throw new Error('No response from OpenAI');
+                throw new Error('No response from Groq');
             }
             
             console.log(`tool calls: ${JSON.stringify(toolCalls)}`);
@@ -140,7 +140,7 @@ export class BotService {
         }
         
         if (!responseMessage || !responseMessage.content) {
-            throw new Error('No response from OpenAI');
+            throw new Error('No response from Groq');
         }
         
         return { response: responseMessage.content };
