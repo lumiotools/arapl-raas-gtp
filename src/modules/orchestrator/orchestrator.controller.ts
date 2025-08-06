@@ -474,4 +474,28 @@ export class OrchestratorController {
       affected: result.affected
     };
   }
+
+  @Get('predicted-robots')
+  @ApiOperation({
+    summary: 'Get predicted robots',
+    description: 'Returns a list of predicted robots based on current system state or requirements.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'List of predicted robots',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          robot_id: { type: 'string', example: 'ROBOT_001' },
+          prediction_score: { type: 'number', example: 0.95 },
+          status: { type: 'string', example: 'AVAILABLE' }
+        }
+      }
+    }
+  })
+  async getPredictedRobots() {
+    return await this.orchestratorService.getPredictedRobots();
+  }
 }

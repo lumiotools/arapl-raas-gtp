@@ -1718,4 +1718,39 @@ export class OrchestratorService {
       .execute();
     return result;
   }
+
+  async getPredictedRobots(){
+    const orderItems = await this.orderItemRepository.find({
+      where: { status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS]) },
+    });
+    const uniqueProducts = new Set(orderItems.map(item => item.product_id)); // unique product IDS
+    const setOfUniqueGTP = new Set(orderItems.map(item => item.assigned_gtp_location));
+    const inventory_to_waiting_locations = await this.waitingLocationRepository.find({
+        where: { type: WaitingLocationType.INVENTORY_TO_STATION }
+    });
+    const uniqueStations = new Set();
+    for (const gtpLocationId of setOfUniqueGTP) {
+      if (!gtpLocationId) continue;
+      const gtpLocation = await this.gtpLocationRepository.findOne({
+        where: { gtp_location_id: gtpLocationId }
+      });
+      if (gtpLocation && gtpLocation.station_id) {
+        uniqueStations.add(gtpLocation.station_id);
+      }
+    }
+    const numberOfUniqueStations = uniqueStations.size;
+    let x = uniqueProducts.size;
+    let y = numberOfUniqueStations;
+    let z = inventory_to_waiting_locations.length;
+    let l = Math.min(x, y+z);
+    let h = 2*y;
+    let predicted = Math.ceil((l + h) / 2);
+
+    console.log(`Predicted Robots: ${predicted} (Unique Products: ${x}, Unique Stations: ${y}, Inventory to Waiting Locations: ${z})`);
+
+    return {
+      "predicted": predicted,
+    }
+
+  }
 }
