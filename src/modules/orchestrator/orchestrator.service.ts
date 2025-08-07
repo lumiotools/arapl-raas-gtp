@@ -1673,32 +1673,17 @@ export class OrchestratorService {
       .update()
       .set({ isCancelled: true })
       .execute();
-    
-    const inprogressOrderItems = await this.orderItemRepository.find({
-      where: { status: OrderItemStatus.IN_PROGRESS }
-    });
-    for (const orderItem of inprogressOrderItems) {
-      this.loggingService.log(`Order ${orderItem.order_id}: Cancelled - Product ${orderItem.product_id}`);
-    }
 
-    const result2 = await this.orderItemRepository
-      .createQueryBuilder()
-      .update()
-      .set({ status: OrderItemStatus.CANCELLED}) // , assigned_gtp_location: null 
-      .where("status = :status", { status: OrderItemStatus.IN_PROGRESS })
-      .execute();
-    
-    const findAllmapping = await this.scheduleMappingRepository.find();
-    for (const mapping of findAllmapping) {
-      const lp = mapping.license_plate_id;
-      await this.orderItemRepository.update(
-        {
-          license_plate_id: lp,
-          status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS])
-        },
-        { status: OrderItemStatus.CANCELLED }
-      )
-    }
+    // const result2 = await this.orderItemRepository
+    //   .createQueryBuilder()
+    //   .update()
+    //   .set({ status: OrderItemStatus.CANCELLED}) // , assigned_gtp_location: null 
+    //   .where("status = :status", { status: OrderItemStatus.IN_PROGRESS })
+    //   .execute();
+    await this.orderItemRepository.update(
+      { status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS]) },
+      { status: OrderItemStatus.CANCELLED }
+    );
     const result3 = await this.scheduleMappingRepository.deleteAll();
     return result;
   }
