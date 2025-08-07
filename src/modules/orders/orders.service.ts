@@ -348,7 +348,8 @@ export class OrdersService {
       // Find all order items where assigned_gtp_location is null
       const orderItems = await this.orderItemRepository.find({
         where: { 
-          assigned_gtp_location: IsNull() 
+          assigned_gtp_location: IsNull() ,
+          status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED])
         },
         select: ['license_plate_id']
       });
