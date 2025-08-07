@@ -2,13 +2,29 @@ import { Injectable } from '@nestjs/common';
 import { BotRequest } from './bot.controller';
 import { BotResponse } from './bot.controller';
 import Groq from "groq-sdk";
+import OpenAI from "openai";
 import { ChatCompletionCreateParams, ChatCompletionMessageParam } from 'groq-sdk/resources/chat/completions';
+import { ChatCompletionCreateParams as OpenAIChatCompletionCreateParams, ChatCompletionMessageParam as OpenAIChatCompletionMessageParam } from 'openai/resources/chat/completions';
+
 import { Tools, ToolService } from './tools';
 
-const groq = new Groq({ 
-    apiKey: process.env.BOT_API_KEY // Make sure to set this environment variable
-});
-const MODEL = 'llama-3.3-70b-versatile';
+// Configuration based on environment variables
+const isOpenAI = process.env.IS_OPENAI === 'true';
+const apiKey = process.env.BOT_API_KEY;
+const model = process.env.BOT_MODEL || (isOpenAI ? 'gpt-4o-mini' : 'llama-3.3-70b-versatile');
+// Initialize clients
+let groqClient: Groq | null = null;
+let openaiClient: OpenAI | null = null;
+
+if (isOpenAI) {
+    openaiClient = new OpenAI({
+        apiKey: apiKey
+    });
+} else {
+    groqClient = new Groq({
+        apiKey: apiKey
+    });
+}
 
 @Injectable()
 export class BotService {
@@ -17,7 +33,9 @@ export class BotService {
     async processRequest(body: BotRequest): Promise<BotResponse> {
         const query = body.query;
         const chatHistory = body.chat_history || [];
-        const messages: ChatCompletionMessageParam[] = [];
+        
+        // Use unified message type (both libraries have compatible interfaces)
+        const messages: (ChatCompletionMessageParam | OpenAIChatCompletionMessageParam)[] = [];
         
         messages.push({
             role: 'system',
@@ -38,15 +56,31 @@ export class BotService {
 
         console.log(`messages: ${JSON.stringify(messages)}`);
 
-        const response = await groq.chat.completions.create({
-            model: MODEL,
-            messages: messages,
-            tools: Tools,
-            stream: false,
-            tool_choice: 'auto',
-            max_tokens: 1000,
-            temperature: 0.3,
-        });
+        // Make the initial completion call based on provider
+        let response: any;
+        
+        if (isOpenAI && openaiClient) {
+            response = await openaiClient.chat.completions.create({
+                model: model,
+                messages: messages as OpenAIChatCompletionMessageParam[],
+                tools: Tools,
+                tool_choice: 'auto',
+                max_tokens: 1000,
+                temperature: 0.3,
+            });
+        } else if (groqClient) {
+            response = await groqClient.chat.completions.create({
+                model: model,
+                messages: messages as ChatCompletionMessageParam[],
+                tools: Tools,
+                stream: false,
+                tool_choice: 'auto',
+                max_tokens: 1000,
+                temperature: 0.3,
+            });
+        } else {
+            throw new Error('No valid client configured');
+        }
         
         const responseMessage = response.choices[0].message;
         const toolCalls = response.choices[0].message.tool_calls;
@@ -106,7 +140,7 @@ export class BotService {
                     }
                     
                     // Ensure the content is a string
-                    const toolMessage: ChatCompletionMessageParam = {
+                    const toolMessage: ChatCompletionMessageParam | OpenAIChatCompletionMessageParam = {
                         tool_call_id: toolCall.id,
                         role: "tool",
                         content: typeof functionResponse === 'string' ? functionResponse : JSON.stringify(functionResponse),
@@ -115,7 +149,7 @@ export class BotService {
                     messages.push(toolMessage);
                 } catch (error) {
                     // Handle function execution errors
-                    const errorMessage: ChatCompletionMessageParam = {
+                    const errorMessage: ChatCompletionMessageParam | OpenAIChatCompletionMessageParam = {
                         tool_call_id: toolCall.id,
                         role: "tool",
                         content: `Error executing function ${functionName}: ${error.message}`,
@@ -125,14 +159,25 @@ export class BotService {
                 }
             }
 
-            // Get the final response
-            const secondResponse = await groq.chat.completions.create({
-                model: MODEL,
-                messages: messages
-            });
+            // Get the final response based on provider
+            let secondResponse: any;
+            
+            if (isOpenAI && openaiClient) {
+                secondResponse = await openaiClient.chat.completions.create({
+                    model: model,
+                    messages: messages as OpenAIChatCompletionMessageParam[]
+                });
+            } else if (groqClient) {
+                secondResponse = await groqClient.chat.completions.create({
+                    model: model,
+                    messages: messages as ChatCompletionMessageParam[]
+                });
+            } else {
+                throw new Error('No valid client configured');
+            }
             
             if (!secondResponse.choices || secondResponse.choices.length === 0 || !secondResponse.choices[0].message || !secondResponse.choices[0].message.content) {
-                throw new Error('No response from Groq');
+                throw new Error(`No response from ${isOpenAI ? 'OpenAI' : 'Groq'}`);
             }
             
             console.log(`tool calls: ${JSON.stringify(toolCalls)}`);
@@ -140,7 +185,7 @@ export class BotService {
         }
         
         if (!responseMessage || !responseMessage.content) {
-            throw new Error('No response from Groq');
+            throw new Error(`No response from ${isOpenAI ? 'OpenAI' : 'Groq'}`);
         }
         
         return { response: responseMessage.content };
