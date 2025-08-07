@@ -46,26 +46,6 @@ export class WebhookService {
     }
   }
 
-  private async updateBatchStatus(batchId: string, status: string): Promise<void> {
-    const batch = await this.batchRepository.findOne({
-      where: { batch_id: batchId }
-    });
-
-    if (!batch) {
-      this.logger.warn(`Batch with ID ${batchId} not found, skipping batch status update`);
-      return;
-    }
-
-    const mappedStatus = this.mapBatchStatus(status);
-    
-    this.logger.log(`Updating batch ${batchId} status from ${batch.status} to ${mappedStatus}`);
-    
-    await this.batchRepository.update(
-      { batch_id: batchId },
-      { status: mappedStatus }
-    );
-  }
-
   private async updateTaskStatus(batchId: string, taskStatusData: any): Promise<void> {
     // Find task by task_id only (ignore batch_id as instructed)
     const task = await this.taskRepository.findOne({
@@ -114,10 +94,10 @@ export class WebhookService {
 
         if (destinationType === 'waiting_location') {
           // Task completed at waiting location - handle waiting location completion
-          this.logger.log(`🏁 Calling waiting location completion handler for task ${task.task_id}`);
+          this.logger.log(`Calling waiting location completion handler for task ${task.task_id}`);
           await this.handleWaitingLocationCompletion(task);
         } else if (destinationType === 'inventory') {
-          this.logger.log(`🏁 Task ${task.task_id} completed at inventory - freeing robot`);
+          this.logger.log(`Task ${task.task_id} completed at inventory - freeing robot`);
           if (currentTask.robot_id) {
             await this.freeRobot(currentTask.robot_id);
           }
@@ -127,13 +107,13 @@ export class WebhookService {
     
     // Handle task processing - release source station when task goes to PROCESSING
     if (mappedStatus === TaskStatus.PROCESSING) {
-      this.logger.log(`⚙️  Task ${task.task_id} PROCESSING - calling processing handler`);
+      this.logger.log(`Task ${task.task_id} PROCESSING - calling processing handler`);
       const currentTask = await this.taskRepository.findOne({
         where: { task_id: task.task_id }
       });
       
       if (currentTask && currentTask.status === TaskStatus.PROCESSING) {
-        this.logger.log(`🔧 Calling task processing handler for task ${task.task_id}`);
+        this.logger.log(`Calling task processing handler for task ${task.task_id}`);
         await this.handleTaskProcessing(task);
       }
     }
