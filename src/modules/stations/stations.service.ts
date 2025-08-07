@@ -3,7 +3,7 @@ import { CreateStationDto } from './dto/create-station.dto';
 import { UpdateStationDto } from './dto/update-station.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Station } from 'src/entities/station.entity';
+import { LocationStatus, Station } from 'src/entities/station.entity';
 import { GtpLocation, OrderItem, OrderItemStatus } from 'src/entities';
 import { ProductRequirement as ProductRequirementEntity } from 'src/entities/product-requirement.entity';
 
@@ -184,5 +184,32 @@ export class StationsService {
     }
     
     await this.productRequirementRepository.remove(productRequirements);
+  }
+
+  async reserveStation(station_id: string): Promise<boolean> {
+    const queryRunner = this.stationRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const station = await queryRunner.manager.findOne(Station, { where: { station_id: station_id } });
+
+      if (!station) {
+        throw new NotFoundException(`Station with id ${station_id} not found`);
+      }
+
+      station.status = LocationStatus.RESERVED;
+      await queryRunner.manager.save(Station, station);
+
+      await queryRunner.commitTransaction();
+
+      // Return the updated inventory (with isProcessing = true)
+      return true;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      return false;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

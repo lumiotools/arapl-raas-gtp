@@ -15,6 +15,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { User } from 'src/entities/user.entity';
 import { StationsService } from '../stations/stations.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
+import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 
 @Module({
   imports: [
@@ -35,7 +36,7 @@ import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
     InventoryModule,
   ],
   controllers: [OrchestratorController],
-  providers: [OrchestratorService, StationsService],
+  providers: [OrchestratorService, StationsService, WaitingLocationService],
   exports: [OrchestratorService],
 })
 export class OrchestratorModule {}

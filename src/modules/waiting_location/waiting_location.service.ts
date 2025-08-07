@@ -1,9 +1,10 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateWaitingLocationDto } from './dto/create-waiting_location.dto';
 import { UpdateWaitingLocationDto } from './dto/update-waiting_location.dto';
 import { WaitingLocation } from 'src/entities';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { LocationStatus } from 'src/entities/station.entity';
 
 @Injectable()
 export class WaitingLocationService {
@@ -59,4 +60,31 @@ export class WaitingLocationService {
     await this.waitingLocationRepository.delete({ location_id: id });
     return { message: `Waiting location with id ${id} deleted successfully` };
   }
+
+  async reserveWaitingLocation(location_id: string): Promise<boolean> {
+      const queryRunner = this.waitingLocationRepository.manager.connection.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+  
+      try {
+        const waitingLocation = await queryRunner.manager.findOne(WaitingLocation, { where: { location_id: location_id } });
+
+        if (!waitingLocation) {
+          throw new NotFoundException(`Waiting location with id ${location_id} not found`);
+        }
+
+        waitingLocation.status = LocationStatus.RESERVED;
+        await queryRunner.manager.save(WaitingLocation, waitingLocation);
+
+        await queryRunner.commitTransaction();
+  
+        // Return the updated inventory (with isProcessing = true)
+        return true;
+      } catch (error) {
+        await queryRunner.rollbackTransaction();
+        return false;
+      } finally {
+        await queryRunner.release();
+      }
+    }
 }

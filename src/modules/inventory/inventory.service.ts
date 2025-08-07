@@ -8,6 +8,7 @@ import { Product } from 'src/entities/product.entity';
 import { UploadInventoryResponseDto } from './dto/upload-inventory-response.dto';
 import { ProductRequirement } from 'src/entities/product-requirement.entity';
 import { toBuffer } from 'bwip-js';
+import { LocationStatus } from 'src/entities/station.entity';
 
 @Injectable()
 export class InventoryService {
@@ -309,6 +310,33 @@ export class InventoryService {
 
     } catch (error) {
       throw new BadRequestException(`Failed to process CSV file: ${error.message}`);
+    }
+  }
+
+  async reserveInventory(id: string): Promise<boolean> {
+    const queryRunner = this.inventoryRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const inventory = await queryRunner.manager.findOne(Inventory, { where: { id } });
+
+      if (!inventory) {
+        throw new NotFoundException(`Inventory with id ${id} not found`);
+      }
+
+      inventory.status = LocationStatus.RESERVED;
+      await queryRunner.manager.save(Inventory, inventory);
+
+      await queryRunner.commitTransaction();
+
+      // Return the updated inventory (with isProcessing = true)
+      return true;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      return false;
+    } finally {
+      await queryRunner.release();
     }
   }
 
