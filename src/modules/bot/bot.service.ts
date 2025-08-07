@@ -9,13 +9,13 @@ import { ChatCompletionCreateParams as OpenAIChatCompletionCreateParams, ChatCom
 import { Tools, ToolService } from './tools';
 
 // Configuration based on environment variables
-const isOpenAI = process.env.IS_OPENAI === 'true';
-const apiKey = process.env.BOT_API_KEY;
-const model = process.env.BOT_MODEL || (isOpenAI ? 'gpt-4o-mini' : 'llama-3.3-70b-versatile');
+const isOpenAI = process.env.IS_OPENAI === 'false' ? false : true;
+const apiKey = process.env.OPENAI_API_KEY;
+const model = process.env.OPENAI_MODEL || (isOpenAI ? 'gpt-4o-mini' : 'llama-3.3-70b-versatile');
 // Initialize clients
 let groqClient: Groq | null = null;
 let openaiClient: OpenAI | null = null;
-
+console.log(`Using ${isOpenAI ? 'OpenAI' : 'Groq'} with model: ${model}`);
 if (isOpenAI) {
     openaiClient = new OpenAI({
         apiKey: apiKey
