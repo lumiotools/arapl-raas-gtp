@@ -3,10 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { Station, LocationStatus } from '../../entities/station.entity';
-import { WaitingLocation} from '../../entities/waiting-location.entity';
 import { Task, TaskStatus } from '../../entities/task.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
-import { Inventory } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { MessageCode } from './trigger.controller';
 
@@ -94,7 +92,7 @@ export class TriggerService {
     try {
       // Check if the completed task was at a station and handle station workflow
       if (completedTask.end_location?.location_attribute?.attribute_value === 'station') {
-        await this.orchestratorService.handleTaskCompletion(completedTask, false, dropped_quantity, message_code);
+        await this.orchestratorService.handleTaskCompletion(completedTask,dropped_quantity, message_code);
         return;
       }
     } catch (error) {
@@ -127,107 +125,12 @@ export class TriggerService {
     };
   }
 
-  async skipStationAction(stationId: string) {
-    // Find the station
-    const station = await this.stationRepository.findOne({
-      where: { station_id: stationId },
-    });
-
-    if (!station) {
-      throw new NotFoundException(`Station with ID ${stationId} not found`);
-    }
-
-    // Check if station is OCCUPIED (not RESERVED)
-    if (station.status !== LocationStatus.OCCUPIED) {
-      if (station.status === LocationStatus.RESERVED) {
-        throw new ConflictException(`Can't skip now - station ${stationId} is reserved`);
-      }
-      throw new ConflictException(`Can't skip - station ${stationId} is not occupied (current status: ${station.status})`);
-    }
-
-    // Find the task that is holding this station
-    if (!station.holded_by) {
-      throw new NotFoundException(`No task is currently holding station ${stationId}`);
-    }
-
-    const currentTask = await this.taskRepository.findOne({
-      where: { task_id: station.holded_by },
-    });
-
-    if (!currentTask) {
-      throw new NotFoundException(`No task found holding station ${stationId}`);
-    }
-
-    // Mark current task as TRIGGERED (skipped)
-    await this.taskRepository.update(
-      { task_id: currentTask.task_id },
-      { status: TaskStatus.TRIGERRED }
-    );
-
-    currentTask.status = TaskStatus.TRIGERRED;
-
-    // Log skip action
-    await this.loggingService.log(`Station ${stationId} skipped - Task ${currentTask.task_id} marked as TRIGGERED without processing (quantity preserved: ${currentTask.quantity})`);
-
-    // Create next task with same quantity (no quantity drop occurred)
-    const nextTaskResult = await this.createNextTaskForSkip(currentTask);
-
-    // Free the robot holding this station
-    if (currentTask.robot_id) {
-      await this.freeRobot(currentTask.robot_id);
-    }
-
-    return {
-      message: `Station ${stationId} skipped successfully`,
-      skipped_task: {
-        task_id: currentTask.task_id,
-        batch_id: currentTask.batch_id,
-        product_id: currentTask.product_id,
-        previous_status: 'COMPLETED',
-        new_status: 'TRIGGERED',
-        quantity: currentTask.quantity,
-        skipped_station: stationId
-      },
-      next_task: nextTaskResult,
-      station: {
-        station_id: stationId,
-        status: station.status,
-        message: 'Station remains occupied until next task starts processing'
-      },
-      timestamp: new Date(),
-    };
-  }
-
-  private async createNextTaskForSkip(currentTask: Task) {
-    try {
-      // For skip operations, call orchestrator with isSkipOperation=true
-      // This preserves full quantity and doesn't update product requirements
-      await this.orchestratorService.handleTaskCompletion(currentTask, true, 0, MessageCode.INSUFFICIENT_QUANTITY);
-
-      await this.loggingService.log(`Skip operation completed for task ${currentTask.task_id} - orchestrator handled next task creation with full quantity ${currentTask.quantity} (no product requirements updated)`);
-
-      // Return a generic response since orchestrator handles the actual task creation
-      return {
-        task_id: 'TBD', // Will be created by orchestrator
-        destination: 'TBD', // Will be determined by orchestrator
-        quantity: currentTask.quantity,
-        status: 'PENDING',
-        type: 'ORCHESTRATOR_MANAGED',
-        note: 'Next task creation handled by orchestrator service with preserved quantity'
-      };
-    } catch (error) {
-      await this.loggingService.log(`Error in skip operation for task ${currentTask.task_id}: ${error.message}`);
-      throw error;
-    }
-  }
-
   // Method to free robot by calling the external endpoint
   private async freeRobot(robotId: string): Promise<void> {
     if (!robotId) {
       // await this.loggingService.log('Cannot free robot: robot_id is null or empty');
       return;
     }
-
     try {
       const response = await this.httpService.post(`${process.env.WMS_BASE_URL}/orchestrator/robot/set-available`, {
         robot_id: robotId

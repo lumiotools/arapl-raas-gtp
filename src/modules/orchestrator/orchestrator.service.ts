@@ -85,7 +85,7 @@ export class OrchestratorService {
 
   async processAssignedOrderItems() {
     try {
-      // Step 3 & 4: Calculate product requirements and sort by descending order
+      // Calculate product requirements and sort by descending order
       let productRequirements: ProductRequirement[];
       productRequirements = await this.loadProductRequirementsFromDatabase();
       // first check waiting locations for this product.
@@ -94,6 +94,7 @@ export class OrchestratorService {
           status: LocationStatus.OCCUPIED,
         }
       });
+      // fetch all the waiting locations that are occupied
       console.log(`waiting locations: ${JSON.stringify(waitingLocations)}`);
       if (waitingLocations.length > 0) {
         // this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
@@ -217,11 +218,8 @@ export class OrchestratorService {
     for (const item of orderItems) {
       const productId = item.product_id;
       const stationId = item.assignedGtpLocation?.station_id;
-      
-      if (!stationId) {
-        this.logger.warn(`Order item ${item.order_item_id} has no station assigned`);
-        continue;
-      }
+
+      if (!stationId) {continue;}
 
       if (!requirementMap.has(productId)) {
         requirementMap.set(productId, {
@@ -655,11 +653,9 @@ export class OrchestratorService {
   }
 
   // Method to be called from trigger when a task completes at a station
-  async handleTaskCompletion(completedTask: Task, isSkipOperation: boolean = false , dropped_quantity: number, message_code: MessageCode): Promise<void> {
+  async handleTaskCompletion(completedTask: Task, dropped_quantity: number, message_code: MessageCode): Promise<void> {
     if (completedTask.status !== TaskStatus.TRIGERRED) {return;}
-
-    const operationType = isSkipOperation ? 'skip' : 'normal completion';
-    this.logger.log(`Handling task ${operationType} for task ${completedTask.task_id} at station - TRIGGERED is the final state`);
+    // this.logger.log(`Handling task ${operationType} for task ${completedTask.task_id} at station - TRIGGERED is the final state`);
     
     try {
       // DUPLICATE PREVENTION: Check if a next task already exists with this task as dependency
@@ -674,51 +670,43 @@ export class OrchestratorService {
       let remainingQuantity: number;
       let droppedQuantity: number;
 
-      if (isSkipOperation) {
-        // For skip operations: preserve full quantity, no drops, no product requirement updates
-        remainingQuantity = completedTask.quantity - dropped_quantity;
-        droppedQuantity = dropped_quantity;
-        this.logger.log(`⏩ Skip operation: preserving full quantity ${remainingQuantity} - no drops at station`);
-        await this.loggingService.log(`Skip task ${completedTask.task_id}: preserved quantity ${remainingQuantity}, no product requirements updated`);
-      } else {
-        // For normal completion: calculate dropped quantity and update requirements
-        
-        remainingQuantity = completedTask.quantity - dropped_quantity;
-        if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
-          back_to_inventory = true;
-        }
-        if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
-          back_to_inventory = true;
-        }
-        droppedQuantity = dropped_quantity
-
-        // Update inventory quantity (reduce by dropped amount)
-        const firstTask = await this.taskRepository.findOne({
-          where: {
-            batch_id: completedTask.batch_id,
-            sequence_order: 1
-          }
-        });
-        const inventoryId = firstTask?.start_location?.location_id || completedTask.start_location?.location_id;
-        const inventory = await this.inventoryRepository.findOne({
-          where: { id: inventoryId }
-        });
-        if (!inventory) {return;}
-        inventory.quantity -= droppedQuantity;
-        if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
-          inventory.defective_quantity = remainingQuantity;
-        }
-        if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
-          inventory.missing_quantity = remainingQuantity;
-        }
-        await this.inventoryRepository.save(inventory);
-
-        // Remove the fulfilled product requirement from database (quantity has been dropped at this station)
-        const currentStationId = completedTask.end_location.location_id;
-        await this.removeProductRequirement(completedTask, completedTask.product_id, currentStationId, droppedQuantity, message_code);
-        
-        this.logger.log(`📦 Normal completion: dropped ${droppedQuantity} units, remaining ${remainingQuantity} units`);
+      // For normal completion: calculate dropped quantity and update requirements
+      
+      remainingQuantity = completedTask.quantity - dropped_quantity;
+      if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
+        back_to_inventory = true;
       }
+      if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
+        back_to_inventory = true;
+      }
+      droppedQuantity = dropped_quantity
+
+      // Update inventory quantity (reduce by dropped amount)
+      const firstTask = await this.taskRepository.findOne({
+        where: {
+          batch_id: completedTask.batch_id,
+          sequence_order: 1
+        }
+      });
+      const inventoryId = firstTask?.start_location?.location_id || completedTask.start_location?.location_id;
+      const inventory = await this.inventoryRepository.findOne({
+        where: { id: inventoryId }
+      });
+      if (!inventory) {return;}
+      inventory.quantity -= droppedQuantity;
+      if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
+        inventory.defective_quantity = remainingQuantity;
+      }
+      if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
+        inventory.missing_quantity = remainingQuantity;
+      }
+      await this.inventoryRepository.save(inventory);
+
+      // Remove the fulfilled product requirement from database (quantity has been dropped at this station)
+      const currentStationId = completedTask.end_location.location_id;
+      await this.removeProductRequirement(completedTask, completedTask.product_id, currentStationId, droppedQuantity, message_code);
+      
+      this.logger.log(`📦 Normal completion: dropped ${droppedQuantity} units, remaining ${remainingQuantity} units`);
       
       if (remainingQuantity > 0 && !back_to_inventory) {
         const remainingRequirements = await this.getRemainingProductRequirements(
@@ -1109,7 +1097,7 @@ export class OrchestratorService {
   }
 
   public async writeInDatabase(){
-    const assignedItems = await this.getAndUpdateAssignedItems();
+    const assignedItems = await this.getAndUpdateAssignedItems(); // get order items that are in assigned state.
         
     if (assignedItems.length === 0) {
       return { message: 'No assigned order items found' };
@@ -1126,10 +1114,15 @@ export class OrchestratorService {
       try{
         this.orchestratorWorking  = true;
 
+        // add a function that sends a task again
+        await this.resendPendingTasks();
+
         await this.scheduleLPtoPickLocation();
+        // check if a there is lp plate waiting for a pick location
 
-        const cancelledStationIds = await this.stationService.getCancelledStations();
+        const cancelledStationIds = await this.stationService.getCancelledStations(); // get all the cancelled stations.
 
+        // create tasks from all the cancelled stations to their respective inventories
         for (const stationId of cancelledStationIds) {
           await this.stationService.removeProductRequirment(stationId);
           this.logger.log(`Processing cancelled station ${stationId}`);
@@ -1177,6 +1170,7 @@ export class OrchestratorService {
         }
         
         const res = await this.processAssignedOrderItems();
+        // now process all the order items that are in assigned state.
         this.orchestratorWorking = false;
         
         return res;
@@ -1202,7 +1196,6 @@ export class OrchestratorService {
         // Process each GTP location
         for (const gtpLocation of gtpLocations) {
             const gtpLocationId = gtpLocation.gtp_location_id;
-            console.log(`Processing GTP Location ID: ${gtpLocationId}`);
             // 2. Check if this GTP location is already assigned to any order item 
             // in pending, assigned, or in_progress state
             const existingAssignment = await this.orderItemRepository.findOne({
@@ -1211,12 +1204,8 @@ export class OrchestratorService {
                     status: In([OrderItemStatus.PENDING, OrderItemStatus.IN_PROGRESS, OrderItemStatus.ASSIGNED])
                 }
             });
-            
             // If GTP location is already assigned, skip it
-            if (existingAssignment) {
-                continue;
-            }
-            console.log(`Existing Assignment: ${existingAssignment ? 'Found' : 'Not Found'} for GTP Location ID: ${gtpLocationId}`);
+            if (existingAssignment) {continue;}
             
             // 3. Find all mappings for this available GTP location
             const scheduleMappings = await this.scheduleMappingRepository.find({
@@ -1224,9 +1213,6 @@ export class OrchestratorService {
                     gtp_location_id: gtpLocationId
                 }
             });
-
-            console.log(`Found ${scheduleMappings.length} schedule mappings for GTP Location ID: ${gtpLocationId}`);
-
             // take out all the license plate ID for schedule mappings
             const allLicensePlates = scheduleMappings.map(mapping => mapping.license_plate_id);
             const orderItemsWithLP = await this.orderItemRepository.findOne({
@@ -1241,7 +1227,6 @@ export class OrchestratorService {
               const orderItemsWithMostRecentLP = await this.orderItemRepository.find({
                 where: { license_plate_id: mostRecentLP, assigned_gtp_location: IsNull() },
               });
-              console.log(`Found ${orderItemsWithMostRecentLP.length} unassigned order items with most recent LP: ${mostRecentLP}`);
               for (const orderItem of orderItemsWithMostRecentLP) {
                 // 5. Assign current GTP location to ALL order items with this LP
                 // and set their status to assigned
@@ -1249,7 +1234,6 @@ export class OrchestratorService {
                 orderItem.status = OrderItemStatus.ASSIGNED;
                 await this.orderItemRepository.save(orderItem);
               }
-              console.log(`Assigned ${orderItemsWithMostRecentLP.length} order items with LP ${mostRecentLP} to GTP ${gtpLocationId}`);
               // 6. Write in database
               await this.writeInDatabase();
               // Remove the schedule mapping since it's been used
@@ -1266,6 +1250,21 @@ export class OrchestratorService {
     } catch (error) {
         console.error('Error in scheduleLPtoPickLocation:', error);
         throw error;
+    }
+  }
+
+  async resendPendingTasks() {
+    try {
+      const pendingTasks = await this.taskRepository.find({
+        where: { status: TaskStatus.PENDING },
+        order: { created_at: 'ASC' } // FIFO order
+      });
+      if (pendingTasks.length === 0) {return;}
+      for (const task of pendingTasks) {
+        this.sendSingleTaskToWms(task);
+      }
+    } catch(error){
+      this.logger.error(`Error resending pending tasks: ${error.message}`);
     }
   }
 
@@ -1620,12 +1619,6 @@ export class OrchestratorService {
       where: { isPaused: false , isCancelled: false},
       order: { product_id: 'ASC', station_id: 'ASC' }
     });
-
-    // if (dbRequirements.length === 0) {
-    //   this.logger.log('No product requirements found in database');
-    //   return [];
-    // }
-
     // Group by product_id and format to match ProductRequirement interface
     const requirementMap = new Map<string, ProductRequirement>();
 
