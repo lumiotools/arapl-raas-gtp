@@ -12,6 +12,7 @@ async function bootstrap() {
     origin: [
       'https://arapl-raas-gtp-ui.vercel.app', // Added Vercel frontend URL
       'http://localhost:3030', // Local development URL
+      'http://localhost:3000', // Local development URL
       'https://arapl-raas-wms-api-layer.onrender.com',
     ],
     credentials: true, // Important for cookies
