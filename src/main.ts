@@ -28,11 +28,11 @@ async function bootstrap() {
   app.use(cookieParser());
 
   const config = new DocumentBuilder()
-    .setTitle('ARAPL RaaS WMS API')
+    .setTitle('ARAPL RaaS GTP API')
     .setDescription(`
-      Warehouse Management System API for ARAPL RaaS (Robotics as a Service)
-      
-      This API provides comprehensive warehouse management capabilities including:
+      Goods To Person (GTP) API for ARAPL RaaS (Robotics as a Service)
+
+      This API provides comprehensive GTP capabilities including:
       - Order management and file upload processing
       - GTP (Goods To Person) location management
       - Station management and configuration
