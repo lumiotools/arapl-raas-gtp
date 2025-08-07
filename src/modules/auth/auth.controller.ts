@@ -27,7 +27,7 @@ export class AuthController {
       res.cookie('token', result.token, {
         httpOnly: true, // Prevents JavaScript access, more secure
         secure: process.env.NODE_ENV === 'production', // Only sent over HTTPS in production
-        sameSite: 'lax', // Allows cross-site requests (frontend/backend on different domains)
+        sameSite: 'none', // Allows cross-site requests (frontend/backend on different domains)
         maxAge: 10 * 60 * 60 * 1000 // 10 hours
       });
     }
