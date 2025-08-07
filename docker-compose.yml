@@ -1,5 +1,5 @@
 services:
-  gtp-ui:
+  gtp-service:
     build:
       context: .
       dockerfile: Dockerfile
