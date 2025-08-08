@@ -70,7 +70,11 @@ export class WaitingLocationService {
         const waitingLocation = await queryRunner.manager.findOne(WaitingLocation, { where: { location_id: location_id } });
 
         if (!waitingLocation) {
-          throw new NotFoundException(`Waiting location with id ${location_id} not found`);
+          return false;
+        }
+
+        if (waitingLocation.status !== LocationStatus.AVAILABLE) {
+          return false;
         }
 
         waitingLocation.status = LocationStatus.RESERVED;

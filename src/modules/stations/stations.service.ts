@@ -195,7 +195,11 @@ export class StationsService {
       const station = await queryRunner.manager.findOne(Station, { where: { station_id: station_id } });
 
       if (!station) {
-        throw new NotFoundException(`Station with id ${station_id} not found`);
+        return false;
+      }
+
+      if (station.status !== LocationStatus.AVAILABLE) {
+        return false;
       }
 
       station.status = LocationStatus.RESERVED;

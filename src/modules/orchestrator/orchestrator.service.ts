@@ -124,7 +124,11 @@ export class OrchestratorService {
             if (existingReturnTask) {continue;}
 
             const originalInventoryId = firstTaskInBatch.start_location.location_id;
-            await this.inventoryService.reserveInventory(originalInventoryId);
+            const reserved = await this.inventoryService.reserveInventory(originalInventoryId);
+            if (!reserved) {
+              this.logger.error(`Failed to reserve inventory ${originalInventoryId}`);
+              return;
+            }
             const [returnTaskId, returnTask]= await this.createTask({
               batchId: task.batch_id,
               productId: task.product_id,
@@ -161,7 +165,10 @@ export class OrchestratorService {
               const station = await  this.stationRepository.findOne({where: { station_id: stationID }});
               if (!station){continue;}
               if (station.status === LocationStatus.AVAILABLE) {
-                await this.stationService.reserveStation(station.station_id);
+                const reserved = await this.stationService.reserveStation(station.station_id);
+                if (!reserved) {
+                  continue;
+                }
                 const batchId = task.batch_id || await this.generateBatchId();
                 const [returnTaskId, returnTask] = await this.createTask({
                   batchId,
@@ -304,10 +311,13 @@ export class OrchestratorService {
     // Get stations sorted by priority (ascending order) 
     const stationIds = databaseRequirement.map(pr => pr.station_id);
     const sortedStations = await this.getStationsSortedByPriority(stationIds);
+    console.log(`stationIDs: ${JSON.stringify(stationIds)}`);
+    console.log(`effectiveSystemRequirement: ${effectiveSystemRequirement}`);
+    console.log(`selected inventoryies: ${JSON.stringify(selectedInventories)}`);
     if (effectiveSystemRequirement <= 0) {return;}
 
     if (selectedInventories.length === 0) {return;}
-
+    console.log(`Selected Inventories for Product ${productId}:`, selectedInventories);
     for (const inventory of selectedInventories) {
       const taskID = await this.createSingleTaskToFirstAvailableStation(
         inventory,
@@ -871,7 +881,7 @@ export class OrchestratorService {
   ): Promise<void> {
     // Find an available waiting location
     const availableWaitingLocation = await this.waitingLocationRepository.findOne({
-      where: { status: LocationStatus.AVAILABLE, is_active: true, type: WaitingLocationType.STATION_TO_STATION },
+      where: { status: LocationStatus.AVAILABLE, is_active: true, type: WaitingLocationType.STATION_TO_STATION},
       order: { location_id: 'ASC' } // FIFO selection
     });
 
@@ -926,7 +936,11 @@ export class OrchestratorService {
     const originalInventoryId = firstTask.start_location.location_id;
     const nextSequenceOrder = completedTask.sequence_order + 1;
 
-    await this.inventoryService.reserveInventory(originalInventoryId);
+    const reserved = await this.inventoryService.reserveInventory(originalInventoryId);
+    if (!reserved) {
+      this.logger.error(`Failed to reserve inventory ${originalInventoryId} for task ${completedTask.task_id}`);
+      return;
+    }
 
     // Create return task only if there's quantity to return or to complete the batch workflow
     const [returnTaskId, returnTask] = await this.createTask({

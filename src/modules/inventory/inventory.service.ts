@@ -322,7 +322,10 @@ export class InventoryService {
       const inventory = await queryRunner.manager.findOne(Inventory, { where: { id } });
 
       if (!inventory) {
-        throw new NotFoundException(`Inventory with id ${id} not found`);
+        return false;
+      }
+      if (inventory.status !== LocationStatus.AVAILABLE) {
+        return false;
       }
 
       inventory.status = LocationStatus.RESERVED;
