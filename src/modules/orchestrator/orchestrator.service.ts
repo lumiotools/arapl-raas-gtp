@@ -880,49 +880,53 @@ export class OrchestratorService {
     remainingQuantity: number
   ): Promise<void> {
     // Find an available waiting location
-    const availableWaitingLocation = await this.waitingLocationRepository.findOne({
+    const availableWaitingLocations = await this.waitingLocationRepository.find({
       where: { status: LocationStatus.AVAILABLE, is_active: true, type: WaitingLocationType.STATION_TO_STATION},
       order: { location_id: 'ASC' } // FIFO selection
     });
 
-    if (!availableWaitingLocation) {
-      this.logger.warn(`No available waiting locations found for task ${completedTask.task_id} - cannot create waiting location task`);
-      return;
+    for (const availableWaitingLocation of availableWaitingLocations) {
+      if (!availableWaitingLocation) {
+        this.logger.warn(`No available waiting locations found for task ${completedTask.task_id} - cannot create waiting location task`);
+        continue;
+      }
+      // Reserve waiting location first (will be updated with actual task ID after creation)
+      const reserved = await this.waitingLocationService.reserveWaitingLocation(availableWaitingLocation.location_id);
+      if (!reserved) {
+        this.logger.error(`Failed to reserve waiting location ${availableWaitingLocation.location_id} for task ${completedTask.task_id}`);
+        continue;
+      }
+
+      // Create task to waiting location
+      const [waitingTaskId, waitingTask] = await this.createTask({
+        batchId: completedTask.batch_id,
+        productId: completedTask.product_id,
+        sourceStationId: completedTask.end_location.location_id,
+        destinationWaitingLocationId: availableWaitingLocation.location_id,
+        quantity: remainingQuantity, // Use remaining quantity
+        move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION,
+        taskType: TaskType.GOODS_TO_PERSON,
+        sequenceOrder: sequenceOrder,
+        taskDependency: completedTask.task_id
+      });
+
+      if (waitingTask) {
+        // Update waiting location to be held by this new task
+        await this.waitingLocationRepository.update(
+          { location_id: availableWaitingLocation.location_id },
+          { holded_by: waitingTask.task_id }
+        );
+
+        // Send task to WMS
+        await this.sendSingleTaskToWms(waitingTask);
+
+        this.logger.log(`Created waiting location task ${waitingTaskId}: station ${completedTask.end_location.location_id} → waiting location ${availableWaitingLocation.location_id} (task sent to WMS)`);
+        break;
+      }
+
     }
 
-    // Reserve waiting location first (will be updated with actual task ID after creation)
     
-    const reserved = await this.waitingLocationService.reserveWaitingLocation(availableWaitingLocation.location_id);
-    if (!reserved) {
-      this.logger.error(`Failed to reserve waiting location ${availableWaitingLocation.location_id} for task ${completedTask.task_id}`);
-      return;
-    }
-
-    // Create task to waiting location
-    const [waitingTaskId, waitingTask] = await this.createTask({
-      batchId: completedTask.batch_id,
-      productId: completedTask.product_id,
-      sourceStationId: completedTask.end_location.location_id,
-      destinationWaitingLocationId: availableWaitingLocation.location_id,
-      quantity: remainingQuantity, // Use remaining quantity
-      move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION,
-      taskType: TaskType.GOODS_TO_PERSON,
-      sequenceOrder: sequenceOrder,
-      taskDependency: completedTask.task_id
-    });
-
-    if (waitingTask) {
-      // Update waiting location to be held by this new task
-      await this.waitingLocationRepository.update(
-        { location_id: availableWaitingLocation.location_id },
-        { holded_by: waitingTask.task_id }
-      );
-
-      // Send task to WMS
-      await this.sendSingleTaskToWms(waitingTask);
-
-      this.logger.log(`Created waiting location task ${waitingTaskId}: station ${completedTask.end_location.location_id} → waiting location ${availableWaitingLocation.location_id} (task sent to WMS)`);
-    }
   }
 
   private async createReturnToInventoryTask(completedTask: Task, remainingQuantity: number): Promise<void> {
