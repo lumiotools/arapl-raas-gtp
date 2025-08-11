@@ -227,7 +227,7 @@ export class OrchestratorService {
     for (const item of orderItems) {
       const productId = item.product_id;
       const stationId = item.assignedGtpLocation?.station_id;
-
+      console.log(`product id: ${productId}, station_id: ${stationId}`);
       if (!stationId) {continue;}
 
       if (!requirementMap.has(productId)) {
@@ -246,6 +246,7 @@ export class OrchestratorService {
     }
 
     // Save requirements to database
+    console.log(`requirement Map: ${JSON.stringify(Array.from(requirementMap.entries()))}`)
     await this.saveProductRequirementsToDatabase(requirementMap);
 
     // Sort by descending total requirement
@@ -278,11 +279,13 @@ export class OrchestratorService {
             station_id: stationId,
             requirement: requirementQuantity
           });
+          console.log(`Created requirement: Product ${productId} at Station ${stationId} = ${requirementQuantity}`);
           await this.productRequirementRepository.save(newRequirement);
           this.logger.log(`Created requirement: Product ${productId} at Station ${stationId} = ${requirementQuantity}`);
         }
       }
     }
+    console.log(`Finished saving product requirements: ${JSON.stringify(Array.from(requirementMap.entries()))}`);
   }
 
   private async processProductRequirement(productId: string, productRequirements: ProductRequirement[]) {
@@ -1120,6 +1123,30 @@ export class OrchestratorService {
     }
     await this.calculateProductRequirements(assignedItems);
     return { message: 'Assigned order items processed successfully'};
+  }
+
+  public async triggerLicensePlateService(license_plate_id: string){
+    // get all the orderItems in assigned state and license plate = license_plate_id
+    const assignedOrderItems = await this.orderItemRepository.find({
+      where:{
+        status: OrderItemStatus.ASSIGNED,
+        license_plate_id: license_plate_id,
+      },
+      relations: ['assignedGtpLocation', 'assignedGtpLocation.station']
+    });
+    if (assignedOrderItems.length === 0) {
+      console.log(`No assigned order items found for license plate ${license_plate_id}`);
+      return { message: 'No assigned order items found' };
+    }
+    console.log(`Assigned order items for license plate ${license_plate_id}: ${JSON.stringify(assignedOrderItems)}`);
+    // update the status to in_progress
+    for (const orderItem of assignedOrderItems) {
+      orderItem.status = OrderItemStatus.IN_PROGRESS;
+      await this.orderItemRepository.save(orderItem);
+    }
+    console.log(`License plate ${license_plate_id} started successfully`);
+    await this.calculateProductRequirements(assignedOrderItems);
+    return { message: 'License plate started successfully' };
   }
   
   public async triggerOrchestrator() {

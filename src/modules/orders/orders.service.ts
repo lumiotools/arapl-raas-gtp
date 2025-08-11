@@ -63,11 +63,22 @@ export class OrdersService {
           continue;
         }
         try {
-          const mapping = this.scheduleMappingRepository.create({
-            gtp_location_id: gtpLocationId,
-            license_plate_id: licensePlateId,
-          });
-          await this.scheduleMappingRepository.save(mapping);
+          // const mapping = this.scheduleMappingRepository.create({
+          //   gtp_location_id: gtpLocationId,
+          //   license_plate_id: licensePlateId,
+          // });
+          // await this.scheduleMappingRepository.save(mapping);
+          const orderItem = await this.orderItemRepository.findOne({
+            where: {
+              license_plate_id: licensePlateId,
+              status: OrderItemStatus.PENDING,
+              assigned_gtp_location: IsNull(),
+            }
+          })
+          if (!orderItem){continue;}
+          orderItem.assigned_gtp_location = gtpLocationId;
+          orderItem.status = OrderItemStatus.ASSIGNED;
+          await this.orderItemRepository.save(orderItem);
           created++;
         } catch (error) {
           results.errors?.push(`Row ${i + 1}: ${error.message}`);

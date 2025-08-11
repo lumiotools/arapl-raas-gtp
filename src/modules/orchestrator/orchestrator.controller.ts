@@ -31,6 +31,27 @@ export class OrchestratorController {
   async triggerOrchestrator() {
     return await this.orchestratorService.writeInDatabase();
   }
+  @Post('trigger/:licensePlate')
+  @ApiOperation({
+    summary: 'Manually trigger orchestrator process for a specific license plate',
+    description: 'Manually start the orchestrator process for the given license plate to handle assigned order items and create tasks.',
+  })
+  @ApiParam({ name: 'licensePlate', description: 'License plate number', example: 'LP123456' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Orchestrator process triggered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Orchestrator process triggered successfully' }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  async triggerLicensePlate(@Param('licensePlate') licensePlate: string) {
+    return await this.orchestratorService.triggerLicensePlateService(licensePlate);
+  }
 
   @Get('batches')
   @ApiOperation({
