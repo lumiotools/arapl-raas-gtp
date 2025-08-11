@@ -152,4 +152,33 @@ export class StationsController {
   async remove(@Param('id') id: string) {
     return await this.stationsService.remove(id);
   }
+
+  @Get(':id/active-robot')
+  @ApiOperation({
+    summary: 'Get the active robot at a station',
+    description: 'Retrieve the currently active robot assigned to the specified station.'
+  })
+  @ApiParam({ name: 'id', description: 'Station ID', example: 'ST001' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Active robot at the station',
+    schema: {
+      example: {
+        robot_id: 'RB001',
+        status: 'active',
+        assigned_station: 'ST001',
+        // ...other robot fields
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Station or active robot not found',
+    type: NotFoundResponseDto
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  async getActiveRobot(@Param('id') id: string) {
+    return await this.stationsService.getActiveRobotAtStation(id);
+  }
 }

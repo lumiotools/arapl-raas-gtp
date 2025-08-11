@@ -4,8 +4,9 @@ import { UpdateStationDto } from './dto/update-station.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LocationStatus, Station } from 'src/entities/station.entity';
-import { GtpLocation, OrderItem, OrderItemStatus } from 'src/entities';
+import { GtpLocation, OrderItem, OrderItemStatus, Task } from 'src/entities';
 import { ProductRequirement as ProductRequirementEntity } from 'src/entities/product-requirement.entity';
+import { MOVE_TYPE, TaskStatus } from 'src/entities/task.entity';
 
 @Injectable()
 export class StationsService {
@@ -18,6 +19,8 @@ export class StationsService {
     private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
     @InjectRepository(OrderItem)
     private readonly orderItemRepository: Repository<OrderItem>,
+    @InjectRepository(Task)
+    private readonly taskRepository: Repository<Task>,
   ) {}
 
   async create(createStationDto: CreateStationDto) {
@@ -214,6 +217,30 @@ export class StationsService {
       return false;
     } finally {
       await queryRunner.release();
+    }
+  }
+
+  async getActiveRobotAtStation(station_id: string): Promise<any | null> {
+    const station = await this.stationRepository.findOne({
+      where: { station_id }
+    });
+    const tasks = await this.taskRepository.find({
+      where: { status: TaskStatus.COMPLETED }
+    });
+    let robot_id : string | null = null;
+    let robot_task : Task | null = null;
+    for (const task of tasks){
+      if (task.end_location.location_attribute.attribute_value=='station' && task.end_location.location_id==station_id){
+        robot_id = task.robot_id;
+        robot_task = task;
+      }
+    }
+    if (!robot_id){return {robot_id: null}}
+    return {
+      robot_id: robot_id,
+      product_id: robot_task?.product_id || null,
+      quantity: robot_task?.quantity || null,
+      source: robot_task?.start_location.location_id || null,
     }
   }
 }
