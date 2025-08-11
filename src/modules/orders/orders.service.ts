@@ -615,8 +615,9 @@ export class OrdersService {
         where: { assigned_gtp_location: gtpLocationId },
       });
       const licensePlates = Array.from(new Set(orders.map(order => order.license_plate_id)));
-      const assigned_in_progress_orders = orders.filter(order => order.status === OrderItemStatus.IN_PROGRESS);
-      res.lp_count = assigned_in_progress_orders.length;
+      const assigned_in_progress_orders = orders.filter(order => order.status === OrderItemStatus.IN_PROGRESS || order.status === OrderItemStatus.ASSIGNED);
+      // Count the number of unique order_id in assigned_in_progress_orders
+      res.lp_count = new Set(assigned_in_progress_orders.map(order => order.order_id)).size;``
       for (const licensePlate of licensePlates) {
         const orderItems = orders.filter(order => order.license_plate_id === licensePlate);
         res.license_plate_objs.push({
