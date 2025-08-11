@@ -34,6 +34,12 @@ export class AuthController {
     return result;
   }
 
+  @Post('/logout')
+  async logout(@Res({ passthrough: true }) res) {
+    res.clearCookie('token');
+    return { message: 'Logged out successfully' };
+  }
+
   @Post('/verify')
   @UseGuards(JwtAuthGuard)
   async verify(@Req() req) {
