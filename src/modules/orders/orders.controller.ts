@@ -453,4 +453,39 @@ export class OrdersController {
   ) {
     return await this.ordersService.getCompletedTasksForOrderItems(body.order_item_ids);
   }
+
+  @Get('license-plates/by-gtp-location/:gtpLocationId')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  @ApiOperation({
+    summary: 'Get license plates by GTP location',
+    description: 'Retrieve all license plates assigned to the specified GTP location.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved license plates for the given GTP location',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Found 2 license plates for GTP location GTP001' },
+        data: {
+          type: 'array',
+          items: { type: 'string' },
+          example: ['LP001', 'LP002']
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid GTP location ID',
+    type: BadRequestDto,
+  })
+  async getLicensePlatesByGtpLocation(
+    @Param('gtpLocationId') gtpLocationId: string
+  ) {
+    return await this.ordersService.getLicensePlatesByGtpLocation(gtpLocationId);
+  }
 }

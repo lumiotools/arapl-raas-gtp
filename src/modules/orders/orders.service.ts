@@ -542,4 +542,22 @@ export class OrdersService {
       throw new BadRequestException(`Failed to get completed tasks for order items: ${error.message}`);
     }
   }
+
+  async getLicensePlatesByGtpLocation(gtpLocationId:string):Promise<OrderItem[]>{
+    try {
+      if (!gtpLocationId) {
+        throw new BadRequestException('GTP Location ID is required');
+      }
+
+      const orders = await this.orderItemRepository.find({
+        where: { assigned_gtp_location: gtpLocationId },
+      });
+      return orders;
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to get license plates by GTP location: ${error.message}`);
+    }
+  }
 }
