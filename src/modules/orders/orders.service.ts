@@ -68,17 +68,19 @@ export class OrdersService {
           //   license_plate_id: licensePlateId,
           // });
           // await this.scheduleMappingRepository.save(mapping);
-          const orderItem = await this.orderItemRepository.findOne({
+          const orderItems = await this.orderItemRepository.find({
             where: {
               license_plate_id: licensePlateId,
               status: OrderItemStatus.PENDING,
               assigned_gtp_location: IsNull(),
             }
           })
-          if (!orderItem){continue;}
-          orderItem.assigned_gtp_location = gtpLocationId;
-          orderItem.status = OrderItemStatus.ASSIGNED;
-          await this.orderItemRepository.save(orderItem);
+          if (!orderItems || orderItems.length == 0){continue;}
+          for (const orderItem of orderItems) {
+            orderItem.assigned_gtp_location = gtpLocationId;
+            orderItem.status = OrderItemStatus.ASSIGNED;
+            await this.orderItemRepository.save(orderItem);
+          }
           created++;
         } catch (error) {
           results.errors?.push(`Row ${i + 1}: ${error.message}`);
@@ -570,5 +572,17 @@ export class OrdersService {
       }
       throw new BadRequestException(`Failed to get license plates by GTP location: ${error.message}`);
     }
+  }
+
+  async getGtpLocationStatus(gtpLocationId: string): Promise<{ status: boolean}> {
+    const orderItems = await this.orderItemRepository.find({
+      where: { assigned_gtp_location: gtpLocationId , status: OrderItemStatus.IN_PROGRESS},
+    });
+    if (orderItems.length === 0){
+      return {
+        status: true
+      };
+    }
+    return { status: false };
   }
 }

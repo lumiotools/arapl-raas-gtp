@@ -488,4 +488,33 @@ export class OrdersController {
   ) {
     return await this.ordersService.getLicensePlatesByGtpLocation(gtpLocationId);
   }
+
+  @Get('gtp-location-status/:gtpLocationId')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  @ApiOperation({
+    summary: 'Get GTP location status',
+    description: 'Returns the status (boolean) for the specified GTP location.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved status for the GTP location',
+    schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'boolean', example: true }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid GTP location ID',
+    type: BadRequestDto,
+  })
+  async getGtpLocationStatus(
+    @Param('gtpLocationId') gtpLocationId: string
+  ): Promise<{ status: boolean }> {
+    return await this.ordersService.getGtpLocationStatus(gtpLocationId);
+  }
 }
