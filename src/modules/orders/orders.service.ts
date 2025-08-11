@@ -16,6 +16,13 @@ import { Log } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
+
+interface LicensePlateStats{
+  license_plate_id: string;
+  completion_percentage ?: number;
+  status ?: OrderItemStatus;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -556,16 +563,69 @@ export class OrdersService {
     }
   }
 
-  async getLicensePlatesByGtpLocation(gtpLocationId:string):Promise<OrderItem[]>{
+  async calculateCompletionPercentage(orderItems: OrderItem[], licensePlateId: string): Promise<number> {
+    if (!Array.isArray(orderItems) || orderItems.length === 0) {
+      return 0;
+    }
+    const relevantOrderItems = orderItems.filter(item => item.license_plate_id === licensePlateId);
+    const requiredQuantity = relevantOrderItems.reduce((sum, item) => sum + item.quantity, 0);
+    const remainingQuantity = relevantOrderItems.reduce((sum, item) => sum + item.remaining_quantity, 0);
+    const satisfiedQuantity = requiredQuantity - remainingQuantity;
+
+    return Math.round((satisfiedQuantity / requiredQuantity) * 100);
+  }
+
+  async getOrderItemStatus(orderItems: OrderItem[], licensePlateId: string): Promise<OrderItemStatus> {
+    if (!Array.isArray(orderItems) || orderItems.length === 0) {
+      return OrderItemStatus.PENDING;
+    }
+    const relevantOrderItems = orderItems.filter(item => item.license_plate_id === licensePlateId);
+    if (relevantOrderItems.length === 0) {
+      return OrderItemStatus.PENDING;
+    }
+    const inProgressCount = relevantOrderItems.filter(item => item.status === OrderItemStatus.IN_PROGRESS).length;
+    if (inProgressCount > 0) {
+      return OrderItemStatus.IN_PROGRESS;
+    }
+    const assignedCount = relevantOrderItems.filter(item => item.status === OrderItemStatus.ASSIGNED).length;
+    if (assignedCount > 0) {
+      return OrderItemStatus.ASSIGNED;
+    }
+    const completedCount = relevantOrderItems.filter(item => item.status === OrderItemStatus.COMPLETED).length;
+    if (completedCount > 0) {
+      return OrderItemStatus.COMPLETED;
+    }
+    const cancelledCount = relevantOrderItems.filter(item => item.status === OrderItemStatus.CANCELLED).length;
+    if (cancelledCount > 0) {
+      return OrderItemStatus.CANCELLED;
+    }
+    return OrderItemStatus.PENDING;
+  }
+
+  async getLicensePlatesByGtpLocation(gtpLocationId:string):Promise<any>{
     try {
       if (!gtpLocationId) {
         throw new BadRequestException('GTP Location ID is required');
       }
-
+      const res = {
+        'license_plate_objs': [] as LicensePlateStats[],
+        'lp_count': 0
+      };
       const orders = await this.orderItemRepository.find({
         where: { assigned_gtp_location: gtpLocationId },
       });
-      return orders;
+      const licensePlates = Array.from(new Set(orders.map(order => order.license_plate_id)));
+      res.lp_count = licensePlates.length;
+      for (const licensePlate of licensePlates) {
+        const orderItems = orders.filter(order => order.license_plate_id === licensePlate);
+        res.license_plate_objs.push({
+          license_plate_id: licensePlate,
+          completion_percentage: await this.calculateCompletionPercentage(orderItems, licensePlate),
+          status: await this.getOrderItemStatus(orderItems, licensePlate)
+        });
+      }
+      return res;
+
     } catch (error) {
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
@@ -586,3 +646,4 @@ export class OrdersService {
     return { status: false };
   }
 }
+
