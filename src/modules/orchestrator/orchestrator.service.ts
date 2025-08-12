@@ -202,7 +202,7 @@ export class OrchestratorService {
       for (const requirement of productRequirements) {
         if (IdleRobots <= 0) {
           this.logger.warn(`No idle robots available for product ${requirement.productId}`);
-          continue;  
+          break;  
         }
         IdleRobots = await this.processProductRequirement(requirement.productId, IdleRobots);
       }
@@ -346,18 +346,20 @@ export class OrchestratorService {
     if (effectiveSystemRequirement <= 0) {return idleRobots;}
 
     if (selectedInventories.length === 0) {return idleRobots;}
+    
     for (const inventory of selectedInventories) {
+      if (idleRobots <= 0){return idleRobots;}
       const taskID = await this.createSingleTaskToFirstAvailableStation(
         inventory,
         sortedStations
       );
+      if (taskID){
+        idleRobots --;
+      }
       if (!taskID){
         const inventory_to_station_waiting_location = await this.waitingLocationRepository.find({
           where: { type: WaitingLocationType.INVENTORY_TO_STATION, status: LocationStatus.AVAILABLE}
         });
-        if (taskID){
-          idleRobots --;
-        }
         for (const waitingLocation of inventory_to_station_waiting_location) {
           if (waitingLocation.status !== LocationStatus.AVAILABLE || waitingLocation.holded_by !== null) {continue;} // a task is already holded by this waiting location
           const reserved = await this.waitingLocationService.reserveWaitingLocation(waitingLocation.location_id) && await this.inventoryService.reserveInventory(inventory.id);
