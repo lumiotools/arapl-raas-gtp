@@ -27,29 +27,29 @@ export class WaitingLocationService {
   }
 
   async getAllWmsWaiting(){
-      try{
-        const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-        const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
-        const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
-  
-        const response: {success:boolean, data: {bin_locations: {id:string}[]}[]} = await firstValueFrom(
-          this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/locations`, {
-            headers: {
-              'authorization': `${warehosue_key}`,
-              'Content-Type': 'application/json'
-            }
-          })
-        );
-        if (response && response.data && Array.isArray(response.data)) {
-          return response.data;
-        }
-        return [];
+    try{
+      const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
+
+      const response: {success:boolean, data: {bin_locations: {id:string}[]}[]} = await firstValueFrom(
+        this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/locations`, {
+          headers: {
+            'authorization': `${warehosue_key}`,
+            'Content-Type': 'application/json'
+          }
+        })
+      );
+      if (response && response.data && Array.isArray(response.data)) {
+        return response.data;
       }
-      catch{
-        return [];
-      }
-      
+      return [];
     }
+    catch{
+      return [];
+    }
+    
+  }
 
   async findAll() {
     const waiting_object = (await this.getAllWmsWaiting())[0];

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -9,9 +9,11 @@ import { UploadInventoryResponseDto } from './dto/upload-inventory-response.dto'
 import { ProductRequirement } from 'src/entities/product-requirement.entity';
 import { toBuffer } from 'bwip-js';
 import { LocationStatus } from 'src/entities/station.entity';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class InventoryService {
+  httpService: any;
   constructor(
     @InjectRepository(Inventory)
     private readonly inventoryRepository: Repository<Inventory>,
@@ -74,9 +76,23 @@ export class InventoryService {
   }
 
   async findAll() {
-    const inventories = await this.inventoryRepository.find({
+    const inventory_object = await this.getAllInventoryLocations();
+    const bin_locations = inventory_object[0].bin_locations || [];
+    const bin_ids = bin_locations.map(bin => bin.id);
+
+    let inventories = await this.inventoryRepository.find({
       relations: ['product']
     });
+
+    const inventory_ids = inventories.map(inv => inv.id);
+
+    // find ids present in inventory_ids but not present in bin_ids
+    const missingBinIds = inventory_ids.filter(id => !bin_ids.includes(id));
+    await this.inventoryRepository.delete(missingBinIds); // remove missing inventory ids
+
+    // find ids that exists in inventory ids and bin_ids
+    const existingBinIds = inventory_ids.filter(id => bin_ids.includes(id));
+    inventories = inventories.filter(inv => existingBinIds.includes(inv.id));
 
     // Calculate priorities for all inventories
     const inventoriesWithPriority = await this.addPriorityToInventories(inventories);
@@ -113,16 +129,21 @@ export class InventoryService {
   }
 
   async findOne(id: string) {
-    const inventory = await this.inventoryRepository.findOne({ 
-      where: { id },
-      relations: ['product']
-    });
-    
-    if (!inventory) {
-      throw new NotFoundException(`Inventory with id ${id} not found`);
+    const inventory_object = await this.getAllInventoryLocations();
+    const bin_locations = inventory_object[0].bin_locations || [];
+    const bin_ids = bin_locations.map(bin => bin.id);
+
+    if (bin_ids.includes(id)) {
+      const inventory = await this.inventoryRepository.findOne({
+        where: { id },
+        relations: ['product']
+      });
+      if (!inventory) {
+        throw new NotFoundException(`Inventory with id ${id} not found`);
+      }
+      return inventory;
     }
-    
-    return inventory;
+    throw new ConflictException(`Inventory Id removed from FMS.`);
   }
 
   async findByProductId(productId: string) {
@@ -208,6 +229,30 @@ export class InventoryService {
     });
   }
 
+  async getAllInventoryLocations(){
+    try{
+      const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
+
+      const response: {success:boolean, data: {bin_locations: {id:string}[]}[]} = await firstValueFrom(
+        this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/locations`, {
+          headers: {
+            'authorization': `${warehosue_key}`,
+            'Content-Type': 'application/json'
+          }
+        })
+      );
+      if (response && response.data && Array.isArray(response.data)) {
+        return response.data;
+      }
+      return [];
+    }
+    catch{
+      return [];
+    }
+  }
+
   async processInventoryFile(file: Express.Multer.File): Promise<UploadInventoryResponseDto> {
     try {
       const csvData = file.buffer.toString('utf8');
@@ -231,6 +276,9 @@ export class InventoryService {
         failed: 0,
         errors: [] as string[]
       };
+      const inventory_object = await this.getAllInventoryLocations();
+      const bin_locations = inventory_object[0].bin_locations || [];
+      const bin_ids = bin_locations.map(bin => bin.id);
 
       // Process each row (skip header)
       for (let i = 1; i < lines.length; i++) {
@@ -254,6 +302,7 @@ export class InventoryService {
         }
 
         try {
+          if (bin_ids.includes(invLocation) === false) {continue;}
           // Check if product exists, create if not
           let product = await this.productRepository.findOne({ 
             where: { product_id: productId } 
@@ -267,7 +316,6 @@ export class InventoryService {
             });
             product = await this.productRepository.save(newProduct);
           }
-
           // Try to update existing inventory first
           const existingInventory = await this.inventoryRepository.findOne({ 
             where: { id: invLocation } 
