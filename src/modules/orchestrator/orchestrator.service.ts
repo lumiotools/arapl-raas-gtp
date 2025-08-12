@@ -135,6 +135,7 @@ export class OrchestratorService {
               sourceWaitingLocationId: waitingLocation.location_id,
               destinationInventoryId: originalInventoryId,
               quantity: task.quantity,
+              robotId: task.robot_id,
               taskType: TaskType.GOODS_TO_PERSON,
               move_type: MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY,
               sequenceOrder: task.sequence_order + 1, // Next sequence order
@@ -169,13 +170,14 @@ export class OrchestratorService {
                 if (!reserved) {
                   continue;
                 }
-                const batchId = task.batch_id || await this.generateBatchId();
+                const batchId = task.batch_id;
                 const [returnTaskId, returnTask] = await this.createTask({
                   batchId,
                   productId,
                   sourceWaitingLocationId: waitingLocation.location_id,
                   destinationStationId: station.station_id,
                   quantity: task.quantity,
+                  robotId: task.robot_id,
                   taskType: TaskType.GOODS_TO_PERSON,
                   move_type: MOVE_TYPE.WAITING_LOCATION_TO_STATION,
                   sequenceOrder: task.sequence_order + 1, // Next sequence order
@@ -370,6 +372,7 @@ export class OrchestratorService {
             sourceInventoryId: inventory.id,
             destinationWaitingLocationId: waitingLocation.location_id,
             quantity: inventory.quantity,
+            robotId: null,
             taskType: TaskType.GOODS_TO_PERSON,
             move_type: MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
             sequenceOrder: 1, // First task in this batch
@@ -474,6 +477,7 @@ export class OrchestratorService {
         productId: inventory.product_id,
         sourceInventoryId: inventory.id,
         destinationStationId: targetStation.station_id,
+        robotId: null,
         quantity: inventory.quantity, // Move entire available quantity
         taskType: TaskType.GOODS_TO_PERSON,
         move_type: MOVE_TYPE.INVENTORY_TO_STATION,
@@ -877,6 +881,7 @@ export class OrchestratorService {
         productId: completedTask.product_id,
         sourceStationId: completedTask.end_location.location_id,
         destinationStationId: nextAvailableStation.station_id,
+        robotId: completedTask.robot_id,
         quantity: remainingQuantity, // Use remaining quantity after previous drop
         move_type: MOVE_TYPE.STATION_TO_STATION,    
         taskType: TaskType.GOODS_TO_PERSON,
@@ -934,6 +939,7 @@ export class OrchestratorService {
         destinationWaitingLocationId: availableWaitingLocation.location_id,
         quantity: remainingQuantity, // Use remaining quantity
         move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION,
+        robotId: completedTask.robot_id,
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: sequenceOrder,
         taskDependency: completedTask.task_id
@@ -985,7 +991,8 @@ export class OrchestratorService {
       move_type: MOVE_TYPE.STATION_TO_INVENTORY,
       taskType: TaskType.GOODS_TO_PERSON, // Always GOODS_TO_PERSON as you specified
       sequenceOrder: nextSequenceOrder,
-      taskDependency: completedTask.task_id
+      taskDependency: completedTask.task_id,
+      robotId: completedTask.robot_id
     });
     if (returnTask) {
       await this.sendSingleTaskToWms(returnTask);
@@ -1206,7 +1213,8 @@ export class OrchestratorService {
                   taskType: TaskType.GOODS_TO_PERSON,
                   move_type: MOVE_TYPE.STATION_TO_INVENTORY,
                   sequenceOrder: lastTask.sequence_order + 1,
-                  taskDependency: lastTask.task_id
+                  taskDependency: lastTask.task_id,
+                  robotId: lastTask.robot_id
                 });
                 if (!newTask){console.error(`New task ${newTaskID} not found after creation`); break;}
                 await this.sendSingleTaskToWms(newTask);
@@ -1455,7 +1463,8 @@ export class OrchestratorService {
         move_type: MOVE_TYPE.WAITING_LOCATION_TO_STATION, 
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: nextSequenceOrder,
-        taskDependency: completedTask.task_id
+        taskDependency: completedTask.task_id,
+        robotId: completedTask.robot_id
       });
       if (newTask) {
         // Update station to be held by this task
