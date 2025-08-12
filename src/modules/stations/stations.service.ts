@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { CreateStationDto } from './dto/create-station.dto';
 import { UpdateStationDto } from './dto/update-station.dto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -7,9 +7,12 @@ import { LocationStatus, Station } from 'src/entities/station.entity';
 import { GtpLocation, OrderItem, OrderItemStatus, Task } from 'src/entities';
 import { ProductRequirement as ProductRequirementEntity } from 'src/entities/product-requirement.entity';
 import { MOVE_TYPE, TaskStatus } from 'src/entities/task.entity';
+import { firstValueFrom } from 'rxjs';
+import { ConflictError } from 'groq-sdk';
 
 @Injectable()
 export class StationsService {
+  httpService: any;
   constructor(
     @InjectRepository(Station)
     private readonly stationRepository: Repository<Station>,
@@ -24,44 +27,104 @@ export class StationsService {
   ) {}
 
   async create(createStationDto: CreateStationDto) {
-    const existing = await this.stationRepository.findOne({
-      where: { station_id: createStationDto.station_id },
-    });
-    if (existing) {
-      throw new BadRequestException(`Station with id ${createStationDto.station_id} already exists`);
-    }
-    const newStation = this.stationRepository.create(createStationDto);
-    const saved = await this.stationRepository.save(newStation);
-    for (const gtp_location_id of createStationDto.gtp_locations_array || []) {
-      const gtpLocation = await this.gtpLocation.findOne({ where: { gtp_location_id } });
-      if (gtpLocation){
-        gtpLocation.station_id = newStation.station_id; // Set the station_id in GtpLocation
-        await this.gtpLocation.save(gtpLocation); // Save the updated GtpLocation
-      }
-    }
-    return saved;
+    throw new ConflictException('Station Creation is not allowed.');
+    // const existing = await this.stationRepository.findOne({
+    //   where: { station_id: createStationDto.station_id },
+    // });
+    // if (existing) {
+    //   throw new BadRequestException(`Station with id ${createStationDto.station_id} already exists`);
+    // }
+    // const newStation = this.stationRepository.create(createStationDto);
+    // const saved = await this.stationRepository.save(newStation);
+    // for (const gtp_location_id of createStationDto.gtp_locations_array || []) {
+    //   const gtpLocation = await this.gtpLocation.findOne({ where: { gtp_location_id } });
+    //   if (gtpLocation){
+    //     gtpLocation.station_id = newStation.station_id; // Set the station_id in GtpLocation
+    //     await this.gtpLocation.save(gtpLocation); // Save the updated GtpLocation
+    //   }
+    // }
+    // return saved;
     
   }
 
-  findAll() {
-    return this.stationRepository.find({
-      relations: ['gtpLocations'],
-      order: { priority: 'ASC' }
-    });
+  async getAllWmsStations(){
+    try{
+      const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
+
+      const response: {success:boolean, data: {bin_locations: {id:string}[]}[]} = await firstValueFrom(
+        this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/locations`, {
+          headers: {
+            'authorization': `${warehosue_key}`,
+            'Content-Type': 'application/json'
+          }
+        })
+      );
+      if (response && response.data && Array.isArray(response.data)) {
+        return response.data;
+      }
+      return [];
+    }
+    catch{
+      return [];
+    }
+    
+  }
+
+  async findAll() {
+    const station_object = (await this.getAllWmsStations())[0];
+    const station_bin_locations = station_object.bin_locations || [];
+    const returnObj: Station[] = [];
+    for (const bin_location of station_bin_locations){
+      const bin_name = bin_location.id;
+      const bin_id = bin_location.id;
+      const existing = await this.stationRepository.findOne({
+        where: { station_id: bin_id },
+        relations: ['gtpLocations']
+      });
+      if (existing) {
+        returnObj.push(existing);
+      }
+      else{
+        const newStation = this.stationRepository.create({
+          station_id: bin_id,
+          station_name: bin_name,
+          gtpLocations: []
+        });
+        returnObj.push(await this.stationRepository.save(newStation));
+      }
+    }
+    return returnObj;
   }
 
   async findOne(id: string) {
-    const station =  await this.stationRepository.findOne({
+    const station_object = await this.getAllWmsStations()[0];
+    const bin_locations = station_object.bin_locations || [];
+    const binLocation = bin_locations.find((bin: { id: string }) => bin.id === id);
+    if (!binLocation) {
+      throw new NotFoundException(`Station with id ${id} not found in WMS bin locations`);
+    }
+    let station = await this.stationRepository.findOne({
       where: { station_id: id },
       relations: ['gtpLocations']
     });
-    if (!station){
-      throw new NotFoundException(`Station with id ${id} not found`);
+    if (!station) {
+      // Create new station if not exists
+      station = this.stationRepository.create({
+        station_id: id,
+        station_name: id,
+        gtpLocations: []
+      });
+      station = await this.stationRepository.save(station);
     }
     return station;
   }
 
   async update(id: string, updateStationDto: UpdateStationDto) {
+    if (id!=updateStationDto.station_id){
+      throw new ConflictException('Station ID mismatch');
+    }
     const existing = await this.stationRepository.findOne({
       where: { station_id: id },
       relations: ['gtpLocations'],
@@ -134,33 +197,34 @@ export class StationsService {
   }
 
   async remove(id: string) {
-    const existing = await this.stationRepository.findOne({ where: { station_id: id } });
-    if (!existing) {
-      throw new NotFoundException(`Station with id ${id} not found`);
-    }
+    throw new ConflictException('Station Removal is not allowed.');
+    // const existing = await this.stationRepository.findOne({ where: { station_id: id } });
+    // if (!existing) {
+    //   throw new NotFoundException(`Station with id ${id} not found`);
+    // }
     
-    // Check if this station exists in product_requirement table
-    const productRequirements = await this.productRequirementRepository.find({
-      where: { station_id: id }
-    });
+    // // Check if this station exists in product_requirement table
+    // const productRequirements = await this.productRequirementRepository.find({
+    //   where: { station_id: id }
+    // });
     
-    if (productRequirements.length > 0) {
-      const productIds = productRequirements.map(pr => pr.product_id).join(', ');
-      throw new ForbiddenException(`Cannot delete station ${id}: Products are scheduled to reach this station. Products: ${productIds}.`);
-    }
+    // if (productRequirements.length > 0) {
+    //   const productIds = productRequirements.map(pr => pr.product_id).join(', ');
+    //   throw new ForbiddenException(`Cannot delete station ${id}: Products are scheduled to reach this station. Products: ${productIds}.`);
+    // }
     
-    for (const gtpLocationarray in existing.gtpLocations) {
-      const gtpLocation = await this.gtpLocation.findOne({ where: { gtp_location_id: gtpLocationarray } });
-      if (gtpLocation) {
-        gtpLocation.station_id = ''; // Clear the station_id in GtpLocation
-        await this.gtpLocation.save(gtpLocation); // Save the updated GtpLocation
-      }
-    }
-    existing.gtpLocations = [];
-    await this.stationRepository.save(existing); // Save the updated Station to clear gtpLocations
-    return this.stationRepository.delete(id).then(() => {
-      return { message: `Station with id ${id} has been removed` };
-    });
+    // for (const gtpLocationarray in existing.gtpLocations) {
+    //   const gtpLocation = await this.gtpLocation.findOne({ where: { gtp_location_id: gtpLocationarray } });
+    //   if (gtpLocation) {
+    //     gtpLocation.station_id = ''; // Clear the station_id in GtpLocation
+    //     await this.gtpLocation.save(gtpLocation); // Save the updated GtpLocation
+    //   }
+    // }
+    // existing.gtpLocations = [];
+    // await this.stationRepository.save(existing); // Save the updated Station to clear gtpLocations
+    // return this.stationRepository.delete(id).then(() => {
+    //   return { message: `Station with id ${id} has been removed` };
+    // });
   }
 
   async isStationCancelled(station_id: string): Promise<boolean> {
