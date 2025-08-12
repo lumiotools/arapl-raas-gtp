@@ -75,27 +75,27 @@ export class StationsService {
   async findAll() {
     const station_object = (await this.getAllWmsStations())[0];
     const station_bin_locations = station_object.bin_locations || [];
-    const returnObj: Station[] = [];
-    for (const bin_location of station_bin_locations){
-      const bin_name = bin_location.id;
-      const bin_id = bin_location.id;
-      const existing = await this.stationRepository.findOne({
-        where: { station_id: bin_id },
-        relations: ['gtpLocations']
+    const bin_ids = station_bin_locations.map(bin => bin.id);
+    const allStations = await this.stationRepository.find();
+
+    // find bin_ids that are not in allStations
+    const missingBinIds = bin_ids.filter(id => !allStations.some(station => station.station_id === id));
+    for (const missingId of missingBinIds) {
+      const newStation = this.stationRepository.create({
+        station_id: missingId,
+        station_name: missingId,
+        gtpLocations: []
       });
-      if (existing) {
-        returnObj.push(existing);
-      }
-      else{
-        const newStation = this.stationRepository.create({
-          station_id: bin_id,
-          station_name: bin_name,
-          gtpLocations: []
-        });
-        returnObj.push(await this.stationRepository.save(newStation));
-      }
+      await this.stationRepository.save(newStation);
     }
-    return returnObj;
+
+    // find allStations ids that are not in bin_ids
+    const existingStationIds = allStations.map(station => station.station_id);
+    const missingStationIds = existingStationIds.filter(id => !bin_ids.includes(id));
+    if (missingStationIds.length > 0) {
+      await this.stationRepository.delete(missingStationIds);
+    }
+    return await this.stationRepository.find();
   }
 
   async findOne(id: string) {
@@ -105,7 +105,7 @@ export class StationsService {
     if (!binLocation) {
       throw new NotFoundException(`Station with id ${id} not found in WMS bin locations`);
     }
-    const bin_name = binLocation.id;
+    const bin_name = binLocation.name;
     let station = await this.stationRepository.findOne({
       where: { station_id: id },
       relations: ['gtpLocations']
