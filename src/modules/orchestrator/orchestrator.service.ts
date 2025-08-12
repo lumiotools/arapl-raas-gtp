@@ -481,6 +481,7 @@ export class OrchestratorService {
     destinationWaitingLocationId?: string;
     quantity: number;
     taskType: TaskType;
+    robotId?: string | null;
     move_type:MOVE_TYPE;
     sequenceOrder: number;
     taskDependency?: number | null;
@@ -499,12 +500,6 @@ export class OrchestratorService {
       this.getLocationAction(taskData, 'end')
     );
 
-    // Create wait object
-    const waitObject = this.createWaitObject();
-
-    // Create cargos array
-    const cargosArray = this.createCargoArray(taskData.productId);
-
     const task = this.taskRepository.create({
       batch_id: taskData.batchId,
       product_id: taskData.productId,
@@ -516,8 +511,7 @@ export class OrchestratorService {
       start_location: startLocation,
       end_location: endLocation,
       move_type: taskData.move_type,
-      wait: waitObject,
-      cargos: cargosArray
+      robot_id: taskData.robotId || undefined
     });
 
     const savedTask = await this.taskRepository.save(task);
@@ -539,9 +533,8 @@ export class OrchestratorService {
   ): Location {
     return {
       location_id: locationId,
-      location_type: LocationType.ZONE,
+      location_type: LocationType.PALLET,
       location_action: locationAction,
-      location_dimension: { length: 1, height: 1, width: 1 },
       location_attribute: { 
         attribute_name: 'location_type',
         attribute_value: locationType
@@ -549,36 +542,30 @@ export class OrchestratorService {
     };
   }
 
-  private createWaitObject(): Wait {
-    return {
-      wait_type: WaitType.TRIGGER
-    };
+  private createWaitObject(): Wait | null {
+    return null;
   }
 
-  private createCargoArray(productId: string): Cargo[] {
-    return [{
-      cargo_code: productId,
-      cargo_type: 'Pallet',
-      cargo_dimension: { length: 1, width: 1, height: 1 },
-      cargo_attributes: null,
-      cargo_weight: 1
-    }];
+  private createCargoArray(productId: string): Cargo[] | null {
+    return null;
   }
 
   private getLocationAction(taskData: any, position: 'start' | 'end'): LocationAction {
     const isInventoryToStation = taskData.sourceInventoryId && taskData.destinationStationId;
+    const isInventoryToWaitLocation = taskData.sourceInventoryId && taskData.destinationWaitingLocationId;
     const isStationToStation = taskData.sourceStationId && taskData.destinationStationId;
     const isStationToInventory = taskData.sourceStationId && taskData.destinationInventoryId;
     const isStationToWaiting = taskData.sourceStationId && taskData.destinationWaitingLocationId;
     const isWaitingToStation = taskData.sourceWaitingLocationId && taskData.destinationStationId;
+    const isWaitingToInventory = taskData.sourceWaitingLocationId && taskData.destinationInventoryId;
 
-    if (isInventoryToStation || isWaitingToStation) {
-      return position === 'start' ? LocationAction.PICK : LocationAction.WAIT;
-    } else if (isStationToStation || isStationToWaiting) {
-      return position === 'start' ? LocationAction.PICK : LocationAction.WAIT;
-    } else if (isStationToInventory) {
-      return position === 'start' ? LocationAction.PICK : LocationAction.DROP;
-    }
+    if (isInventoryToStation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP;
+    if (isInventoryToWaitLocation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP;
+    if (isStationToStation) return position === 'start' ? LocationAction.NOP : LocationAction.NOP;
+    if (isStationToWaiting) return position === 'start' ? LocationAction.NOP : LocationAction.NOP;
+    if (isWaitingToStation) return position === 'start' ? LocationAction.NOP : LocationAction.NOP;
+    if (isStationToInventory) return position === 'start' ? LocationAction.NOP : LocationAction.DROP;
+    if (isWaitingToInventory) return position === 'start' ? LocationAction.NOP : LocationAction.DROP;
 
     // Default fallback
     return LocationAction.NOP;
@@ -629,14 +616,26 @@ export class OrchestratorService {
 
     try {
       const requestBody = {
+        batch_job_id: task.batch_id,
+        batch_priority: 0,
+        batch_type: "Discrete",
+        batch_frequency: 1,
         tasks: [{
           task_id: task.task_id.toString(),
           task_type: task.task_type,
-          task_dependency: task.task_dependency?.toString() || null,
-          start_location: task.start_location,
-          end_location: task.end_location,
-          wait: task.wait,
-          cargos: task.cargos
+          robot_id: task.robot_id,
+          start_location: {
+            location_id: task.start_location?.location_id,
+            location_type: task.start_location?.location_type,
+            location_action: task.start_location?.location_action
+          },
+          end_location: {
+            location_id: task.end_location?.location_id,
+            location_type: task.end_location?.location_type,
+            location_action: task.end_location?.location_action
+          },
+          wait: null,
+          cargos: null
         }]
       };
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';

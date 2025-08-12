@@ -31,6 +31,6 @@ export interface Location {
   location_id: string;
   location_type: LocationType;
   location_action: LocationAction;
-  location_dimension: LocationDimension;
+  location_dimension?: LocationDimension;
   location_attribute: LocationAttribute;
 }
