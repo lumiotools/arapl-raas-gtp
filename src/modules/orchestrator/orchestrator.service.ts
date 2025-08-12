@@ -194,8 +194,15 @@ export class OrchestratorService {
           }
         }
       }
+
+      // get all idle robots and number of tasks from inventory should be equal to the number of idle robots
+      let IdleRobots: number = await this.getIdleRobotCount();
       for (const requirement of productRequirements) {
-        await this.processProductRequirement(requirement.productId, productRequirements);
+        if (IdleRobots <= 0) {
+          this.logger.warn(`No idle robots available for product ${requirement.productId}`);
+          continue;  
+        }
+        IdleRobots = await this.processProductRequirement(requirement.productId, IdleRobots);
       }
       return { message: 'Orchestrator process completed successfully' };
       
@@ -288,9 +295,29 @@ export class OrchestratorService {
     console.log(`Finished saving product requirements: ${JSON.stringify(Array.from(requirementMap.entries()))}`);
   }
 
-  private async processProductRequirement(productId: string, productRequirements: ProductRequirement[]) {
+  async getIdleRobotCount(): Promise<number>{
+    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+    const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robots';  
+
+    const response = await firstValueFrom(
+      this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/robots`, {
+        headers: {
+          'authorization': `${warehosue_key}`
+        }
+      })
+    );
+    if (response && response.data && Array.isArray(response.data.robots)) {
+      const idleCount = response.data.robots.filter((robot: any) => robot.status === 'idle').length;
+      return idleCount;
+    }
+    return 0;
+  }
+
+  private async processProductRequirement(productId: string, idleRobots: number): Promise<number> {
+
     const allInventories = await this.inventoryService.findAllByProductId(productId);
-    if (!allInventories || allInventories.length === 0) {return;}
+    if (!allInventories || allInventories.length === 0) {return idleRobots;}
 
     // read the requirement of the product from the database
     const databaseRequirement = await this.productRequirementRepository.find({
@@ -314,13 +341,9 @@ export class OrchestratorService {
     // Get stations sorted by priority (ascending order) 
     const stationIds = databaseRequirement.map(pr => pr.station_id);
     const sortedStations = await this.getStationsSortedByPriority(stationIds);
-    console.log(`stationIDs: ${JSON.stringify(stationIds)}`);
-    console.log(`effectiveSystemRequirement: ${effectiveSystemRequirement}`);
-    console.log(`selected inventoryies: ${JSON.stringify(selectedInventories)}`);
-    if (effectiveSystemRequirement <= 0) {return;}
+    if (effectiveSystemRequirement <= 0) {return idleRobots;}
 
-    if (selectedInventories.length === 0) {return;}
-    console.log(`Selected Inventories for Product ${productId}:`, selectedInventories);
+    if (selectedInventories.length === 0) {return idleRobots;}
     for (const inventory of selectedInventories) {
       const taskID = await this.createSingleTaskToFirstAvailableStation(
         inventory,
@@ -330,11 +353,13 @@ export class OrchestratorService {
         const inventory_to_station_waiting_location = await this.waitingLocationRepository.find({
           where: { type: WaitingLocationType.INVENTORY_TO_STATION, status: LocationStatus.AVAILABLE}
         });
+        if (taskID){
+          idleRobots --;
+        }
         for (const waitingLocation of inventory_to_station_waiting_location) {
           if (waitingLocation.status !== LocationStatus.AVAILABLE || waitingLocation.holded_by !== null) {continue;} // a task is already holded by this waiting location
           const reserved = await this.waitingLocationService.reserveWaitingLocation(waitingLocation.location_id) && await this.inventoryService.reserveInventory(inventory.id);
           if (!reserved) {
-            this.logger.error(`Failed to reserve waiting location ${waitingLocation.location_id} for inventory ${inventory.id}`);
             continue;
           }
           const batchId = await this.generateBatchId();
@@ -358,6 +383,7 @@ export class OrchestratorService {
             
             // Send task to WMS
             await this.sendSingleTaskToWms(returnTask);
+            idleRobots --;
             this.logger.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
             await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
             break;
@@ -367,6 +393,7 @@ export class OrchestratorService {
         }
       }
     }
+    return idleRobots;
   }
 
   /**
