@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException, ForbiddenException 
 import { CreateStationDto } from './dto/create-station.dto';
 import { UpdateStationDto } from './dto/update-station.dto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { LocationStatus, Station } from 'src/entities/station.entity';
 import { GtpLocation, OrderItem, OrderItemStatus, Task } from 'src/entities';
 import { ProductRequirement as ProductRequirementEntity } from 'src/entities/product-requirement.entity';
@@ -225,7 +225,7 @@ export class StationsService {
       where: { station_id }
     });
     const tasks = await this.taskRepository.find({
-      where: { status: TaskStatus.COMPLETED }
+      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING]) }
     });
     let robot_id : string | null = null;
     let robot_task : Task | null = null;
@@ -235,12 +235,24 @@ export class StationsService {
         robot_task = task;
       }
     }
+    let status: TaskStatus | null | string = null;
+    if (robot_task) {
+      status = robot_task.status;
+      if (status === TaskStatus.PROCESSING) {
+        status = "COMING";
+      }
+      else if (status === TaskStatus.COMPLETED) {
+        status = "REACHED";
+      }
+    }
+    console.log(`status: ${status}`)
     if (!robot_id){return {robot_id: null}}
     return {
       robot_id: robot_id,
       product_id: robot_task?.product_id || null,
       quantity: robot_task?.quantity || null,
       source: robot_task?.start_location.location_id || null,
+      status: status
     }
   }
 }
