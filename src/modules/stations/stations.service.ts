@@ -105,6 +105,7 @@ export class StationsService {
     if (!binLocation) {
       throw new NotFoundException(`Station with id ${id} not found in WMS bin locations`);
     }
+    const bin_name = binLocation.id;
     let station = await this.stationRepository.findOne({
       where: { station_id: id },
       relations: ['gtpLocations']
@@ -113,7 +114,7 @@ export class StationsService {
       // Create new station if not exists
       station = this.stationRepository.create({
         station_id: id,
-        station_name: id,
+        station_name: bin_name,
         gtpLocations: []
       });
       station = await this.stationRepository.save(station);

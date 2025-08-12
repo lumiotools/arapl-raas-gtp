@@ -5,33 +5,102 @@ import { WaitingLocation } from 'src/entities';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LocationStatus } from 'src/entities/station.entity';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class WaitingLocationService {
+  httpService: any;
   constructor(
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
   ){}
   async create(createWaitingLocationDto: CreateWaitingLocationDto) {
-    const existingWaitLocation = await this.waitingLocationRepository.findOne({
-      where:{location_id: createWaitingLocationDto.location_id}
-    });
-    if (existingWaitLocation) {
-      throw new ConflictException(`Waiting location with id ${createWaitingLocationDto.location_id} already exists`);
-    }
-    const newWaitingLocation = this.waitingLocationRepository.create(createWaitingLocationDto);
-    return this.waitingLocationRepository.save(newWaitingLocation);
+    throw new ConflictException('Waiting location creation is not allowed');
+    // const existingWaitLocation = await this.waitingLocationRepository.findOne({
+    //   where:{location_id: createWaitingLocationDto.location_id}
+    // });
+    // if (existingWaitLocation) {
+    //   throw new ConflictException(`Waiting location with id ${createWaitingLocationDto.location_id} already exists`);
+    // }
+    // const newWaitingLocation = this.waitingLocationRepository.create(createWaitingLocationDto);
+    // return this.waitingLocationRepository.save(newWaitingLocation);
   }
 
+  async getAllWmsWaiting(){
+      try{
+        const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+        const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+        const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
+  
+        const response: {success:boolean, data: {bin_locations: {id:string}[]}[]} = await firstValueFrom(
+          this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/locations`, {
+            headers: {
+              'authorization': `${warehosue_key}`,
+              'Content-Type': 'application/json'
+            }
+          })
+        );
+        if (response && response.data && Array.isArray(response.data)) {
+          return response.data;
+        }
+        return [];
+      }
+      catch{
+        return [];
+      }
+      
+    }
+
   async findAll() {
-    return this.waitingLocationRepository.find();
+    const waiting_object = (await this.getAllWmsWaiting())[0];
+    const waiting_bin_locations = waiting_object.bin_locations || [];
+    const returnObj: WaitingLocation[] = [];
+    for (const bin_location of waiting_bin_locations){
+      const bin_name = bin_location.id;
+      const bin_id = bin_location.id;
+      const existing = await this.waitingLocationRepository.findOne({
+        where: { location_id: bin_id }
+      });
+      if (existing) {
+        returnObj.push(existing);
+      }
+      else{
+        const newWaitingLocation = this.waitingLocationRepository.create({
+          location_id: bin_id,
+          location_name: bin_name
+        });
+        returnObj.push(await this.waitingLocationRepository.save(newWaitingLocation));
+      }
+    }
+    return returnObj;
   }
 
   async findOne(id: string) {
-    return await this.waitingLocationRepository.findOne({ where: { location_id: id } });
+    const waiting_object = await this.getAllWmsWaiting()[0];
+    const bin_locations = waiting_object.bin_locations || [];
+    const binLocation = bin_locations.find((bin: { id: string }) => bin.id === id);
+    if (!binLocation) {
+      throw new NotFoundException(`Waiting location with id ${id} not found in WMS bin locations`);
+    }
+    const bin_name = binLocation.bin_name;
+    let waitingLocation = await this.waitingLocationRepository.findOne({
+      where: { location_id: id }
+    });
+    if (!waitingLocation) {
+      // Create new waiting location if not exists
+      waitingLocation = this.waitingLocationRepository.create({
+        location_id: id,
+        location_name: bin_name
+      });
+      waitingLocation = await this.waitingLocationRepository.save(waitingLocation);
+    }
+    return waitingLocation;
   }
 
   async update(id: string, updateWaitingLocationDto: UpdateWaitingLocationDto) {
+    if (id !== updateWaitingLocationDto.location_id) {
+      throw new ConflictException(`ID update is not allowed`);
+    }
     const existing = await this.waitingLocationRepository.findOne({ where: { location_id: id } });
     if (!existing) {
       throw new Error(`Waiting location with id ${id} not found`);
@@ -50,15 +119,16 @@ export class WaitingLocationService {
   }
 
   async remove(id: string) {
-    const existing = await this.waitingLocationRepository.findOne({ where: { location_id: id } });
-    if (!existing) {
-      throw new Error(`Waiting location with id ${id} not found`);
-    }
-    if (existing.holded_by){
-      throw new ConflictException(`Cannot delete waiting location ${id}. Some robot is holding it.`);
-    }
-    await this.waitingLocationRepository.delete({ location_id: id });
-    return { message: `Waiting location with id ${id} deleted successfully` };
+    throw new ConflictException('Waiting location removal is not allowed');
+    // const existing = await this.waitingLocationRepository.findOne({ where: { location_id: id } });
+    // if (!existing) {
+    //   throw new Error(`Waiting location with id ${id} not found`);
+    // }
+    // if (existing.holded_by){
+    //   throw new ConflictException(`Cannot delete waiting location ${id}. Some robot is holding it.`);
+    // }
+    // await this.waitingLocationRepository.delete({ location_id: id });
+    // return { message: `Waiting location with id ${id} deleted successfully` };
   }
 
   async reserveWaitingLocation(location_id: string): Promise<boolean> {
