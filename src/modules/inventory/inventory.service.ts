@@ -129,21 +129,21 @@ export class InventoryService {
   }
 
   async findOne(id: string) {
-    const inventory_object = await this.getAllInventoryLocations();
-    const bin_locations = inventory_object[0].bin_locations || [];
-    const bin_ids = bin_locations.map(bin => bin.id);
-
-    if (bin_ids.includes(id)) {
-      const inventory = await this.inventoryRepository.findOne({
-        where: { id },
-        relations: ['product']
-      });
-      if (!inventory) {
-        throw new NotFoundException(`Inventory with id ${id} not found`);
+    const inventory_object = await this.getAllInventoryLocations()[0];
+    const bin_locations = inventory_object.bin_locations || [];
+    const binLocation = bin_locations.find((bin: { id: string }) => bin.id === id);
+    if (!binLocation) {
+      const existing = await this.inventoryRepository.findOne({ where: { id } });
+      if (existing) {
+        this.inventoryRepository.delete({ id });
       }
-      return inventory;
+      throw new NotFoundException(`Inventory with id ${id} not found in WMS bin locations`);
     }
-    throw new ConflictException(`Inventory Id removed from FMS.`);
+    let inventory = await this.inventoryRepository.findOne({
+      where: { id },
+      relations: ['product']
+    });
+    return inventory;
   }
 
   async findByProductId(productId: string) {
