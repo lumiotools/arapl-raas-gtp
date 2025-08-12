@@ -32,7 +32,7 @@ export class WaitingLocationService {
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
 
-      const response: {success:boolean, data: {bin_locations: {id:string}[]}[]} = await firstValueFrom(
+      const response: {success:boolean, data: {bin_locations: {id:string, name:string}[]}[]} = await firstValueFrom(
         this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/locations`, {
           headers: {
             'authorization': `${warehosue_key}`,
@@ -54,25 +54,25 @@ export class WaitingLocationService {
   async findAll() {
     const waiting_object = (await this.getAllWmsWaiting())[0];
     const waiting_bin_locations = waiting_object.bin_locations || [];
-    const returnObj: WaitingLocation[] = [];
-    for (const bin_location of waiting_bin_locations){
-      const bin_name = bin_location.id;
-      const bin_id = bin_location.id;
-      const existing = await this.waitingLocationRepository.findOne({
-        where: { location_id: bin_id }
+    const bin_ids = waiting_bin_locations.map(bin => bin.id);
+    const allWaitingLocations = await this.waitingLocationRepository.find();
+
+    // find bin_ids that are not in allWaitingLocations
+    const missingBinIds = bin_ids.filter(id => !allWaitingLocations.some(location => location.location_id === id));
+    for (const missingId of missingBinIds) {
+      const newWaitingLocation = this.waitingLocationRepository.create({
+        location_id: missingId,
+        location_name: waiting_bin_locations.find(bin => bin.id === missingId)?.name || 'Unknown'
       });
-      if (existing) {
-        returnObj.push(existing);
-      }
-      else{
-        const newWaitingLocation = this.waitingLocationRepository.create({
-          location_id: bin_id,
-          location_name: bin_name
-        });
-        returnObj.push(await this.waitingLocationRepository.save(newWaitingLocation));
-      }
+      await this.waitingLocationRepository.save(newWaitingLocation);
     }
-    return returnObj;
+    // find allWaitingLocations ids that are not in bin_ids
+    const existingWaitingLocationIds = allWaitingLocations.map(location => location.location_id);
+    const missingWaitingLocationIds = existingWaitingLocationIds.filter(id => !bin_ids.includes(id));
+    if (missingWaitingLocationIds.length > 0) {
+      await this.waitingLocationRepository.delete(missingWaitingLocationIds);
+    }
+    return await this.waitingLocationRepository.find();
   }
 
   async findOne(id: string) {
@@ -80,6 +80,10 @@ export class WaitingLocationService {
     const bin_locations = waiting_object.bin_locations || [];
     const binLocation = bin_locations.find((bin: { id: string }) => bin.id === id);
     if (!binLocation) {
+      const existing = await this.waitingLocationRepository.findOne({ where: { location_id: id } });
+      if (existing) {
+        this.waitingLocationRepository.delete({ location_id: id });
+      }
       throw new NotFoundException(`Waiting location with id ${id} not found in WMS bin locations`);
     }
     const bin_name = binLocation.bin_name;

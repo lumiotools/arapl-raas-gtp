@@ -53,7 +53,7 @@ export class StationsService {
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
 
-      const response: {success:boolean, data: {bin_locations: {id:string}[]}[]} = await firstValueFrom(
+      const response: {success:boolean, data: {bin_locations: {id:string,name:string}[]}[]} = await firstValueFrom(
         this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/locations`, {
           headers: {
             'authorization': `${warehosue_key}`,
@@ -83,7 +83,7 @@ export class StationsService {
     for (const missingId of missingBinIds) {
       const newStation = this.stationRepository.create({
         station_id: missingId,
-        station_name: missingId,
+        station_name: station_bin_locations.find(bin => bin.id === missingId)?.name || 'Unknown',
         gtpLocations: []
       });
       await this.stationRepository.save(newStation);
@@ -103,6 +103,10 @@ export class StationsService {
     const bin_locations = station_object.bin_locations || [];
     const binLocation = bin_locations.find((bin: { id: string }) => bin.id === id);
     if (!binLocation) {
+      const existing = await this.stationRepository.findOne({ where: { station_id: id } });
+      if (existing) {
+        this.stationRepository.delete({ station_id: id });
+      }
       throw new NotFoundException(`Station with id ${id} not found in WMS bin locations`);
     }
     const bin_name = binLocation.name;
