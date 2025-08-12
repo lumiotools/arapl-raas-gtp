@@ -402,24 +402,26 @@ export class OrdersService {
       }
 
       // Check if the GTP location is already assigned to a different license plate
-      const existingAssignment = await this.orderItemRepository.findOne({
-        where: { 
-          assigned_gtp_location: gtpLocationId,
-          status: OrderItemStatus.ASSIGNED
-        },
-        select: ['license_plate_id']
-      });
+      // const existingAssignment = await this.orderItemRepository.findOne({
+      //   where: { 
+      //     assigned_gtp_location: gtpLocationId,
+      //     status: OrderItemStatus.ASSIGNED
+      //   },
+      //   select: ['license_plate_id']
+      // });
 
-      if (existingAssignment && existingAssignment.license_plate_id !== licensePlateId) {
-        throw new ForbiddenException(`GTP Location ${gtpLocationId} is already assigned to license plate ${existingAssignment.license_plate_id}`);
-      }
-
+      // if (existingAssignment && existingAssignment.license_plate_id !== licensePlateId) {
+      //   throw new ForbiddenException(`GTP Location ${gtpLocationId} is already assigned to license plate ${existingAssignment.license_plate_id}`);
+      // }
+      console.log(`Finding order items for license plate ${licensePlateId}`);
       // Find order items with the given license_plate_id
       const orderItems = await this.orderItemRepository.find({
         where: { 
-          license_plate_id: licensePlateId
+          license_plate_id: licensePlateId,
+          status: OrderItemStatus.PENDING
         }
       });
+      console.log(`OrderItems: ${JSON.stringify(orderItems)}`);
 
       if (orderItems.length === 0) {
         throw new BadRequestException(`No order items found with license plate ${licensePlateId}`);
@@ -617,7 +619,7 @@ export class OrdersService {
       const licensePlates = Array.from(new Set(orders.map(order => order.license_plate_id)));
       const assigned_in_progress_orders = orders.filter(order => order.status === OrderItemStatus.IN_PROGRESS || order.status === OrderItemStatus.ASSIGNED);
       // Count the number of unique order_id in assigned_in_progress_orders
-      res.lp_count = new Set(assigned_in_progress_orders.map(order => order.order_id)).size;``
+      res.lp_count = new Set(assigned_in_progress_orders.map(order => order.license_plate_id)).size;``
       for (const licensePlate of licensePlates) {
         const orderItems = orders.filter(order => order.license_plate_id === licensePlate);
         res.license_plate_objs.push({
