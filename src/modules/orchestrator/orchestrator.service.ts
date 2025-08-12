@@ -1112,30 +1112,7 @@ export class OrchestratorService {
     });
   }
 
-  private async freeRobot(robotId: string): Promise<void> {
-    if (!robotId) {
-      // await this.loggingService.log('Cannot free robot: robot_id is null or empty');
-      return;
-    }
-
-    try {
-      const response = await this.httpService.post(`${process.env.WMS_BASE_URL}/orchestrator/robot/set-available`, {
-        robot_id: robotId
-      }).toPromise();
-
-      if (response && response.data) {
-        // await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
-      } else {
-        // await this.loggingService.log(`Robot ${robotId} freed successfully`);
-      }
-    } catch (error) {
-      // await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
-      // Don't throw error to avoid breaking the main process
-    }
-  }
-
-  // Manual trigger method for testin
-
+  // Manual trigger method for testing
   @Cron('*/10 * * * * *')
   async orchestratorCronJob() {
     await this.triggerOrchestrator();
@@ -1211,9 +1188,9 @@ export class OrchestratorService {
                 where: { id: firstTask?.start_location?.location_id}
               });
               const robotId = lastTask?.robot_id;
-              if (robotId){
-                await this.freeRobot(robotId);
-              }
+              // if (robotId){
+              //   await this.freeRobot(robotId);
+              // }
               if (firstTask && lastTask && inventory && inventory.status === LocationStatus.AVAILABLE) {
                 const reserved = await this.inventoryService.reserveInventory(inventory.id);
                 if (!reserved) {
