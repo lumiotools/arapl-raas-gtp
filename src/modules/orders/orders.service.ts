@@ -569,7 +569,26 @@ export class OrdersService {
     if (!Array.isArray(orderItems) || orderItems.length === 0) {
       return 0;
     }
-    const relevantOrderItems = orderItems.filter(item => item.license_plate_id === licensePlateId);
+    let relevantOrderItems = orderItems.filter(item => item.license_plate_id === licensePlateId);
+    // Filter out order items if all items for the same order_id are either COMPLETED or CANCELLED
+    const orderIds = Array.from(new Set(relevantOrderItems.map(item => item.order_id)));
+    const filteredOrderIds: string[] = [];
+
+    for (const orderId of orderIds) {
+      const orderItemsForOrder = relevantOrderItems.filter(item => item.order_id === orderId);
+      const hasNonCompletedCancelled = orderItemsForOrder.some(item => 
+        item.status !== OrderItemStatus.COMPLETED && item.status !== OrderItemStatus.CANCELLED
+      );
+      
+      if (hasNonCompletedCancelled) {
+        filteredOrderIds.push(orderId);
+      }
+    }
+    if (filteredOrderIds.length === 0){
+      return 100;
+    }
+
+    relevantOrderItems = relevantOrderItems.filter(item => filteredOrderIds.includes(item.order_id));
     const requiredQuantity = relevantOrderItems.reduce((sum, item) => sum + item.quantity, 0);
     const remainingQuantity = relevantOrderItems.reduce((sum, item) => sum + item.remaining_quantity, 0);
     const satisfiedQuantity = requiredQuantity - remainingQuantity;
