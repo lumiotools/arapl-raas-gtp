@@ -38,13 +38,21 @@ export enum TaskStatus {
   PENDING = 'PENDING',
   ASSIGNED = 'ASSIGNED',
   INQUEUE = 'INQUEUE',
-  INPROGRESS = 'INPROGRESS', 
-  IN_PROGRESS = 'IN_PROGRESS',
   PROCESSING = 'PROCESSING',
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
-  FAILED = 'FAILED',
   TRIGERRED = 'TRIGGERED',
+  TASK_ACKNOWLEDGED = 'task_acknowledged',
+  ROBOT_ASSIGNED = 'robot_assigned',
+  PICKUP_SUCCESSFUL = 'pickup_successful',
+  DROP_SUCCESSFUL = 'drop_successful',
+  TASK_CANCELLED = 'task_cancelled',
+  ROBOT_MOVEMENT_STARTED = 'robot_movement_started',
+  DROP_REJECTED = 'drop_rejected',
+  PICK_REJECTED = 'pick_rejected',
+  PICK_FAILED = 'pick_failed',
+  DROP_FAILED = 'drop_failed',
+
 }
 
 @Entity('tasks')

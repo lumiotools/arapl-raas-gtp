@@ -78,7 +78,7 @@ export class InventoryService {
   async findAll() {
     try{
       const inventory_object = await this.getAllInventoryLocations();
-      const bin_locations = inventory_object[0].available_location_types || [];
+      const bin_locations = inventory_object.available_location_types || [];
       const bin_ids = bin_locations.map(bin => bin.location_id);
 
       let inventories = await this.inventoryRepository.find({
@@ -89,7 +89,9 @@ export class InventoryService {
 
       // find ids present in inventory_ids but not present in bin_ids
       const missingBinIds = inventory_ids.filter(id => !bin_ids.includes(id));
-      await this.inventoryRepository.delete(missingBinIds); // remove missing inventory ids
+      if (missingBinIds.length > 0) {
+        await this.inventoryRepository.delete(missingBinIds); // remove missing inventory ids
+      }
 
       // find ids that exists in inventory ids and bin_ids
       const existingBinIds = inventory_ids.filter(id => bin_ids.includes(id));
@@ -98,8 +100,8 @@ export class InventoryService {
       // Calculate priorities for all inventories
       const inventoriesWithPriority = await this.addPriorityToInventories(inventories);
       return inventoriesWithPriority;
-    }catch{
-      throw new BadRequestException('Failed to fetch inventory locations');
+    }catch(err){
+      throw new BadRequestException(`Failed to fetch inventory locations: ${err.message}`);
     }
   }
 
@@ -282,8 +284,8 @@ export class InventoryService {
         errors: [] as string[]
       };
       const inventory_object = await this.getAllInventoryLocations();
-      const bin_locations = inventory_object[0].bin_locations || [];
-      const bin_ids = bin_locations.map(bin => bin.id);
+      const bin_locations = inventory_object.available_location_types || [];
+      const bin_ids = bin_locations.map(bin => bin.location_id);
 
       // Process each row (skip header)
       for (let i = 1; i < lines.length; i++) {

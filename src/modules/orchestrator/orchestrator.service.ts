@@ -198,7 +198,8 @@ export class OrchestratorService {
       }
 
       // get all idle robots and number of tasks from inventory should be equal to the number of idle robots
-      let IdleRobots: number = await this.getIdleRobotCount();
+      // let IdleRobots: number = await this.getIdleRobotCount();
+      let IdleRobots = 5;
       for (const requirement of productRequirements) {
         if (IdleRobots <= 0) {
           this.logger.warn(`No idle robots available for product ${requirement.productId}`);
@@ -652,25 +653,36 @@ export class OrchestratorService {
         batch_job_id: task.batch_id,
         batch_priority: 0,
         batch_type: "Discrete",
-        batch_frequency: 1,
         tasks: [{
           task_id: task.task_id.toString(),
           task_type: task.task_type,
+          task_dependency: null,
           robot_id: task.robot_id,
           start_location: {
             location_id: task.start_location?.location_id,
             location_type: task.start_location?.location_type,
-            location_action: task.start_location?.location_action
+            location_action: task.start_location?.location_action,
+            location_dimension: {
+              length: 1,
+              width: 1,
+              height: 1
+            }
           },
           end_location: {
             location_id: task.end_location?.location_id,
             location_type: task.end_location?.location_type,
-            location_action: task.end_location?.location_action
+            location_action: task.end_location?.location_action,
+            location_dimension: {
+              length: 1,
+              width: 1,
+              height: 1
+            }
           },
           wait: null,
-          cargos: null
+          cargos: null,
         }]
       };
+      console.log(`request body: ${JSON.stringify(requestBody, null, 2)}`);
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  

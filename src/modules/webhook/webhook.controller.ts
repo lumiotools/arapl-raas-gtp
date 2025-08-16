@@ -51,7 +51,8 @@ export class WebhookController {
       }
     }
   })
-  async handleWebhook(@Body() webhookData: WebhookRequestDto) {
+  async handleWebhook(@Body() webhookData: any) {
+    console.log(`received webhook: ${JSON.stringify(webhookData)}`);
     return await this.webhookService.processWebhook(webhookData);
   }
 }

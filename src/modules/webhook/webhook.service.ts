@@ -31,12 +31,12 @@ export class WebhookService {
     private readonly httpService: HttpService,
   ) {}
 
-  async processWebhook(webhookData: WebhookRequestDto): Promise<{ message: string }> {
+  async processWebhook(webhookData: any): Promise<{ message: string }> {
     this.logger.log(`Processing webhook for batch ${webhookData.batch_job_id} with status ${webhookData.batch_job_status}`);
-    this.logger.log(`Received ${webhookData.tasks_status.length} task status updates`);
+    this.logger.log(`Received ${webhookData.tasks.length} task status updates`);
     
     try {
-      for (const taskStatus of webhookData.tasks_status) {
+      for (const taskStatus of webhookData.tasks) {
         await this.updateTaskStatus(webhookData.batch_job_id, taskStatus);
       }
       return { message: 'Webhook processed successfully' };
@@ -143,11 +143,9 @@ export class WebhookService {
       'pending': TaskStatus.PENDING,
       'assigned': TaskStatus.ASSIGNED,
       'inqueue': TaskStatus.INQUEUE,
-      'inprogress': TaskStatus.INPROGRESS,
       'processing': TaskStatus.PROCESSING,
       'completed': TaskStatus.COMPLETED,
       'cancelled': TaskStatus.CANCELLED,
-      'failed': TaskStatus.FAILED
     };
 
     const mapped = statusMap[webhookStatus.toLowerCase()];

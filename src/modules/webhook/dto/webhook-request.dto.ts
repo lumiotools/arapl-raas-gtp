@@ -79,8 +79,9 @@ export class TaskStatusDto {
     enum: ['pending', 'assigned', 'inqueue', 'inprogress', 'processing', 'completed', 'cancelled', 'failed'],
     example: 'inqueue' 
   })
+  @IsOptional()
   @IsIn(['pending', 'assigned', 'inqueue', 'inprogress', 'processing', 'completed', 'cancelled', 'failed'])
-  status: string;
+  status?: string;
 
   @ApiProperty({ description: 'Robot ID', example: 'ROBOT-001' })
   @IsString()
@@ -98,16 +99,18 @@ export class TaskStatusDto {
 
   @ApiProperty({ description: 'Array of cargos', type: [CargoDto] })
   @IsArray()
+  @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => CargoDto)
-  cargos: CargoDto[];
+  cargos?: CargoDto[];
 }
 
 export class WebhookRequestDto {
   @ApiProperty({ description: 'Pagination info', type: PaginationDto })
   @ValidateNested()
+  @IsOptional()
   @Type(() => PaginationDto)
-  pagination: PaginationDto;
+  pagination?: PaginationDto;
 
   @ApiProperty({ description: 'Batch job ID', example: 'B1545128788' })
   @IsString()
@@ -119,10 +122,10 @@ export class WebhookRequestDto {
 
   @ApiProperty({ 
     description: 'Batch job status', 
-    enum: ['pending', 'inqueue', 'processing', 'completed', 'cancelled', 'failed'],
+    enum: ['pending', 'inqueue', 'processing', 'completed', 'cancelled', 'failed','task_acknowledged','task_in_progress','robot_assigned','task_completed'],
     example: 'inqueue' 
   })
-  @IsIn(['pending', 'inqueue', 'processing', 'completed', 'cancelled', 'failed'])
+  @IsIn(['pending', 'inqueue', 'processing', 'completed', 'cancelled', 'failed','task_acknowledged','task_in_progress','robot_assigned','task_completed'])
   batch_job_status: string;
 
   @ApiProperty({ description: 'Timestamp', example: '2025-07-03T17:52:13.000Z' })
@@ -133,5 +136,5 @@ export class WebhookRequestDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => TaskStatusDto)
-  tasks_status: TaskStatusDto[];
+  tasks: TaskStatusDto[];
 }
