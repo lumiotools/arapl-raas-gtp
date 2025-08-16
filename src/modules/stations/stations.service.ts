@@ -62,84 +62,85 @@ export class StationsService {
       });
       const data: {zone_id:string, available_locations: any[]} = await response.json();
       console.log(`Response from WMS: ${JSON.stringify(data)}`);
-      if (data) {
-        return data;
-      }
-      return {
-        zone_id: "station",
-        available_locations:[]
-      };
+      return data;
     }
     catch{
-      return {
-        zone_id: "station",
-        available_locations:[]
-      };
+      throw new BadRequestException('Failed to fetch WMS stations');
     }
     
   }
 
   async findAll() {
-    const station_object = (await this.getAllWmsStations());
-    console.log(`station_object: ${JSON.stringify(station_object)}`)
-    const station_bin_locations = station_object.available_locations || [];
-    const bin_ids = station_bin_locations.map(bin => bin.location_id);
-    const allStations = await this.stationRepository.find();
+    try{
+      const station_object = (await this.getAllWmsStations());
+      const station_bin_locations = station_object.available_locations || [];
+      const bin_ids = station_bin_locations.map((bin: any) => bin.location_id);
+      const allStations = await this.stationRepository.find();
 
-    // find bin_ids that are not in allStations
-    const missingBinIds = bin_ids.filter(id => !allStations.some(station => station.station_id === id));
-    for (const missingId of missingBinIds) {
-      // const newStation = this.stationRepository.create({
-      //   station_id: missingId,
-      //   station_name: station_bin_locations.find(bin => bin.id === missingId)?.name || 'Unknown',
-      //   gtpLocations: [],
-      //   priority:1,
-      // });
-      const newStation = await this.create({
-        station_id: missingId,
-        station_name: missingId,
-        priority:1,
-      });
-    }
-
-    // find allStations ids that are not in bin_ids
-    const existingStationIds = allStations.map(station => station.station_id);
-    const missingStationIds = existingStationIds.filter(id => !bin_ids.includes(id));
-    if (missingStationIds.length > 0) {
-      // await this.stationRepository.delete(missingStationIds);
-      for (const id of missingStationIds) {
-        this.remove(id);
+      // find bin_ids that are not in allStations
+      const missingBinIds = bin_ids.filter(id => !allStations.some(station => station.station_id === id));
+      for (const missingId of missingBinIds) {
+        const newStation = await this.create({
+          station_id: missingId,
+          station_name: missingId,
+          priority:1,
+        });
       }
+
+      // find allStations ids that are not in bin_ids
+      const existingStationIds = allStations.map(station => station.station_id);
+      const missingStationIds = existingStationIds.filter(id => !bin_ids.includes(id));
+      if (missingStationIds.length > 0) {
+        // await this.stationRepository.delete(missingStationIds);
+        for (const id of missingStationIds) {
+          // await this.remove(id);
+          await this.stationRepository.update(
+            { station_id: id },
+            { is_active:false }
+          );
+        }
+      }
+      return await this.stationRepository.find({ relations: ['gtpLocations'] });
+    }catch{
+      throw new BadRequestException('Failed to fetch WMS stations');
     }
-    return await this.stationRepository.find({ relations: ['gtpLocations'] });
   }
 
   async findOne(id: string) {
-    const station_object = await this.getAllWmsStations()[0];
-    const bin_locations = station_object.available_locations || [];
-    const binLocation = bin_locations.find((bin: { location_id: string }) => bin.location_id === id);
-    if (!binLocation) {
-      const existing = await this.stationRepository.findOne({ where: { station_id: id } });
-      if (existing) {
-        // this.stationRepository.delete({ station_id: id });
-        this.remove(id);
+    try{
+      const station_object = await this.getAllWmsStations();
+      const bin_locations = station_object.available_locations || [];
+      const binLocation = bin_locations.find((bin: any) => bin.location_id === id);
+      if (!binLocation) {
+        const existing = await this.stationRepository.findOne({ where: { station_id: id } });
+        if (existing) {
+          // this.stationRepository.delete({ station_id: id });
+          // await this.remove(id);
+          await this.stationRepository.update(
+            { station_id: id },
+            { is_active:false }
+          )
+          return existing;
+        }
+        throw new NotFoundException(`Station with id ${id} not found in WMS bin locations`);
       }
-      throw new NotFoundException(`Station with id ${id} not found in WMS bin locations`);
-    }
-    const bin_name = binLocation.name;
-    let station = await this.stationRepository.findOne({
-      where: { station_id: id },
-      relations: ['gtpLocations']
-    });
-    if (!station) {
-      station = await this.create({
-        station_id: id,
-        station_name: bin_name,
-        priority: 1,
+      
+      let station = await this.stationRepository.findOne({
+        where: { station_id: id },
+        relations: ['gtpLocations']
       });
-      station = await this.stationRepository.save(station);
+      if (!station) {
+        station = await this.create({
+          station_id: id,
+          station_name: id,
+          priority: 1,
+        });
+      }
+      return station;
+    }catch{
+      throw new BadRequestException(`Failed to fetch WMS station with id ${id}`);
     }
-    return station;
+    
   }
 
   async update(id: string, updateStationDto: UpdateStationDto) {
