@@ -60,7 +60,7 @@ export class StationsService {
           'Content-Type': 'application/json'
         }
       });
-      const data: {zone_id:string, available_locations: any[]} = await response.json();
+      const data: {zone_id:string, available_location_types: any[]} = await response.json();
       console.log(`Response from WMS: ${JSON.stringify(data)}`);
       return data;
     }
@@ -73,7 +73,7 @@ export class StationsService {
   async findAll() {
     try{
       const station_object = (await this.getAllWmsStations());
-      const station_bin_locations = station_object.available_locations || [];
+      const station_bin_locations = station_object.available_location_types || [];
       const bin_ids = station_bin_locations.map((bin: any) => bin.location_id);
       const allStations = await this.stationRepository.find();
 
@@ -100,6 +100,17 @@ export class StationsService {
           );
         }
       }
+      // find intersecting location IDs
+      const intersectingLocationIds = bin_ids.filter(id => existingStationIds.includes(id));
+      for (const id of intersectingLocationIds) {
+        const station = allStations.filter(station => station.station_id === id)[0];
+        if (station.is_active === false) {
+          await this.stationRepository.update(
+            { station_id: id },
+            { is_active: true }
+          );
+        }
+      }
       return await this.stationRepository.find({ relations: ['gtpLocations'] });
     }catch{
       throw new BadRequestException('Failed to fetch WMS stations');
@@ -109,7 +120,7 @@ export class StationsService {
   async findOne(id: string) {
     try{
       const station_object = await this.getAllWmsStations();
-      const bin_locations = station_object.available_locations || [];
+      const bin_locations = station_object.available_location_types || [];
       const binLocation = bin_locations.find((bin: any) => bin.location_id === id);
       if (!binLocation) {
         const existing = await this.stationRepository.findOne({ where: { station_id: id } });
@@ -129,6 +140,12 @@ export class StationsService {
         where: { station_id: id },
         relations: ['gtpLocations']
       });
+      if (station?.is_active==false){
+        await this.stationRepository.update(
+          { station_id: id },
+          { is_active:true }
+        );
+      }
       if (!station) {
         station = await this.create({
           station_id: id,

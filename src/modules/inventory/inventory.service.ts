@@ -78,7 +78,7 @@ export class InventoryService {
   async findAll() {
     try{
       const inventory_object = await this.getAllInventoryLocations();
-      const bin_locations = inventory_object[0].available_locations || [];
+      const bin_locations = inventory_object[0].available_location_types || [];
       const bin_ids = bin_locations.map(bin => bin.location_id);
 
       let inventories = await this.inventoryRepository.find({
@@ -135,7 +135,7 @@ export class InventoryService {
   async findOne(id: string) {
     try{
       const inventory_object = await this.getAllInventoryLocations();
-      const bin_locations = inventory_object.available_locations || [];
+      const bin_locations = inventory_object.available_location_types || [];
       const binLocation = bin_locations.find((bin: { location_id: string }) => bin.location_id === id);
       if (!binLocation) {
         const existing = await this.inventoryRepository.findOne({ where: { id } });

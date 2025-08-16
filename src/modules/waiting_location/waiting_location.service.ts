@@ -51,7 +51,7 @@ export class WaitingLocationService {
 
   async findAll() {
     const waiting_object = (await this.getAllWmsWaiting());
-    const waiting_bin_locations = waiting_object.available_locations || [];
+    const waiting_bin_locations = waiting_object.available_location_types || [];
     const bin_ids = waiting_bin_locations.map(bin => bin.location_id);
     const allWaitingLocations = await this.waitingLocationRepository.find();
 
@@ -77,12 +77,24 @@ export class WaitingLocationService {
         );
       }
     }
+
+    // find intersecting location IDs
+      const intersectingLocationIds = bin_ids.filter(id => existingWaitingLocationIds.includes(id));
+      for (const id of intersectingLocationIds) {
+        const waitLocation = allWaitingLocations.filter(location => location.location_id === id)[0];
+        if (waitLocation.is_active === false) {
+          await this.waitingLocationRepository.update(
+            { location_id: id },
+            { is_active: true }
+          );
+        }
+      }
     return await this.waitingLocationRepository.find();
   }
 
   async findOne(id: string) {
     const waiting_object = await this.getAllWmsWaiting();
-    const bin_locations = waiting_object.available_locations || [];
+    const bin_locations = waiting_object.available_location_types || [];
     const binLocation = bin_locations.find((bin: { location_id: string }) => bin.location_id === id);
     if (!binLocation) {
       const existing = await this.waitingLocationRepository.findOne({ where: { location_id: id } });
@@ -98,6 +110,12 @@ export class WaitingLocationService {
     let waitingLocation = await this.waitingLocationRepository.findOne({
       where: { location_id: id }
     });
+    if (waitingLocation?.is_active==false){
+        await this.waitingLocationRepository.update(
+          { location_id: id },
+          { is_active:true }
+        );
+      }
     if (!waitingLocation) {
       // Create new waiting location if not exists
       waitingLocation = await this.create({
