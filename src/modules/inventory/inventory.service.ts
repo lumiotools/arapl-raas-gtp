@@ -76,27 +76,31 @@ export class InventoryService {
   }
 
   async findAll() {
-    const inventory_object = await this.getAllInventoryLocations();
-    const bin_locations = inventory_object[0].bin_locations || [];
-    const bin_ids = bin_locations.map(bin => bin.id);
+    try{
+      const inventory_object = await this.getAllInventoryLocations();
+      const bin_locations = inventory_object[0].available_locations || [];
+      const bin_ids = bin_locations.map(bin => bin.location_id);
 
-    let inventories = await this.inventoryRepository.find({
-      relations: ['product']
-    });
+      let inventories = await this.inventoryRepository.find({
+        relations: ['product']
+      });
 
-    const inventory_ids = inventories.map(inv => inv.id);
+      const inventory_ids = inventories.map(inv => inv.id);
 
-    // find ids present in inventory_ids but not present in bin_ids
-    const missingBinIds = inventory_ids.filter(id => !bin_ids.includes(id));
-    await this.inventoryRepository.delete(missingBinIds); // remove missing inventory ids
+      // find ids present in inventory_ids but not present in bin_ids
+      const missingBinIds = inventory_ids.filter(id => !bin_ids.includes(id));
+      await this.inventoryRepository.delete(missingBinIds); // remove missing inventory ids
 
-    // find ids that exists in inventory ids and bin_ids
-    const existingBinIds = inventory_ids.filter(id => bin_ids.includes(id));
-    inventories = inventories.filter(inv => existingBinIds.includes(inv.id));
+      // find ids that exists in inventory ids and bin_ids
+      const existingBinIds = inventory_ids.filter(id => bin_ids.includes(id));
+      inventories = inventories.filter(inv => existingBinIds.includes(inv.id));
 
-    // Calculate priorities for all inventories
-    const inventoriesWithPriority = await this.addPriorityToInventories(inventories);
-    return inventoriesWithPriority;
+      // Calculate priorities for all inventories
+      const inventoriesWithPriority = await this.addPriorityToInventories(inventories);
+      return inventoriesWithPriority;
+    }catch{
+      throw new BadRequestException('Failed to fetch inventory locations');
+    }
   }
 
   private async addPriorityToInventories(inventories: Inventory[]) {
@@ -129,21 +133,25 @@ export class InventoryService {
   }
 
   async findOne(id: string) {
-    const inventory_object = await this.getAllInventoryLocations()[0];
-    const bin_locations = inventory_object.bin_locations || [];
-    const binLocation = bin_locations.find((bin: { id: string }) => bin.id === id);
-    if (!binLocation) {
-      const existing = await this.inventoryRepository.findOne({ where: { id } });
-      if (existing) {
-        this.inventoryRepository.delete({ id });
+    try{
+      const inventory_object = await this.getAllInventoryLocations();
+      const bin_locations = inventory_object.available_locations || [];
+      const binLocation = bin_locations.find((bin: { location_id: string }) => bin.location_id === id);
+      if (!binLocation) {
+        const existing = await this.inventoryRepository.findOne({ where: { id } });
+        if (existing) {
+          this.inventoryRepository.delete({ id });
+        }
+        throw new NotFoundException(`Inventory with id ${id} not found in WMS bin locations`);
       }
-      throw new NotFoundException(`Inventory with id ${id} not found in WMS bin locations`);
+      let inventory = await this.inventoryRepository.findOne({
+        where: { id },
+        relations: ['product']
+      });
+      return inventory;
+    }catch{
+      throw new BadRequestException('Failed to fetch inventory');
     }
-    let inventory = await this.inventoryRepository.findOne({
-      where: { id },
-      relations: ['product']
-    });
-    return inventory;
   }
 
   async findByProductId(productId: string) {
@@ -233,23 +241,20 @@ export class InventoryService {
     try{
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
-      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
-
-      const response: {success:boolean, data: {bin_locations: {id:string}[]}[]} = await firstValueFrom(
-        this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/locations`, {
-          headers: {
-            'authorization': `${warehosue_key}`,
-            'Content-Type': 'application/json'
-          }
-        })
-      );
-      if (response && response.data && Array.isArray(response.data)) {
-        return response.data;
-      }
-      return [];
-    }
-    catch{
-      return [];
+      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
+      console.log(`Fetching WMS locations from ${wms_base_url}`);
+      const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=inventory&location_type=inventory`, {
+        method: 'GET',
+        headers: {
+          'authorization': `${warehosue_key}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await response.json();
+      console.log(`response: ${JSON.stringify(data)}`);
+      return data;
+    }catch{
+      throw new BadRequestException('Failed to fetch WMS inventory locations');
     }
   }
 

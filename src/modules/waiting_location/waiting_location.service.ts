@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateWaitingLocationDto } from './dto/create-waiting_location.dto';
 import { UpdateWaitingLocationDto } from './dto/update-waiting_location.dto';
 import { WaitingLocation } from 'src/entities';
@@ -33,28 +33,18 @@ export class WaitingLocationService {
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
       console.log(`Fetching WMS locations from ${wms_base_url}`);
-      const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_status=empty&location_zone=wait&location_type=wait`, {
+      const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=wait&location_type=wait`, {
         method: 'GET',
         headers: {
           'authorization': `${warehosue_key}`,
           'Content-Type': 'application/json'
         }
       });
-      const data: {zone_id:string, available_locations: any[]} = await response.json();
-      console.log(`Response from WMS: ${JSON.stringify(data)}`);
-      if (data) {
-        return data;
-      }
-      return {
-        zone_id: "station",
-        available_locations:[]
-      };
-    }
-    catch{
-      return {
-        zone_id: "station",
-        available_locations:[]
-      };
+      const data = await response.json();
+      console.log(`response: ${JSON.stringify(data)}`);
+      return data;
+    }catch{
+      throw new BadRequestException('Failed to fetch WMS stations');
     }
     
   }

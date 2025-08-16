@@ -53,7 +53,7 @@ export class StationsService {
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
       console.log(`Fetching WMS locations from ${wms_base_url}`);
-      const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_status=empty&location_zone=station&location_type=station`, {
+      const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=station&location_type=station`, {
         method: 'GET',
         headers: {
           'authorization': `${warehosue_key}`,
