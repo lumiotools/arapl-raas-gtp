@@ -126,7 +126,7 @@ export class WebhookService {
       'processing': BatchStatus.PROCESSING,
       'completed': BatchStatus.COMPLETED,
       'cancelled': BatchStatus.CANCELLED,
-      'failed': BatchStatus.FAILED
+      'failed': BatchStatus.FAILED,
     };
 
     const mapped = statusMap[webhookStatus.toLowerCase()];
@@ -146,6 +146,15 @@ export class WebhookService {
       'processing': TaskStatus.PROCESSING,
       'completed': TaskStatus.COMPLETED,
       'cancelled': TaskStatus.CANCELLED,
+      'robot_assigned': TaskStatus.PROCESSING,
+      'pickup_successful': TaskStatus.PROCESSING,
+      'robot_movement_started': TaskStatus.PROCESSING,
+      'drop_successful': TaskStatus.COMPLETED,
+      'task_cancelled': TaskStatus.CANCELLED,
+      'drop_rejected': TaskStatus.CANCELLED,
+      'pick_rejected': TaskStatus.CANCELLED,
+      'pick_failed': TaskStatus.CANCELLED,
+      'drop_failed': TaskStatus.CANCELLED
     };
 
     const mapped = statusMap[webhookStatus.toLowerCase()];
