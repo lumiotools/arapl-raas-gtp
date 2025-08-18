@@ -689,21 +689,28 @@ export class OrdersService {
     const results: OrderItemDetails[] = [];
     const orderItems : OrderItem[] = [];
     if (status == 'all'){
-      orderItems.push(...await this.orderItemRepository.find());
+      orderItems.push(...await this.orderItemRepository.find(
+        {
+          relations: ['completedTasks'],
+        }
+      ));
     }
     if (status == 'in_progress'){
       orderItems.push(...await this.orderItemRepository.find({
         where: { status: OrderItemStatus.IN_PROGRESS },
+        relations: ['completedTasks'],
       }));
     }
     if (status == 'completed'){
       orderItems.push(...await this.orderItemRepository.find({
         where: { status: OrderItemStatus.COMPLETED },
+        relations: ['completedTasks'],
       }));
     }
     if (status == 'cancelled'){
       orderItems.push(...await this.orderItemRepository.find({
         where: { status: OrderItemStatus.CANCELLED },
+        relations: ['completedTasks'],
       }));
     }
     if (orderItems.length === 0) {
@@ -711,6 +718,7 @@ export class OrdersService {
     }
     for (const order of orderItems) {
       const completedTasks = order.completedTasks || 0;
+      console.log(`completed tasks: ${completedTasks}`)
       const robotIds = Array.isArray(completedTasks) 
         ? Array.from(new Set(completedTasks.map(task => task.robot_id).filter(id => id))) 
         : [];
