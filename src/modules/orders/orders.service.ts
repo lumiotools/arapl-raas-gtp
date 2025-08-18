@@ -22,6 +22,18 @@ interface LicensePlateStats{
   completion_percentage ?: number;
   status ?: OrderItemStatus;
 }
+export interface OrderItemDetails{
+  license_plate_id: string;
+  order_id: string;
+  product_id: string;
+  quantity: number;
+  remaining_quantity: number;
+  status: OrderItemStatus;
+  assigned_gtp_location: string | null;
+  created_at?: Date;
+  updated_at?: Date;
+  robot_ids?: string[];
+}
 
 @Injectable()
 export class OrdersService {
@@ -669,29 +681,53 @@ export class OrdersService {
     return { status: false };
   }
 
-  async getOrdersByStatus(status: string): Promise<OrderItem[]> {
+  async getOrdersByStatus(status: string): Promise<OrderItemDetails[]> {
     console.log(`Getting orders with status: ${status}`);
     if (!status) {
       throw new BadRequestException('Status is required');
     }
+    const results: OrderItemDetails[] = [];
+    const orderItems : OrderItem[] = [];
     if (status == 'all'){
-      return this.orderItemRepository.find();
+      orderItems.push(...await this.orderItemRepository.find());
     }
     if (status == 'in_progress'){
-      return this.orderItemRepository.find({
+      orderItems.push(...await this.orderItemRepository.find({
         where: { status: OrderItemStatus.IN_PROGRESS },
-      });
+      }));
     }
     if (status == 'completed'){
-      return this.orderItemRepository.find({
+      orderItems.push(...await this.orderItemRepository.find({
         where: { status: OrderItemStatus.COMPLETED },
-      });
+      }));
     }
     if (status == 'cancelled'){
-      return this.orderItemRepository.find({
+      orderItems.push(...await this.orderItemRepository.find({
         where: { status: OrderItemStatus.CANCELLED },
+      }));
+    }
+    if (orderItems.length === 0) {
+      return [] as OrderItemDetails[];
+    }
+    for (const order of orderItems) {
+      const completedTasks = order.completedTasks || 0;
+      const robotIds = Array.isArray(completedTasks) 
+        ? Array.from(new Set(completedTasks.map(task => task.robot_id).filter(id => id))) 
+        : [];
+      
+      results.push({
+        license_plate_id: order.license_plate_id,
+        order_id: order.order_id,
+        product_id: order.product_id,
+        quantity: order.quantity,
+        remaining_quantity: order.remaining_quantity,
+        status: order.status,
+        assigned_gtp_location: order.assigned_gtp_location,
+        created_at: order.created_at,
+        updated_at: order.updated_at,
+        robot_ids: robotIds,
       });
     }
-    return [];
+    return results;
   }
 }

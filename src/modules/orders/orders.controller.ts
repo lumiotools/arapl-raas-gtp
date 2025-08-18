@@ -22,7 +22,7 @@ import {
   ApiResponse,
   ApiOperation,
 } from '@nestjs/swagger';
-import { OrdersService } from './orders.service';
+import { OrdersService, OrderItemDetails } from './orders.service';
 import { UploadResponseDto } from './dto/upload-order.dto';
 import {
   BadRequestDto,
@@ -555,9 +555,9 @@ export class OrdersController {
     description: 'Invalid status parameter',
     type: BadRequestDto,
   })
-  async getOrdersByStatus(
+  async getOrderDetails(
     @Query('status') status: string
-  ) {
+  ): Promise<OrderItemDetails[]> {
     if (!status) {
       throw new BadRequestException('Status query parameter is required');
     }
