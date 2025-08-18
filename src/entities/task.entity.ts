@@ -111,10 +111,10 @@ export class Task {
   @Column({ type: 'json' })
   end_location: Location;
 
-  @Column({ type: 'json' })
+  @Column({ type: 'json', nullable: true })
   wait: Wait;
 
-  @Column({ type: 'json' })
+  @Column({ type: 'json', nullable: true })
   cargos: Cargo[];
 
   @Column({ type: 'timestamp', precision: 3, nullable: true })
