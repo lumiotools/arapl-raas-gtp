@@ -12,6 +12,7 @@ import {
   Param,
   Body,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -516,5 +517,50 @@ export class OrdersController {
     @Param('gtpLocationId') gtpLocationId: string
   ): Promise<{ status: boolean }> {
     return await this.ordersService.getGtpLocationStatus(gtpLocationId);
+  }
+
+  @Get('by-status')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  @ApiOperation({
+    summary: 'Get orders by status',
+    description: 'Retrieve all orders filtered by their status.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved orders by status',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Found 5 orders with status PENDING' },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              order_id: { type: 'string', example: 'ORD001' },
+              status: { type: 'string', example: 'PENDING' },
+              created_at: { type: 'string', format: 'date-time' },
+              updated_at: { type: 'string', format: 'date-time' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid status parameter',
+    type: BadRequestDto,
+  })
+  async getOrdersByStatus(
+    @Query('status') status: string
+  ) {
+    if (!status) {
+      throw new BadRequestException('Status query parameter is required');
+    }
+    return await this.ordersService.getOrdersByStatus(status);
   }
 }

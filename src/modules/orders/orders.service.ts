@@ -668,5 +668,30 @@ export class OrdersService {
     }
     return { status: false };
   }
-}
 
+  async getOrdersByStatus(status: string): Promise<OrderItem[]> {
+    console.log(`Getting orders with status: ${status}`);
+    if (!status) {
+      throw new BadRequestException('Status is required');
+    }
+    if (status == 'all'){
+      return this.orderItemRepository.find();
+    }
+    if (status == 'in_progress'){
+      return this.orderItemRepository.find({
+        where: { status: OrderItemStatus.IN_PROGRESS },
+      });
+    }
+    if (status == 'completed'){
+      return this.orderItemRepository.find({
+        where: { status: OrderItemStatus.COMPLETED },
+      });
+    }
+    if (status == 'cancelled'){
+      return this.orderItemRepository.find({
+        where: { status: OrderItemStatus.CANCELLED },
+      });
+    }
+    return [];
+  }
+}

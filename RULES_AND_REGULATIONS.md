@@ -1,4 +1,4 @@
-# Rules and Regulations for Using the Warehouse Management System (Frontend)
+# Rules and Regulations for Using the Warehouse Management System
 
 ## 1. General Usage
 - Only authorized personnel may access and operate the system via the web interface. User accounts must not be shared.
@@ -6,11 +6,11 @@
 - Users must comply with company policies and data privacy regulations when handling order, inventory, and product data.
 
 ## 2. Data Entry and Uploads
-- All data uploads (orders, assignments, schedule mappings) must use the provided CSV or Excel templates. Do not modify column headers or formats.
+- All data uploads (orders, assignments, inventory) must use the provided CSV or Excel templates. Do not modify column headers or formats.
 - Before uploading, verify that all required fields are present and accurate:
   - Orders: `Order ID`, `Product Id`, `Qty`, `License Plate ID`
   - Assignments: `GTP Location`, `License Plate ID`
-  - Schedule Mapping: `GTP Location`, `License Plate ID`
+  - Inventory: `Inv Locations,Product ID,Qty,barcode_number`
 - Do not upload duplicate data in the system.
 - If an upload fails, review the error message displayed in the UI and correct the file before retrying.
 
@@ -22,12 +22,11 @@
 ## 4. Order Processing
 - Orders must be created and managed through the system interface or approved upload endpoints.
 - Do not manually alter order statuses or assignments outside the system.
-- Ensure that all order items are correctly mapped to products and license plates.
-- Only assign Pick locations to license plates that are available and not already assigned.
+- Ensure that all license plates are correctly mapped to products and pick locations.
 
 ## 5. Station and Location Assignments
 - Assignments of Pick locations, stations, and waiting locations must be performed using the correct UI sections and file formats.
-- Do not assign the same Pick location to multiple license plates unless explicitly allowed by system rules.
+- Appropriately choose the license plate numbers to process at each station and perform all operations according to that only.
 - Always verify station and location availability before making assignments.
 
 ## 6. Skip and Partial Skip Conditions
@@ -53,13 +52,9 @@
 
 ## 11. Settings Section Functionality
 
-- The **Settings** section allows users to:
-  - Manage system configurations, including station setup and pick location assignments.
-  - Add, edit, or remove stations and pick locations.
-  - View and update inventory details.
-  - Upload configuration files for bulk updates (stations, pick locations, inventory).
-  - Review current assignments and system mappings.
-  - Access audit logs and system status for configuration changes.
+- The **Settings** section is strictly accessible to administrators only.
+- Any configuration changes in this section—such as adding or updating stations, pick locations, or waiting locations—must be handled with caution, as they can directly impact the overall performance of the application.
+- The number of waiting locations should be at least equal to the number of stations configured in the system.
 - All changes made in the configuration section are subject to validation and require appropriate permissions.
 
 
@@ -67,7 +62,7 @@
 
 - Users log in to the system using their credentials.
 - The dashboard provides access to analytics, robot movement, station status, and wait location analysis.
-- Data uploads (orders, assignments, inventory) are performed via the **Actions** section, using the provided templates.
+- Data uploads (orders, assignments, inventory) are performed via the **Actions** and **License Plate Mapping** section, using the provided templates.
 - Configuration changes (stations, pick locations, inventory and waiting locations) are managed in the **Settings** section.
 - All actions, uploads, and changes are reflected in real-time in the dashboard and relevant UI sections.
 - Error messages and notifications are displayed in the UI for user guidance.
