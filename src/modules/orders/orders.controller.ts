@@ -518,14 +518,14 @@ export class OrdersController {
   ): Promise<{ status: boolean }> {
     return await this.ordersService.getGtpLocationStatus(gtpLocationId);
   }
-
+  
   @Get('by-status')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'operator')
   @ApiOperation({
     summary: 'Get orders by status',
-    description: 'Retrieve all orders filtered by their status.',
+    description: 'Retrieve all orders filtered by their status. Multiple statuses can be provided as comma-separated values.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -534,7 +534,7 @@ export class OrdersController {
       type: 'object',
       properties: {
         success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Found 5 orders with status PENDING' },
+        message: { type: 'string', example: 'Found 5 orders with status PENDING, COMPLETED' },
         data: {
           type: 'array',
           items: {
@@ -555,12 +555,20 @@ export class OrdersController {
     description: 'Invalid status parameter',
     type: BadRequestDto,
   })
-  async getOrderDetails(
+  async getOrdersByStatus(
     @Query('status') status: string
   ): Promise<OrderItemDetails[]> {
     if (!status) {
       throw new BadRequestException('Status query parameter is required');
     }
-    return await this.ordersService.getOrdersByStatus(status);
+    
+    // Split comma-separated statuses and trim whitespace
+    const statusList = status.split(',').map(s => s.trim()).filter(s => s.length > 0);
+    
+    if (statusList.length === 0) {
+      throw new BadRequestException('At least one valid status must be provided');
+    }
+    
+    return await this.ordersService.getOrdersByStatus(statusList);
   }
 }

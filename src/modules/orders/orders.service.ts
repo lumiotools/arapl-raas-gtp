@@ -682,33 +682,33 @@ export class OrdersService {
     return { status: false };
   }
 
-  async getOrdersByStatus(status: string): Promise<OrderItemDetails[]> {
-    console.log(`Getting orders with status: ${status}`);
-    if (!status) {
+  async getOrdersByStatus(statusList: string[]): Promise<OrderItemDetails[]> {
+    console.log(`Getting orders with status: ${statusList.join(', ')}`);
+    if (!statusList || statusList.length === 0) {
       throw new BadRequestException('Status is required');
     }
     const results: OrderItemDetails[] = [];
     const orderItems : OrderItem[] = [];
-    if (status == 'all'){
+    if (statusList.includes('all')){
       orderItems.push(...await this.orderItemRepository.find(
         {
           relations: ['completedTasks'],
         }
       ));
     }
-    if (status == 'in_progress'){
+    if (statusList.includes('in_progress')){
       orderItems.push(...await this.orderItemRepository.find({
         where: { status: OrderItemStatus.IN_PROGRESS },
         relations: ['completedTasks'],
       }));
     }
-    if (status == 'completed'){
+    if (statusList.includes('completed')){
       orderItems.push(...await this.orderItemRepository.find({
         where: { status: OrderItemStatus.COMPLETED },
         relations: ['completedTasks'],
       }));
     }
-    if (status == 'cancelled'){
+    if (statusList.includes('cancelled')){
       orderItems.push(...await this.orderItemRepository.find({
         where: { status: OrderItemStatus.CANCELLED },
         relations: ['completedTasks'],
