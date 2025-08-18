@@ -16,7 +16,6 @@ import { Log } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
-
 interface LicensePlateStats{
   license_plate_id: string;
   completion_percentage ?: number;
@@ -34,6 +33,7 @@ export interface OrderItemDetails{
   updated_at?: Date;
   robot_ids?: string[];
   total_unloading_time?: number;
+  station_id ?: string;
 }
 
 @Injectable()
@@ -729,7 +729,14 @@ export class OrdersService {
         let unloading_time = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
         totalUnloadingTime += unloading_time;
       }
-      
+      let station_id = '-';
+      const assigned_gtp_location = order.assigned_gtp_location;
+      if (assigned_gtp_location){
+        const gtp_location = await this.gtpLocationRepository.findOne({
+          where: { gtp_location_id: assigned_gtp_location }
+        });
+        station_id = gtp_location?.station_id || '-';
+      }
       results.push({
         license_plate_id: order.license_plate_id,
         order_id: order.order_id,
@@ -741,7 +748,8 @@ export class OrdersService {
         created_at: order.created_at,
         updated_at: order.updated_at,
         robot_ids: robotIds,
-        total_unloading_time: totalUnloadingTime
+        total_unloading_time: totalUnloadingTime,
+        station_id: station_id
       });
     }
     return results;
