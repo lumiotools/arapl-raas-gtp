@@ -57,6 +57,34 @@ export class StationsController {
     return await this.stationsService.create(createStationDto);
   }
 
+  @Get('unloading-times')
+  @ApiOperation({
+    summary: 'Get unloading times for all stations',
+    description: 'Retrieve the unloading times for all stations in the system.'
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Unloading times for all stations',
+    schema: {
+      example: [
+        {
+          station_id: 'ST001',
+          unloading_time: 120,
+          unit: 'seconds'
+        },
+        {
+          station_id: 'ST002',
+          unloading_time: 90,
+          unit: 'seconds'
+        }
+      ]
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  async getUnloadingTimes() {
+    return await this.stationsService.getUnloadingTimes();
+  }
   @Get()
   @ApiOperation({ 
     summary: 'Get all stations',

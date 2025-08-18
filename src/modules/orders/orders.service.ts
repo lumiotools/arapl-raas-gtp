@@ -33,6 +33,7 @@ export interface OrderItemDetails{
   created_at?: Date;
   updated_at?: Date;
   robot_ids?: string[];
+  total_unloading_time?: number;
 }
 
 @Injectable()
@@ -718,10 +719,16 @@ export class OrdersService {
     }
     for (const order of orderItems) {
       const completedTasks = order.completedTasks || 0;
-      console.log(`completed tasks: ${completedTasks}`)
       const robotIds = Array.isArray(completedTasks) 
         ? Array.from(new Set(completedTasks.map(task => task.robot_id).filter(id => id))) 
         : [];
+      
+      let totalUnloadingTime = 0;
+      for (const task of completedTasks){
+        if (!task.triggered || !task.completed) continue;
+        let unloading_time = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
+        totalUnloadingTime += unloading_time;
+      }
       
       results.push({
         license_plate_id: order.license_plate_id,
@@ -734,6 +741,7 @@ export class OrdersService {
         created_at: order.created_at,
         updated_at: order.updated_at,
         robot_ids: robotIds,
+        total_unloading_time: totalUnloadingTime
       });
     }
     return results;

@@ -255,4 +255,31 @@ export class StationsService {
       status: status
     }
   }
+
+  async getUnloadingTimes(): Promise<any> {
+    const allStations = await this.stationRepository.find();
+    const allTasks = await this.taskRepository.find();
+    const result = {};
+    for (const task of allTasks) {
+      if (!task.triggered || !task.completed) continue;
+      let end_location: string;
+      end_location = task.end_location.location_id;
+      if (end_location) {
+        const station = allStations.find(station => station.station_id === end_location);
+        if (station) {
+          let unloading_time = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
+          if (result[station.station_id]) {
+            result[station.station_id].unloading_time.push(unloading_time);
+            result[station.station_id].task_count += 1;
+          } else {
+            result[station.station_id] = {
+              unloading_time: [unloading_time],
+              task_count: 1
+            };
+          }
+        }
+      }
+    }
+    return result;
+  }
 }
