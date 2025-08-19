@@ -34,6 +34,8 @@ export interface OrderItemDetails{
   robot_ids?: string[];
   total_unloading_time?: number;
   station_id ?: string;
+  start_time?: Date | undefined;
+  end_time?: Date | undefined;
 }
 
 @Injectable()
@@ -737,6 +739,11 @@ export class OrdersService {
         });
         station_id = gtp_location?.station_id || '-';
       }
+      let start_time = order.created_at ? new Date(order.created_at) : undefined;
+      let end_time: Date | undefined = undefined;
+      if (order.status == OrderItemStatus.COMPLETED || order.status == OrderItemStatus.CANCELLED){
+        end_time = order.updated_at ? new Date(order.updated_at) : undefined;
+      }
       results.push({
         license_plate_id: order.license_plate_id,
         order_id: order.order_id,
@@ -749,7 +756,9 @@ export class OrdersService {
         updated_at: order.updated_at,
         robot_ids: robotIds,
         total_unloading_time: totalUnloadingTime,
-        station_id: station_id
+        station_id: station_id,
+        start_time: start_time,
+        end_time: end_time
       });
     }
     return results;
