@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException, LoggerService } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, In, LessThan } from 'typeorm';
+import { Repository, IsNull, In, LessThan, Between, MoreThanOrEqual } from 'typeorm';
 import * as XLSX from 'xlsx';
 import * as csv from 'csv-parser';
 import { Readable } from 'stream';
@@ -687,35 +687,49 @@ export class OrdersService {
     return { status: false };
   }
 
-  async getOrdersByStatus(statusList: string[]): Promise<OrderItemDetails[]> {
+  async getOrdersByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined): Promise<OrderItemDetails[]> {
+    console.log(`start_time: ${start_time}`)
     console.log(`Getting orders with status: ${statusList.join(', ')}`);
     if (!statusList || statusList.length === 0) {
       throw new BadRequestException('Status is required');
     }
     const results: OrderItemDetails[] = [];
     const orderItems : OrderItem[] = [];
+    const whereCondition: any = {};
+    if (start_time && end_time) {
+      whereCondition.created_at = Between(start_time, end_time);
+    }
+    if (start_time){
+      whereCondition.created_at = MoreThanOrEqual(start_time);
+    }
+    if (end_time){
+      whereCondition.created_at = LessThan(end_time);
+    }
+    console.log(`wherecondition: ${whereCondition}`)
     if (statusList.includes('all')){
-      orderItems.push(...await this.orderItemRepository.find(
-        {
-          relations: ['completedTasks'],
-        }
-      ));
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
     }
     if (statusList.includes('in_progress')){
+      whereCondition.status = OrderItemStatus.IN_PROGRESS;
       orderItems.push(...await this.orderItemRepository.find({
-        where: { status: OrderItemStatus.IN_PROGRESS },
+        where: whereCondition,
         relations: ['completedTasks'],
       }));
     }
     if (statusList.includes('completed')){
+      whereCondition.status = OrderItemStatus.COMPLETED;
       orderItems.push(...await this.orderItemRepository.find({
-        where: { status: OrderItemStatus.COMPLETED },
+        where: whereCondition,
         relations: ['completedTasks'],
       }));
     }
     if (statusList.includes('cancelled')){
+      whereCondition.status = OrderItemStatus.CANCELLED;
       orderItems.push(...await this.orderItemRepository.find({
-        where: { status: OrderItemStatus.CANCELLED },
+        where: whereCondition,
         relations: ['completedTasks'],
       }));
     }
