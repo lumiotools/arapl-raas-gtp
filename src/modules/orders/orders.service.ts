@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException, LoggerService } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, In } from 'typeorm';
+import { Repository, IsNull, In, LessThan } from 'typeorm';
 import * as XLSX from 'xlsx';
 import * as csv from 'csv-parser';
 import { Readable } from 'stream';
@@ -12,7 +12,7 @@ import {
   ProcessedOrderItemDto,
   UploadResponseDto,
 } from './dto/upload-order.dto';
-import { Log } from 'src/entities';
+import { Log, Task } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
@@ -34,8 +34,9 @@ export interface OrderItemDetails{
   robot_ids?: string[];
   total_unloading_time?: number;
   station_id ?: string;
-  start_time?: Date | undefined;
-  end_time?: Date | undefined;
+  start_time?: Date;
+  end_time?: Date;
+  wait_time?: number;
 }
 
 @Injectable()
@@ -49,6 +50,8 @@ export class OrdersService {
     private gtpLocationRepository: Repository<GtpLocation>,
     @InjectRepository(ScheduleMapping)
     private scheduleMappingRepository: Repository<ScheduleMapping>,
+    @InjectRepository(Task)
+    private taskRepository: Repository<Task>,
     private readonly loggingService: LoggingService
   ) {}
 
@@ -726,12 +729,42 @@ export class OrdersService {
         : [];
       
       let totalUnloadingTime = 0;
+      let wait_time = 0;
       for (const task of completedTasks){
         if (!task.triggered || !task.completed) continue;
         let unloading_time = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
         totalUnloadingTime += unloading_time;
+
+        const batch_id = task.batch_id || '-';
+        const current_sequence_number = task.sequence_order;
+        const previous_task_of_orders = await this.taskRepository.find({
+          where: { 
+            batch_id: batch_id, 
+            sequence_order: LessThan(current_sequence_number)
+          }
+        });
+        for (const previousTask of previous_task_of_orders) {
+          if (previousTask.created_at < order.created_at){continue;}
+          if (previousTask.end_location.location_attribute.attribute_value=='waiting_location') {
+            if (previousTask.completed) {
+              // Find the next task in sequence order
+              const nextTask = await this.taskRepository.findOne({
+                where: { 
+                  batch_id: batch_id, 
+                  sequence_order: previousTask.sequence_order + 1
+                }
+              });
+              
+              if (nextTask && nextTask.processing) {
+                const waitingTime = Math.floor((Number(nextTask.processing) - Number(previousTask.completed)) / 1000);
+                wait_time += waitingTime;
+              }
+            }
+          }
+        }
       }
       let station_id = '-';
+      // find assigned gtp location
       const assigned_gtp_location = order.assigned_gtp_location;
       if (assigned_gtp_location){
         const gtp_location = await this.gtpLocationRepository.findOne({
@@ -739,6 +772,7 @@ export class OrdersService {
         });
         station_id = gtp_location?.station_id || '-';
       }
+      // fetch start and end time
       let start_time = order.created_at ? new Date(order.created_at) : undefined;
       let end_time: Date | undefined = undefined;
       if (order.status == OrderItemStatus.COMPLETED || order.status == OrderItemStatus.CANCELLED){
@@ -758,7 +792,8 @@ export class OrdersService {
         total_unloading_time: totalUnloadingTime,
         station_id: station_id,
         start_time: start_time,
-        end_time: end_time
+        end_time: end_time,
+        wait_time: wait_time
       });
     }
     return results;

@@ -10,12 +10,12 @@ import { JwtModule } from '@nestjs/jwt';
 import { jwtConfig } from 'src/config/jwt.config';
 import { User } from 'src/entities/user.entity';
 import { LoggingService } from 'src/services/logging.service';
-import { Log } from 'src/entities';
+import { Log, Task } from 'src/entities';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
 @Module({
   imports: [JwtModule.register(jwtConfig),
-    TypeOrmModule.forFeature([OrderItem, Product, GtpLocation, User, Log, ScheduleMapping])],
+    TypeOrmModule.forFeature([OrderItem, Product, GtpLocation, User, Log, ScheduleMapping, Task])],
   controllers: [OrdersController],
   providers: [OrdersService, LoggingService],
 })
