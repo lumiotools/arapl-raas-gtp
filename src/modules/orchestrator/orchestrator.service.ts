@@ -1158,7 +1158,7 @@ export class OrchestratorService {
         this.orchestratorWorking  = true;
 
         // add a function that sends a task again
-        await this.resendPendingTasks();
+        // await this.resendPendingTasks();
 
         await this.scheduleLPtoPickLocation();
         // check if a there is lp plate waiting for a pick location
