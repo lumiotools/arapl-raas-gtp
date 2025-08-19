@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException, ForbiddenException 
 import { CreateStationDto } from './dto/create-station.dto';
 import { UpdateStationDto } from './dto/update-station.dto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Between, In, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { LocationStatus, Station } from 'src/entities/station.entity';
 import { GtpLocation, OrderItem, OrderItemStatus, Task } from 'src/entities';
 import { ProductRequirement as ProductRequirementEntity } from 'src/entities/product-requirement.entity';
@@ -256,9 +256,22 @@ export class StationsService {
     }
   }
 
-  async getUnloadingTimes(): Promise<any> {
+  async getUnloadingTimes(startDate: Date | undefined, endDate: Date | undefined): Promise<any> {
     const allStations = await this.stationRepository.find();
-    const allTasks = await this.taskRepository.find();
+    const whereCondition: any = {};
+    if (startDate && endDate) {
+      whereCondition.created_at = Between(startDate, endDate);
+    }
+    if (startDate){
+      whereCondition.created_at = MoreThanOrEqual(startDate);
+    }
+    if (endDate){
+      whereCondition.created_at = LessThan(endDate);
+    }
+    const allTasks = await this.taskRepository.find({
+      where: whereCondition,
+    });
+    console.log(`where condition: ${JSON.stringify(whereCondition)}`)
     const result = {};
     for (const task of allTasks) {
       if (!task.triggered || !task.completed) continue;
