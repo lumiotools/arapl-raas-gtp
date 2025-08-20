@@ -7,13 +7,13 @@ export enum LocationType {
 }
 
 export enum LocationAction {
-  PICK = 'Pick',
-  DROP = 'Drop',
-  NOP = 'Nop',
-  WAITPICK = 'Waitpick',
-  WAITDROP = 'Waitdrop',
-  WAIT = 'Wait',
-  DESTACK = 'Destack',
+  PICK = 'PICK',
+  DROP = 'DROP',
+  NOP = 'NOP',
+  WAITPICK = 'WAITPICK',
+  WAITDROP = 'WAITDROP',
+  WAIT = 'WAIT',
+  DESTACK = 'DESTACK',
 }
 
 export interface LocationDimension {

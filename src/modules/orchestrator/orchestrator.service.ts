@@ -652,7 +652,7 @@ export class OrchestratorService {
       const requestBody = {
         batch_job_id: task.batch_id,
         batch_priority: 0,
-        batch_type: "Discrete",
+        batch_type: "DISCRETE",
         tasks: [{
           task_id: task.task_id.toString(),
           task_type: task.task_type,
@@ -682,7 +682,6 @@ export class OrchestratorService {
           cargos: null,
         }]
       };
-      console.log(`request body: ${JSON.stringify(requestBody, null, 2)}`);
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
