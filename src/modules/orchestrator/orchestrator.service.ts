@@ -298,6 +298,40 @@ export class OrchestratorService {
     }
     console.log(`Finished saving product requirements: ${JSON.stringify(Array.from(requirementMap.entries()))}`);
   }
+  
+  async getAllRobots(){
+    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+    const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robots';  
+
+    const response = await firstValueFrom(
+      this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/robots`, {
+        headers: {
+          'authorization': `${warehosue_key}`
+        }
+      })
+    );
+    const res : any = [];
+    if (response && response.data && Array.isArray(response.data.robots)){
+      res.push(...response.data.robots);
+      const holdingStations = await this.stationRepository.find({
+        where: { holded_by: Not(IsNull()) }
+      });
+      const holdingTasks = await this.taskRepository.find({
+        where: { task_id: In(holdingStations.map(station => station.holded_by).filter(id => id !== null)) }
+      });
+      res.push(...holdingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' })));
+      const holdingWaitingLocations = await this.waitingLocationRepository.find({
+        where: { holded_by: Not(IsNull()) }
+      });
+      const holdingWaitingTasks = await this.taskRepository.find({
+        where: { task_id: In(holdingWaitingLocations.map(wl => wl.holded_by).filter(id => id !== null)) }
+      });
+      res.push(...holdingWaitingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' })));
+    }
+
+    return res;
+  }
 
   async getIdleRobotCount(): Promise<number>{
     const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
