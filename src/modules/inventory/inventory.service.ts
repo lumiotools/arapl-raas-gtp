@@ -89,9 +89,9 @@ export class InventoryService {
 
       // find ids present in inventory_ids but not present in bin_ids
       const missingBinIds = inventory_ids.filter(id => !bin_ids.includes(id));
-      if (missingBinIds.length > 0) {
-        await this.inventoryRepository.delete(missingBinIds); // remove missing inventory ids
-      }
+      // if (missingBinIds.length > 0) {
+      //   await this.inventoryRepository.delete(missingBinIds); // remove missing inventory ids
+      // }
 
       // find ids that exists in inventory ids and bin_ids
       const existingBinIds = inventory_ids.filter(id => bin_ids.includes(id));
@@ -141,15 +141,15 @@ export class InventoryService {
       const binLocation = bin_locations.find((bin: { location_id: string }) => bin.location_id === id);
       if (!binLocation) {
         const existing = await this.inventoryRepository.findOne({ where: { id } });
-        if (existing) {
-          this.inventoryRepository.delete({ id });
-        }
+        // if (existing) {
+        //   this.inventoryRepository.delete({ id });
+        // }
         throw new NotFoundException(`Inventory with id ${id} not found in WMS bin locations`);
       }
       let inventory = await this.inventoryRepository.findOne({
-        where: { id },
-        relations: ['product']
+        where: { id: id },
       });
+      console.log(`inventory: ${JSON.stringify(inventory)}`)
       return inventory;
     }catch{
       throw new BadRequestException('Failed to fetch inventory');
@@ -252,7 +252,6 @@ export class InventoryService {
         }
       });
       const data = await response.json();
-      console.log(`response: ${JSON.stringify(data)}`);
       return data;
     }catch{
       throw new BadRequestException('Failed to fetch WMS inventory locations');

@@ -53,11 +53,14 @@ export class WebhookService {
       where: { task_id: parseInt(taskStatusData.task_id)}
     });
     if (!task) {return;}
-
+    if (task.status === TaskStatus.TRIGERRED) {
+      this.logger.log(`Task ${taskStatusData.task_id} is already completed - skipping update`);
+      return;
+    }
     const oldStatus = task.status;
     const mappedStatus = this.mapTaskStatus(taskStatusData.task_status);
 
-    if (oldStatus === mappedStatus) {
+    if (oldStatus === mappedStatus && task.robot_id) {
       this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
       return; // No change needed
     }
@@ -66,7 +69,7 @@ export class WebhookService {
     await this.loggingService.log(`Task ${taskStatusData.task_id}: Webhook Received - status from ${oldStatus} to ${mappedStatus} (robot: ${taskStatusData.robot_id || 'none'})`);
   
     task.status = mappedStatus;
-    task.robot_id = taskStatusData.assigned_robot || null;
+    task.robot_id = taskStatusData.robot_id || null;
     const currentTime = new Date();
     if (mappedStatus === TaskStatus.INQUEUE) {
       task.inqueue = currentTime;
@@ -84,6 +87,25 @@ export class WebhookService {
     
     // Handle station status updates
     await this.handleStationUpdates(task, oldStatus, mappedStatus);
+
+    if (mappedStatus === TaskStatus.CANCELLED){
+      if (task.end_location?.location_attribute?.attribute_value === 'station') {
+        const station = await this.stationRepository.findOne({where:{station_id: task.end_location.location_id}});
+        if (station) {
+          station.status = LocationStatus.AVAILABLE;
+          station.holded_by = null; // Clear holded_by since task is cancelled
+          await this.stationRepository.save(station);
+        }
+      }
+      if (task.end_location?.location_attribute?.attribute_value === 'waiting_location') {
+        const waitingLocation = await this.waitingLocationRepository.findOne({where:{location_id: task.end_location.location_id}});
+        if (waitingLocation) {
+          waitingLocation.status = LocationStatus.AVAILABLE;
+          waitingLocation.holded_by = null; // Clear holded_by since task is cancelled
+          await this.waitingLocationRepository.save(waitingLocation);
+        }
+      }
+    }
     
     // Handle task completion based on destination type
     if (mappedStatus === TaskStatus.COMPLETED) {
@@ -140,16 +162,17 @@ export class WebhookService {
   }
 
   private mapTaskStatus(webhookStatus: string): TaskStatus {
+    console.log(webhookStatus);
     const statusMap: { [key: string]: TaskStatus } = {
       'pending': TaskStatus.PENDING,
       'assigned': TaskStatus.ASSIGNED,
       'inqueue': TaskStatus.INQUEUE,
-      'In-Queue': TaskStatus.INQUEUE,
+      'in-queue': TaskStatus.PROCESSING,
       'processing': TaskStatus.PROCESSING,
-      'In-Progress': TaskStatus.PROCESSING,
-      'Completed': TaskStatus.COMPLETED,
+      'in-progress': TaskStatus.PROCESSING,
       'completed': TaskStatus.COMPLETED,
       'cancelled': TaskStatus.CANCELLED,
+      'canceled': TaskStatus.CANCELLED,
       'robot_assigned': TaskStatus.PROCESSING,
       'pickup_successful': TaskStatus.PROCESSING,
       'robot_movement_started': TaskStatus.PROCESSING,
@@ -166,7 +189,7 @@ export class WebhookService {
       this.logger.warn(`Unknown task status: ${webhookStatus}, defaulting to PENDING`);
       return TaskStatus.PENDING;
     }
-    
+    console.log(`Mapping webhook status ${webhookStatus} to TaskStatus: ${mapped}`);
     return mapped;
   }
 

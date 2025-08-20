@@ -200,6 +200,7 @@ export class OrchestratorService {
       // get all idle robots and number of tasks from inventory should be equal to the number of idle robots
       let IdleRobots: number = await this.getIdleRobotCount();
       // let IdleRobots = 2;
+      console.log(`Idle robot count: ${IdleRobots}`);
       for (const requirement of productRequirements) {
         if (IdleRobots <= 0) {
           this.logger.warn(`No idle robots available for product ${requirement.productId}`);
@@ -312,7 +313,13 @@ export class OrchestratorService {
     );
     if (response && response.data && Array.isArray(response.data.robots)) {
       const idleCount = response.data.robots.filter((robot: any) => robot.status === 'idle').length;
-      return idleCount;
+      let holdingTasks = (await this.stationRepository.find({
+        where: { holded_by: Not(IsNull()) }
+      })).length;
+      holdingTasks += (await this.waitingLocationRepository.find({
+        where: { holded_by: Not(IsNull()) }
+      })).length;
+      return idleCount - holdingTasks;
     }
     return 0;
   }
@@ -650,7 +657,7 @@ export class OrchestratorService {
 
     try {
       const requestBody = {
-        batch_job_id: task.batch_id,
+        // batch_job_id: task.batch_id,
         batch_priority: 0,
         batch_type: "DISCRETE",
         tasks: [{
@@ -682,6 +689,7 @@ export class OrchestratorService {
           cargos: null,
         }]
       };
+      console.log(`Sending task ${task.task_id} to WMS with request body: ${JSON.stringify(requestBody)}`);
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
@@ -1181,7 +1189,7 @@ export class OrchestratorService {
         this.orchestratorWorking  = true;
 
         // add a function that sends a task again
-        // await this.resendPendingTasks();
+        await this.resendPendingTasks();
 
         await this.scheduleLPtoPickLocation();
         // check if a there is lp plate waiting for a pick location
