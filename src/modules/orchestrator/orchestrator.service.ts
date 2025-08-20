@@ -198,8 +198,8 @@ export class OrchestratorService {
       }
 
       // get all idle robots and number of tasks from inventory should be equal to the number of idle robots
-      // let IdleRobots: number = await this.getIdleRobotCount();
-      let IdleRobots = 5;
+      let IdleRobots: number = await this.getIdleRobotCount();
+      // let IdleRobots = 2;
       for (const requirement of productRequirements) {
         if (IdleRobots <= 0) {
           this.logger.warn(`No idle robots available for product ${requirement.productId}`);
@@ -655,7 +655,7 @@ export class OrchestratorService {
         batch_type: "DISCRETE",
         tasks: [{
           task_id: task.task_id.toString(),
-          task_type: task.task_type,
+          task_type: "GOODSTOPERSON",
           task_dependency: null,
           robot_id: task.robot_id,
           start_location: {

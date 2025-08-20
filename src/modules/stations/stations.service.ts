@@ -61,7 +61,7 @@ export class StationsService {
         }
       });
       const data: {zone_id:string, available_location_types: any[]} = await response.json();
-      console.log(`Response from WMS: ${JSON.stringify(data)}`);
+      // console.log(`Response from WMS: ${JSON.stringify(data)}`);
       return data;
     }
     catch{

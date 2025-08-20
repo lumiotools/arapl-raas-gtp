@@ -37,6 +37,7 @@ export class WebhookService {
     
     try {
       for (const taskStatus of webhookData.tasks) {
+        taskStatus.task_id = taskStatus.task_display_id;
         await this.updateTaskStatus(webhookData.batch_job_id, taskStatus);
       }
       return { message: 'Webhook processed successfully' };
@@ -54,7 +55,7 @@ export class WebhookService {
     if (!task) {return;}
 
     const oldStatus = task.status;
-    const mappedStatus = this.mapTaskStatus(taskStatusData.status);
+    const mappedStatus = this.mapTaskStatus(taskStatusData.task_status);
 
     if (oldStatus === mappedStatus) {
       this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
@@ -65,7 +66,7 @@ export class WebhookService {
     await this.loggingService.log(`Task ${taskStatusData.task_id}: Webhook Received - status from ${oldStatus} to ${mappedStatus} (robot: ${taskStatusData.robot_id || 'none'})`);
   
     task.status = mappedStatus;
-    task.robot_id = taskStatusData.robot_id || null;
+    task.robot_id = taskStatusData.assigned_robot || null;
     const currentTime = new Date();
     if (mappedStatus === TaskStatus.INQUEUE) {
       task.inqueue = currentTime;
@@ -143,7 +144,10 @@ export class WebhookService {
       'pending': TaskStatus.PENDING,
       'assigned': TaskStatus.ASSIGNED,
       'inqueue': TaskStatus.INQUEUE,
+      'In-Queue': TaskStatus.INQUEUE,
       'processing': TaskStatus.PROCESSING,
+      'In-Progress': TaskStatus.PROCESSING,
+      'Completed': TaskStatus.COMPLETED,
       'completed': TaskStatus.COMPLETED,
       'cancelled': TaskStatus.CANCELLED,
       'robot_assigned': TaskStatus.PROCESSING,
