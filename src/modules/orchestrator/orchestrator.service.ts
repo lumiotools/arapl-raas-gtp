@@ -496,7 +496,7 @@ export class OrchestratorService {
   private async createSingleTaskToFirstAvailableStation(
     inventory: Inventory,
     sortedStations: Station[]
-  ): Promise<number | null> {
+  ): Promise<string | null> {
     // Find the first available station in priority order
     let targetStation: Station | null = null;
     
@@ -559,8 +559,8 @@ export class OrchestratorService {
     robotId?: string | null;
     move_type:MOVE_TYPE;
     sequenceOrder: number;
-    taskDependency?: number | null;
-  }): Promise<[number, Task | null]> {
+    taskDependency?: string | null;
+  }): Promise<[string, Task | null]> {
     // Create start location
     const startLocation = this.createLocation(
       taskData.sourceInventoryId || taskData.sourceStationId || taskData.sourceWaitingLocationId!,
@@ -1706,12 +1706,12 @@ export class OrchestratorService {
    * Release a station and make it available for other tasks
    * Also process any pending station requests for this station
    */
-  private async releaseStation(stationId: string, taskId: number): Promise<void> {
+  private async releaseStation(stationId: string, taskId: string): Promise<void> {
     this.logger.log(`Releasing station ${stationId} from task ${taskId}`);
     
     // Mark station as available
     await this.stationRepository.update(
-      { station_id: stationId},
+      { station_id: stationId },
       { 
         status: LocationStatus.AVAILABLE,
         holded_by: null
@@ -1763,7 +1763,7 @@ export class OrchestratorService {
 
   async getTaskbyID(taskId: string): Promise<Task> {
     const task = await this.taskRepository.findOne({
-      where: { task_id: parseInt(taskId) }, 
+      where: { task_id: taskId }, 
     });
     if (!task) {
       throw new NotFoundException(`Task with ID ${taskId} not found`);

@@ -50,7 +50,7 @@ export class WebhookService {
   private async updateTaskStatus(batchId: string, taskStatusData: any): Promise<void> {
     // Find task by task_id only (ignore batch_id as instructed)
     const task = await this.taskRepository.findOne({
-      where: { task_id: parseInt(taskStatusData.task_id)}
+      where: { task_id: taskStatusData.task_id }
     });
     if (!task) {return;}
     if (task.status === TaskStatus.TRIGERRED) {

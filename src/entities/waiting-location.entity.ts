@@ -26,8 +26,8 @@ export class WaitingLocation {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
-  @Column({ type: 'integer', nullable: true })
-  holded_by: number | null;
+  @Column({ type: 'varchar', nullable: true })
+  holded_by: string | null;
 
   @Column({ type: 'enum', enum: WaitingLocationType, default: WaitingLocationType.STATION_TO_STATION })
   type: WaitingLocationType;

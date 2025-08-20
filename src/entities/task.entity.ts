@@ -59,8 +59,8 @@ export enum TaskStatus {
 
 @Entity('tasks')
 export class Task {
-  @PrimaryGeneratedColumn()
-  task_id: number;
+  @PrimaryGeneratedColumn('uuid')
+  task_id: string;
 
   @Column({ type: 'varchar', length: 32 })
   batch_id: string;
@@ -95,7 +95,7 @@ export class Task {
   sequence_order: number;
 
   @Column({ type: 'int', nullable: true })
-  task_dependency: number;
+  task_dependency: string;
 
   @Column({ type: 'varchar', length: 64, nullable: true })
   robot_id: string;

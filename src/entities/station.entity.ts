@@ -32,8 +32,8 @@ export class Station {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
-  @Column({ type: 'integer', nullable: true })
-  holded_by: number | null;
+  @Column({ type: 'varchar', nullable: true })
+  holded_by: string | null;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
