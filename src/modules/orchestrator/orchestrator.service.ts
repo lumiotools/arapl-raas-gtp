@@ -346,7 +346,7 @@ export class OrchestratorService {
       })
     );
     if (response && response.data && Array.isArray(response.data.robots)) {
-      const idleCount = response.data.robots.filter((robot: any) => robot.status === 'idle').length;
+      const idleCount = response.data.robots.filter((robot: any) => robot.status === 'Idle').length;
       let holdingTasks = (await this.stationRepository.find({
         where: { holded_by: Not(IsNull()) }
       })).length;
@@ -1845,5 +1845,102 @@ export class OrchestratorService {
       "predicted": predicted,
     }
 
+  }
+
+  async performErrorCheck(){
+    const currentTime = new Date();
+
+    const longOccupiedWaitingLocations = await this.waitingLocationRepository.find({
+      where: {
+        status: In([LocationStatus.RESERVED, LocationStatus.OCCUPIED]),
+      }
+    });
+
+    const messages: string[] = [];
+    for (const waitingLocation of longOccupiedWaitingLocations) {
+      const timeDiff = Math.floor((currentTime.getTime() - waitingLocation.updated_at.getTime()) / (1000 * 60));
+      if (timeDiff >= 5) {
+        messages.push(`Waiting location ${waitingLocation.location_id} has been ${waitingLocation.status.toLowerCase()} for ${timeDiff} minutes (since last status update)`);
+      }
+    }
+
+    const longOccupiedStations = await this.stationRepository.find({
+      where: {
+        status: In([LocationStatus.RESERVED, LocationStatus.OCCUPIED]),
+      }
+    });
+
+    const stationMessages: string[] = [];
+    for (const station of longOccupiedStations) {
+      const timeDiff = Math.floor((currentTime.getTime() - station.updated_at.getTime()) / (1000 * 60));
+      if (timeDiff >= 5) {
+        stationMessages.push(`Station ${station.station_id} has been ${station.status.toLowerCase()} for ${timeDiff} minutes (since last status update)`);
+      }
+    }
+
+    messages.push(...stationMessages);
+
+    const longPendingTasks = await this.taskRepository.find({
+      where: {
+        status: TaskStatus.PENDING,
+      }
+    });
+
+    const taskMessages: string[] = [];
+    for (const task of longPendingTasks) {
+      const timeDiff = Math.floor((currentTime.getTime() - task.created_at.getTime()) / (1000 * 60));
+      if (timeDiff >= 3) {
+        taskMessages.push(`Task ${task.task_id} has been PENDING for ${timeDiff} minutes (since creation)`);
+      }
+    }
+
+    messages.push(...taskMessages);
+
+    const longIncompleteOrderItems = await this.orderItemRepository.find({
+      where: {
+      status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS]),
+      },
+    });
+
+    // Group by order_id to get unique orders
+    const orderGroups = new Map<string, any[]>();
+    for (const orderItem of longIncompleteOrderItems) {
+      if (!orderGroups.has(orderItem.order_id)) {
+      orderGroups.set(orderItem.order_id, []);
+      }
+      orderGroups.get(orderItem.order_id)!.push(orderItem);
+    }
+
+    const longIncompleteOrders = Array.from(orderGroups.entries()).map(([orderId, items]) => ({
+      order_id: orderId,
+      oldest_item: items[0], // First item (oldest due to ASC sort)
+      product_ids: [...new Set(items.map(item => item.product_id))], // Unique product IDs
+      item_count: items.length
+    }));
+
+    const orderMessages: string[] = [];
+    for (const order of longIncompleteOrders) {
+      const oldestOrderItem = await this.orderItemRepository.findOne({
+        where: { 
+          order_id: order.order_id,
+          status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS])
+        },
+        order: { created_at: 'ASC' }
+      });
+      
+      if (oldestOrderItem) {
+        const timeDiff = Math.floor((currentTime.getTime() - oldestOrderItem.created_at.getTime()) / (1000 * 60));
+        if (timeDiff >= 15) {
+          orderMessages.push(`Order ${order.order_id} has been incomplete for ${timeDiff} minutes (since creation)`);
+        }
+      }
+    }
+
+    messages.push(...orderMessages);
+
+    return {
+      messages: messages,
+      count: messages.length
+    };
   }
 }

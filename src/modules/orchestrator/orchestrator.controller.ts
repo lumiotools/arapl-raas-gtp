@@ -546,4 +546,34 @@ export class OrchestratorController {
   async getAllRobots() {
     return await this.orchestratorService.getAllRobots();
   }
+
+  @Get('error-check')
+  @ApiOperation({
+    summary: 'Perform error check',
+    description: 'Perform a system-wide error check to identify any issues or inconsistencies.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Error check completed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Error check completed' },
+        errors: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', example: 'WARNING' },
+              message: { type: 'string', example: 'Robot ROBOT_001 has low battery' }
+            }
+          }
+        }
+      }
+    }
+  })
+  async performErrorCheck() {
+    return await this.orchestratorService.performErrorCheck();
+  }
 }
