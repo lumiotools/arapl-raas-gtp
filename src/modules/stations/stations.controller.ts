@@ -9,6 +9,7 @@ import {
   HttpStatus,
   BadRequestException,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { StationsService } from './stations.service';
@@ -57,6 +58,58 @@ export class StationsController {
     return await this.stationsService.create(createStationDto);
   }
 
+
+    @Get('unloading-times')
+    @ApiOperation({
+      summary: 'Get unloading times for all stations',
+      description: 'Retrieve the unloading times for all stations in the system within the specified time range.'
+    })
+    @ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Unloading times for all stations',
+      schema: {
+        example: [
+          {
+            station_id: 'ST001',
+            unloading_time: 120,
+            unit: 'seconds'
+          },
+          {
+            station_id: 'ST002',
+            unloading_time: 90,
+            unit: 'seconds'
+          }
+        ]
+      }
+    })
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles('admin', 'operator')
+    async getUnloadingTimes(
+      @Query('start_time') startTime?: string,
+      @Query('end_time') endTime?: string
+    ) {
+      let startDate: Date | undefined;
+    let endDate: Date | undefined;
+
+    if (startTime) {
+      startDate = new Date(startTime);
+      if (isNaN(startDate.getTime())) {
+      throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
+      }
+    }
+
+    if (endTime) {
+      endDate = new Date(endTime);
+      if (isNaN(endDate.getTime())) {
+      throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
+      }
+    }
+
+    if (startDate && endDate && startDate >= endDate) {
+      throw new BadRequestException('start_time must be before end_time');
+    }
+      return await this.stationsService.getUnloadingTimes(startDate, endDate);
+    }
   @Get()
   @ApiOperation({ 
     summary: 'Get all stations',

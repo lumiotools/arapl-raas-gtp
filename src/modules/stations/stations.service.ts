@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException, ForbiddenException,
 import { CreateStationDto } from './dto/create-station.dto';
 import { UpdateStationDto } from './dto/update-station.dto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Between, In, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { LocationStatus, Station } from 'src/entities/station.entity';
 import { GtpLocation, OrderItem, OrderItemStatus, Task } from 'src/entities';
 import { ProductRequirement as ProductRequirementEntity } from 'src/entities/product-requirement.entity';
@@ -357,5 +357,45 @@ export class StationsService {
       source: robot_task?.start_location.location_id || null,
       status: status
     }
+  }
+
+  async getUnloadingTimes(startDate: Date | undefined, endDate: Date | undefined): Promise<any> {
+    const allStations = await this.stationRepository.find();
+    const whereCondition: any = {};
+    if (startDate && endDate) {
+      whereCondition.created_at = Between(startDate, endDate);
+    }
+    if (startDate){
+      whereCondition.created_at = MoreThanOrEqual(startDate);
+    }
+    if (endDate){
+      whereCondition.created_at = LessThan(endDate);
+    }
+    const allTasks = await this.taskRepository.find({
+      where: whereCondition,
+    });
+    console.log(`where condition: ${JSON.stringify(whereCondition)}`)
+    const result = {};
+    for (const task of allTasks) {
+      if (!task.triggered || !task.completed) continue;
+      let end_location: string;
+      end_location = task.end_location.location_id;
+      if (end_location) {
+        const station = allStations.find(station => station.station_id === end_location);
+        if (station) {
+          let unloading_time = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
+          if (result[station.station_id]) {
+            result[station.station_id].unloading_time.push(unloading_time);
+            result[station.station_id].task_count += 1;
+          } else {
+            result[station.station_id] = {
+              unloading_time: [unloading_time],
+              task_count: 1
+            };
+          }
+        }
+      }
+    }
+    return result;
   }
 }

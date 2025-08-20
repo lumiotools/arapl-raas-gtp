@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException, LoggerService } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, In } from 'typeorm';
+import { Repository, IsNull, In, LessThan, Between, MoreThanOrEqual } from 'typeorm';
 import * as XLSX from 'xlsx';
 import * as csv from 'csv-parser';
 import { Readable } from 'stream';
@@ -12,15 +12,31 @@ import {
   ProcessedOrderItemDto,
   UploadResponseDto,
 } from './dto/upload-order.dto';
-import { Log } from 'src/entities';
+import { Log, Task } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
-
 
 interface LicensePlateStats{
   license_plate_id: string;
   completion_percentage ?: number;
   status ?: OrderItemStatus;
+}
+export interface OrderItemDetails{
+  license_plate_id: string;
+  order_id: string;
+  product_id: string;
+  quantity: number;
+  remaining_quantity: number;
+  status: OrderItemStatus;
+  assigned_gtp_location: string | null;
+  created_at?: Date;
+  updated_at?: Date;
+  robot_ids?: string[];
+  total_unloading_time?: number;
+  station_id ?: string;
+  start_time?: Date;
+  end_time?: Date;
+  wait_time?: number;
 }
 
 @Injectable()
@@ -34,6 +50,8 @@ export class OrdersService {
     private gtpLocationRepository: Repository<GtpLocation>,
     @InjectRepository(ScheduleMapping)
     private scheduleMappingRepository: Repository<ScheduleMapping>,
+    @InjectRepository(Task)
+    private taskRepository: Repository<Task>,
     private readonly loggingService: LoggingService
   ) {}
 
@@ -569,7 +587,26 @@ export class OrdersService {
     if (!Array.isArray(orderItems) || orderItems.length === 0) {
       return 0;
     }
-    const relevantOrderItems = orderItems.filter(item => item.license_plate_id === licensePlateId);
+    let relevantOrderItems = orderItems.filter(item => item.license_plate_id === licensePlateId);
+    // Filter out order items if all items for the same order_id are either COMPLETED or CANCELLED
+    const orderIds = Array.from(new Set(relevantOrderItems.map(item => item.order_id)));
+    const filteredOrderIds: string[] = [];
+
+    for (const orderId of orderIds) {
+      const orderItemsForOrder = relevantOrderItems.filter(item => item.order_id === orderId);
+      const hasNonCompletedCancelled = orderItemsForOrder.some(item => 
+        item.status !== OrderItemStatus.COMPLETED && item.status !== OrderItemStatus.CANCELLED
+      );
+      
+      if (hasNonCompletedCancelled) {
+        filteredOrderIds.push(orderId);
+      }
+    }
+    if (filteredOrderIds.length === 0){
+      return 100;
+    }
+
+    relevantOrderItems = relevantOrderItems.filter(item => filteredOrderIds.includes(item.order_id));
     const requiredQuantity = relevantOrderItems.reduce((sum, item) => sum + item.quantity, 0);
     const remainingQuantity = relevantOrderItems.reduce((sum, item) => sum + item.remaining_quantity, 0);
     const satisfiedQuantity = requiredQuantity - remainingQuantity;
@@ -649,5 +686,130 @@ export class OrdersService {
     }
     return { status: false };
   }
-}
 
+  async getOrdersByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined): Promise<OrderItemDetails[]> {
+    console.log(`start_time: ${start_time}`)
+    console.log(`Getting orders with status: ${statusList.join(', ')}`);
+    if (!statusList || statusList.length === 0) {
+      throw new BadRequestException('Status is required');
+    }
+    const results: OrderItemDetails[] = [];
+    const orderItems : OrderItem[] = [];
+    const whereCondition: any = {};
+    if (start_time && end_time) {
+      whereCondition.created_at = Between(start_time, end_time);
+    }
+    if (start_time){
+      whereCondition.created_at = MoreThanOrEqual(start_time);
+    }
+    if (end_time){
+      whereCondition.created_at = LessThan(end_time);
+    }
+    console.log(`wherecondition: ${whereCondition}`)
+    if (statusList.includes('all')){
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (statusList.includes('in_progress')){
+      whereCondition.status = OrderItemStatus.IN_PROGRESS;
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (statusList.includes('completed')){
+      whereCondition.status = OrderItemStatus.COMPLETED;
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (statusList.includes('cancelled')){
+      whereCondition.status = OrderItemStatus.CANCELLED;
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (orderItems.length === 0) {
+      return [] as OrderItemDetails[];
+    }
+    for (const order of orderItems) {
+      const completedTasks = order.completedTasks || 0;
+      const robotIds = Array.isArray(completedTasks) 
+        ? Array.from(new Set(completedTasks.map(task => task.robot_id).filter(id => id))) 
+        : [];
+      
+      let totalUnloadingTime = 0;
+      let wait_time = 0;
+      for (const task of completedTasks){
+        if (!task.triggered || !task.completed) continue;
+        let unloading_time = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
+        totalUnloadingTime += unloading_time;
+
+        const batch_id = task.batch_id || '-';
+        const current_sequence_number = task.sequence_order;
+        const previous_task_of_orders = await this.taskRepository.find({
+          where: { 
+            batch_id: batch_id, 
+            sequence_order: LessThan(current_sequence_number)
+          }
+        });
+        for (const previousTask of previous_task_of_orders) {
+          if (previousTask.created_at < order.created_at){continue;}
+          if (previousTask.end_location.location_attribute.attribute_value=='waiting_location') {
+            if (previousTask.completed) {
+              // Find the next task in sequence order
+              const nextTask = await this.taskRepository.findOne({
+                where: { 
+                  batch_id: batch_id, 
+                  sequence_order: previousTask.sequence_order + 1
+                }
+              });
+              
+              if (nextTask && nextTask.processing) {
+                const waitingTime = Math.floor((Number(nextTask.processing) - Number(previousTask.completed)) / 1000);
+                wait_time += waitingTime;
+              }
+            }
+          }
+        }
+      }
+      let station_id = '-';
+      // find assigned gtp location
+      const assigned_gtp_location = order.assigned_gtp_location;
+      if (assigned_gtp_location){
+        const gtp_location = await this.gtpLocationRepository.findOne({
+          where: { gtp_location_id: assigned_gtp_location }
+        });
+        station_id = gtp_location?.station_id || '-';
+      }
+      // fetch start and end time
+      let start_time = order.created_at ? new Date(order.created_at) : undefined;
+      let end_time: Date | undefined = undefined;
+      if (order.status == OrderItemStatus.COMPLETED || order.status == OrderItemStatus.CANCELLED){
+        end_time = order.updated_at ? new Date(order.updated_at) : undefined;
+      }
+      results.push({
+        license_plate_id: order.license_plate_id,
+        order_id: order.order_id,
+        product_id: order.product_id,
+        quantity: order.quantity,
+        remaining_quantity: order.remaining_quantity,
+        status: order.status,
+        assigned_gtp_location: order.assigned_gtp_location,
+        created_at: order.created_at,
+        updated_at: order.updated_at,
+        robot_ids: robotIds,
+        total_unloading_time: totalUnloadingTime,
+        station_id: station_id,
+        start_time: start_time,
+        end_time: end_time,
+        wait_time: wait_time
+      });
+    }
+    return results;
+  }
+}

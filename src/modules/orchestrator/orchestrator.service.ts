@@ -1182,7 +1182,7 @@ export class OrchestratorService {
         this.orchestratorWorking  = true;
 
         // add a function that sends a task again
-        await this.resendPendingTasks();
+        // await this.resendPendingTasks();
 
         await this.scheduleLPtoPickLocation();
         // check if a there is lp plate waiting for a pick location
@@ -1746,12 +1746,14 @@ export class OrchestratorService {
       .set({ isCancelled: true })
       .execute();
 
-    // const result2 = await this.orderItemRepository
-    //   .createQueryBuilder()
-    //   .update()
-    //   .set({ status: OrderItemStatus.CANCELLED}) // , assigned_gtp_location: null 
-    //   .where("status = :status", { status: OrderItemStatus.IN_PROGRESS })
-    //   .execute();
+    // Mark completed inventory/station/waiting to station tasks as cancelled
+    await this.taskRepository.update(
+      { 
+        status: TaskStatus.COMPLETED,
+        move_type: In([MOVE_TYPE.INVENTORY_TO_STATION, MOVE_TYPE.STATION_TO_STATION, MOVE_TYPE.WAITING_LOCATION_TO_STATION, MOVE_TYPE.STATION_TO_WAITING_LOCATION, MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION])
+      },
+      { status: TaskStatus.CANCELLED }
+    );
     await this.orderItemRepository.update(
       { status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS]) },
       { status: OrderItemStatus.CANCELLED }

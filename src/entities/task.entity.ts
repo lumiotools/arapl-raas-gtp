@@ -119,7 +119,7 @@ export class Task {
   @Column({ type: 'json' })
   end_location: Location;
 
-  @Column({ type: 'json', nullable:true })
+  @Column({ type: 'json', nullable: true })
   wait: Wait;
 
   @Column({ type: 'json', nullable: true })
