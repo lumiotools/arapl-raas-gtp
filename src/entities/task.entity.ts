@@ -19,8 +19,10 @@ import { OrderItem } from './order-item.entity';
 export enum TaskType {
   CROSSDOCK = 'Crossdock',
   PUTAWAY = 'Putaway', 
-  PICKING = 'Picking',
-  GOODS_TO_PERSON = 'GoodsToPerson',
+  PICKING = 'PICK',
+  DROP = 'DROP',
+  GOODS_TO_PERSON = 'GOODSTOPERSON',
+  NOP = "NOP"
 }
 
 export  enum MOVE_TYPE {
