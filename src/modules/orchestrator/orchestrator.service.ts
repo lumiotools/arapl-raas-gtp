@@ -328,6 +328,11 @@ export class OrchestratorService {
         where: { task_id: In(holdingWaitingLocations.map(wl => wl.holded_by).filter(id => id !== null)) }
       });
       res.push(...holdingWaitingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' })));
+
+      const processingTasks = await this.taskRepository.find({
+        where: { status: TaskStatus.PROCESSING }
+      });
+      res.push(...processingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' })));
     }
 
     return res;

@@ -94,7 +94,7 @@ export class Task {
   @Column({ type: 'int' })
   sequence_order: number;
 
-  @Column({ type: 'int', nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   task_dependency: string;
 
   @Column({ type: 'varchar', length: 64, nullable: true })

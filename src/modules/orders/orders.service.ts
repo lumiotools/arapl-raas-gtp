@@ -547,7 +547,7 @@ export class OrdersService {
     }
   }
 
-  async getCompletedTasksForOrderItems(orderItemIds: number[]): Promise<Record<string, number[]>> {
+  async getCompletedTasksForOrderItems(orderItemIds: number[]): Promise<Record<string, string[]>> {
     try {
       if (!Array.isArray(orderItemIds) || orderItemIds.length === 0) {
         throw new BadRequestException('Invalid order item IDs provided');
@@ -561,7 +561,7 @@ export class OrdersService {
         throw new NotFoundException(`No order items found with the provided IDs: ${orderItemIds.join(', ')}`);
       }
       // Build a map of order_id -> array of completed task IDs
-      const result: Record<string, number[]> = {};
+      const result: Record<string, string[]> = {};
       for (const orderItem of orderItems) {
         const orderId = orderItem.order_id;
         if (!result[orderId]) {
