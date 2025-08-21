@@ -37,7 +37,6 @@ export class WebhookService {
     
     try {
       for (const taskStatus of webhookData.tasks) {
-        taskStatus.task_id = taskStatus.task_display_id;
         await this.updateTaskStatus(webhookData.batch_job_id, taskStatus);
       }
       return { message: 'Webhook processed successfully' };
@@ -54,11 +53,11 @@ export class WebhookService {
     });
     if (!task) {return;}
     if (task.status === TaskStatus.TRIGERRED) {
-      this.logger.log(`Task ${taskStatusData.task_id} is already completed - skipping update`);
+      this.logger.log(`Task ${taskStatusData.task_id} is already triggered - skipping update`);
       return;
     }
     const oldStatus = task.status;
-    const mappedStatus = this.mapTaskStatus(taskStatusData.task_status);
+    const mappedStatus = this.mapTaskStatus(taskStatusData.status);
 
     if (oldStatus === mappedStatus && task.robot_id) {
       this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
@@ -167,15 +166,16 @@ export class WebhookService {
       'pending': TaskStatus.PENDING,
       'assigned': TaskStatus.ASSIGNED,
       'inqueue': TaskStatus.INQUEUE,
+      'task_acknowledged': TaskStatus.INQUEUE,
+      'robot_assigned': TaskStatus.INQUEUE,
       'in-queue': TaskStatus.PROCESSING,
       'processing': TaskStatus.PROCESSING,
       'in-progress': TaskStatus.PROCESSING,
+      'pickup_successful': TaskStatus.PROCESSING,
+      'robot_movement_started': TaskStatus.PROCESSING,
       'completed': TaskStatus.COMPLETED,
       'cancelled': TaskStatus.CANCELLED,
       'canceled': TaskStatus.CANCELLED,
-      'robot_assigned': TaskStatus.PROCESSING,
-      'pickup_successful': TaskStatus.PROCESSING,
-      'robot_movement_started': TaskStatus.PROCESSING,
       'drop_successful': TaskStatus.COMPLETED,
       'task_cancelled': TaskStatus.CANCELLED,
       'drop_rejected': TaskStatus.CANCELLED,
