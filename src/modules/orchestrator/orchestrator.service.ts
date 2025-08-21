@@ -198,11 +198,11 @@ export class OrchestratorService {
       }
 
       // get all idle robots and number of tasks from inventory should be equal to the number of idle robots
-      let IdleRobots: number = await this.getIdleRobotCount();
+      let IdleRobots: string[] = await this.getIdleRobots();
       // let IdleRobots = 2;
-      console.log(`Idle robot count: ${IdleRobots}`);
+      console.log(`Idle robot count: ${IdleRobots.length}`);
       for (const requirement of productRequirements) {
-        if (IdleRobots <= 0) {
+        if (IdleRobots.length <= 0) {
           this.logger.warn(`No idle robots available for product ${requirement.productId}`);
           break;  
         }
@@ -338,7 +338,7 @@ export class OrchestratorService {
     return res;
   }
 
-  async getIdleRobotCount(): Promise<number>{
+  async getIdleRobots(): Promise<string[]>{
     const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
     const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
     const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robots';  
@@ -351,19 +351,21 @@ export class OrchestratorService {
       })
     );
     if (response && response.data && Array.isArray(response.data.robots)) {
-      const idleCount = response.data.robots.filter((robot: any) => robot.status === 'Idle').length;
-      let holdingTasks = (await this.stationRepository.find({
-        where: { holded_by: Not(IsNull()) }
-      })).length;
-      holdingTasks += (await this.waitingLocationRepository.find({
-        where: { holded_by: Not(IsNull()) }
-      })).length;
-      return idleCount - holdingTasks;
+      const idleRobots = response.data.robots.filter((robot: any) => robot.status === 'Idle');
+      const activeStationTasks = (await this.stationRepository.find({where: { holded_by: Not(IsNull()) }})).map(station => station.holded_by);
+      const activeWaitingLocationTasks = (await this.waitingLocationRepository.find({where: { holded_by: Not(IsNull()) }})).map(location => location.holded_by);
+      const activeStationRobots = (await this.taskRepository.find({where:{task_id: In(activeStationTasks) }})).map(task => task.robot_id);
+      const activeWaitingRobots = (await this.taskRepository.find({where:{task_id: In(activeWaitingLocationTasks) }})).map(task => task.robot_id);
+      const idleRobots_ids = idleRobots.map(robot => robot.id);
+      const finalIdleRobots = idleRobots_ids.filter(robotId => 
+        !activeStationRobots.includes(robotId) && !activeWaitingRobots.includes(robotId)
+      );
+      return finalIdleRobots;
     }
-    return 0;
+    return [];
   }
 
-  private async processProductRequirement(productId: string, idleRobots: number): Promise<number> {
+  private async processProductRequirement(productId: string, idleRobots: string[]): Promise<string[]> {
 
     const allInventories = await this.inventoryService.findAllByProductId(productId);
     if (!allInventories || allInventories.length === 0) {return idleRobots;}
@@ -395,13 +397,14 @@ export class OrchestratorService {
     if (selectedInventories.length === 0) {return idleRobots;}
     
     for (const inventory of selectedInventories) {
-      if (idleRobots <= 0){return idleRobots;}
+      if (idleRobots.length <= 0){return idleRobots;}
       const taskID = await this.createSingleTaskToFirstAvailableStation(
         inventory,
-        sortedStations
+        sortedStations,
+        idleRobots[0]
       );
       if (taskID){
-        idleRobots --;
+        idleRobots.shift();
       }
       if (!taskID){
         const inventory_to_station_waiting_location = await this.waitingLocationRepository.find({
@@ -421,7 +424,7 @@ export class OrchestratorService {
             sourceInventoryId: inventory.id,
             destinationWaitingLocationId: waitingLocation.location_id,
             quantity: inventory.quantity,
-            robotId: null,
+            robotId: idleRobots[0],
             taskType: TaskType.GOODS_TO_PERSON,
             move_type: MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
             sequenceOrder: 1, // First task in this batch
@@ -435,7 +438,7 @@ export class OrchestratorService {
             
             // Send task to WMS
             await this.sendSingleTaskToWms(returnTask);
-            idleRobots --;
+            idleRobots.shift();
             this.logger.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
             await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
             break;
@@ -466,14 +469,20 @@ export class OrchestratorService {
 
     // Check if we have sufficient total inventory
     if (totalAvailable < totalRequired) {
+      this.logger.warn(`Insufficient inventory for product: need ${totalRequired}, have ${totalAvailable} - processing ALL available inventories`);
       // Return ALL inventories to fulfill as much as possible
       const allValidInventories = sortedInventories.filter(inv => inv.quantity - inv.defective_quantity - inv.missing_quantity > 0 && !inv.isProcessing);
+      this.logger.log(`Processing all ${allValidInventories.length} available inventories to fulfill partial requirement`);
       return allValidInventories;
     }
+
+    // Sufficient inventory exists - find minimum combination using greedy approach
     const selected: Inventory[] = [];
     let remainingRequired = totalRequired;
+    
     for (const inventory of sortedInventories) {
       if (remainingRequired <= 0) break;
+      
       if (inventory.quantity - inventory.defective_quantity - inventory.missing_quantity > 0) {
         selected.push(inventory);
         remainingRequired -= (inventory.quantity - inventory.defective_quantity - inventory.missing_quantity);
@@ -500,7 +509,8 @@ export class OrchestratorService {
    */
   private async createSingleTaskToFirstAvailableStation(
     inventory: Inventory,
-    sortedStations: Station[]
+    sortedStations: Station[],
+    robot_id: string
   ): Promise<string | null> {
     // Find the first available station in priority order
     let targetStation: Station | null = null;
@@ -526,7 +536,7 @@ export class OrchestratorService {
         productId: inventory.product_id,
         sourceInventoryId: inventory.id,
         destinationStationId: targetStation.station_id,
-        robotId: null,
+        robotId: robot_id,
         quantity: inventory.quantity, // Move entire available quantity
         taskType: TaskType.GOODS_TO_PERSON,
         move_type: MOVE_TYPE.INVENTORY_TO_STATION,
