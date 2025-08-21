@@ -79,11 +79,18 @@ export class StationsService {
 
       // find bin_ids that are not in allStations
       const missingBinIds = bin_ids.filter(id => !allStations.some(station => station.station_id === id));
-      for (const missingId of missingBinIds) {
-        const newStation = await this.create({
+      // Sort missing binIds by extracting numeric part and sorting numerically
+      missingBinIds.sort((a, b) => {
+        const aNum = parseInt(a.replace(/\D/g, ''), 10);
+        const bNum = parseInt(b.replace(/\D/g, ''), 10);
+        return aNum - bNum;
+      });
+      for (let i = 0; i < missingBinIds.length; i++) {
+        const missingId = missingBinIds[i];
+        await this.create({
           station_id: missingId,
           station_name: missingId,
-          priority:1,
+          priority: i + 1,
         });
       }
 
