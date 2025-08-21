@@ -1943,6 +1943,22 @@ export class OrchestratorService {
 
     messages.push(...orderMessages);
 
+    const longProcessingTasks = await this.taskRepository.find({
+      where: {
+        status: TaskStatus.PROCESSING,
+      }
+    });
+
+    const processingTaskMessages: string[] = [];
+    for (const task of longProcessingTasks) {
+      const timeDiff = Math.floor((currentTime.getTime() - task.updated_at.getTime()) / (1000 * 60));
+      if (timeDiff >= 10) {
+        processingTaskMessages.push(`Robot ${task.robot_id} has been PROCESSING for ${timeDiff} minutes (since last status update)`);
+      }
+    }
+
+    messages.push(...processingTaskMessages);
+
     return {
       messages: messages,
       count: messages.length
