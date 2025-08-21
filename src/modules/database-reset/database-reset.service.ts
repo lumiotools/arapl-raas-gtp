@@ -21,10 +21,7 @@ export class DatabaseResetService {
       const queries = [
         'DELETE FROM tasks_order_items_order_items',
         'DELETE FROM order_items',
-        'DELETE FROM "schedule-mapping"',
         'DELETE FROM order_items',
-        'DELETE FROM dashboard',
-        'DELETE FROM station_requests',
         'DELETE FROM product_requirements',
         'DELETE FROM tasks',
         'DELETE FROM batches',
