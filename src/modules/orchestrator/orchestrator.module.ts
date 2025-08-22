@@ -16,6 +16,7 @@ import { User } from 'src/entities/user.entity';
 import { StationsService } from '../stations/stations.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
+import { Robot } from 'src/entities';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { WaitingLocationService } from '../waiting_location/waiting_location.ser
       ProductRequirement,
       User,
       Station,
+      Robot,
       ScheduleMapping
     ]),
     HttpModule,

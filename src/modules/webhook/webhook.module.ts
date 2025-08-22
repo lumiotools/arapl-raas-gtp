@@ -10,16 +10,18 @@ import { Station } from 'src/entities/station.entity';
 import { WaitingLocation } from 'src/entities/waiting-location.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { LoggingModule } from '../logging/logging.module';
+import { WaitingLocationService } from '../waiting_location/waiting_location.service';
+import { Robot } from 'src/entities';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation]),
+    TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation, Robot]),
     HttpModule,
     forwardRef(() => OrchestratorModule),
     LoggingModule,
   ],
   controllers: [WebhookController],
-  providers: [WebhookService],
+  providers: [WebhookService, WaitingLocationService],
   exports: [WebhookService],
 })
 export class WebhookModule {}

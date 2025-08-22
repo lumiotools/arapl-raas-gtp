@@ -22,6 +22,7 @@ import { StationsService } from '../stations/stations.service';
 import {config} from 'dotenv';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
+import { Robot } from 'src/entities';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -78,6 +79,8 @@ export class OrchestratorService {
     private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
     @InjectRepository(ScheduleMapping)
     private readonly scheduleMappingRepository: Repository<ScheduleMapping>,
+    @InjectRepository(Robot)
+    private readonly robotRepository: Repository<Robot>,
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
     private readonly loggingService: LoggingService,
@@ -101,6 +104,9 @@ export class OrchestratorService {
       if (waitingLocations.length > 0) {
         // this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
         for (const waitingLocation of waitingLocations) {
+          const isParkedRobot = (await this.robotRepository.findOne({ where: { parking_wait_location_id: waitingLocation.location_id } }));
+          console.log(`waiting location: ${waitingLocation.location_id}, isParkedRobot: ${isParkedRobot ? 'Yes' : 'No'}`);
+          if (isParkedRobot){continue;}
           const taskId = waitingLocation.holded_by;
           if (!taskId){continue;}
           const task = await this.taskRepository.findOne({where: { task_id: taskId }});
@@ -199,6 +205,7 @@ export class OrchestratorService {
 
       // get all idle robots and number of tasks from inventory should be equal to the number of idle robots
       let IdleRobots: string[] = await this.getIdleRobots();
+      await this.addIdleRobotsInDb(IdleRobots);
       // let IdleRobots = 2;
       console.log(`Idle robot count: ${IdleRobots.length}`);
       for (const requirement of productRequirements) {
@@ -212,6 +219,16 @@ export class OrchestratorService {
       
     } catch (error) {
       return { message: 'Orchestrator process completed', error: error.message };
+    }
+  }
+
+  async addIdleRobotsInDb(idleRobots: string[]): Promise<void> {
+    for (const robotId of idleRobots) {
+      const existingRobot = await this.robotRepository.findOne({ where: { robot_id: robotId } });
+      if (!existingRobot) {
+        const newRobot = this.robotRepository.create({ robot_id: robotId });
+        await this.robotRepository.save(newRobot);
+      }
     }
   }
 
@@ -353,7 +370,8 @@ export class OrchestratorService {
     if (response && response.data && Array.isArray(response.data.robots)) {
       const idleRobots = response.data.robots.filter((robot: any) => robot.status === 'Idle');
       const activeStationTasks = (await this.stationRepository.find({where: { holded_by: Not(IsNull()) }})).map(station => station.holded_by);
-      const activeWaitingLocationTasks = (await this.waitingLocationRepository.find({where: { holded_by: Not(IsNull()) }})).map(location => location.holded_by);
+      const waitingParkedRobots = (await this.robotRepository.find({ where: { parking_wait_location_id: Not(IsNull()) } })).map(robot => robot.parking_wait_location_id);
+      const activeWaitingLocationTasks = (await this.waitingLocationRepository.find({where: { holded_by: Not(IsNull()), location_id: Not(In(waitingParkedRobots)) }})).map(location => location.holded_by);
       const activeStationRobots = (await this.taskRepository.find({where:{task_id: In(activeStationTasks) }})).map(task => task.robot_id);
       const activeWaitingRobots = (await this.taskRepository.find({where:{task_id: In(activeWaitingLocationTasks) }})).map(task => task.robot_id);
       const idleRobots_ids = idleRobots.map(robot => robot.id);
@@ -562,17 +580,17 @@ export class OrchestratorService {
 
   private async createTask(taskData: {
     batchId: string;
-    productId: string;
+    productId?: string;
     sourceInventoryId?: string;
     sourceStationId?: string;
     sourceWaitingLocationId?: string;
     destinationStationId?: string;
     destinationInventoryId?: string;
     destinationWaitingLocationId?: string;
-    quantity: number;
+    quantity?: number;
     taskType: TaskType;
     robotId?: string | null;
-    move_type:MOVE_TYPE;
+    move_type: MOVE_TYPE;
     sequenceOrder: number;
     taskDependency?: string | null;
   }): Promise<[string, Task | null]> {
@@ -589,6 +607,8 @@ export class OrchestratorService {
       taskData.destinationInventoryId ? 'inventory' : taskData.destinationStationId ? 'station' : 'waiting_location',
       this.getLocationAction(taskData, 'end')
     );
+    console.log(`startLocation: ${JSON.stringify(startLocation)}`);
+    console.log(`endLocation: ${JSON.stringify(endLocation)}`);
 
     const task = this.taskRepository.create({
       batch_id: taskData.batchId,
@@ -904,6 +924,36 @@ export class OrchestratorService {
     });
 
     return sortedRequirements;
+  }
+
+  async createTaskFromInventoryToWaitingLocation(start_location:string, waiting_location:string,task:Task, move_type:MOVE_TYPE){
+    const inventory = await this.inventoryRepository.findOne({ where: { id: start_location } });
+    if (!inventory) {
+      this.logger.log(`Inventory not found for location ${start_location}`);
+      return;
+    }
+    const batchId = await this.generateBatchId();
+    await this.createBatch(batchId, inventory, task.product_id);
+    console.log(`batch_id: ${batchId}`);
+    const [taskId, newTask] = await this.createTask(
+      {
+        batchId: batchId,
+        productId: undefined,
+        sourceInventoryId: start_location,
+        destinationWaitingLocationId: waiting_location,
+        robotId: task.robot_id,
+        quantity: undefined,
+        move_type: MOVE_TYPE.PARKING,
+        taskType: TaskType.GOODS_TO_PERSON,
+        sequenceOrder: 1,
+        taskDependency: null,
+      }
+    );
+    if (newTask) {
+      // Send task to WMS
+      await this.sendSingleTaskToWms(newTask);
+    }
+    return taskId;
   }
 
   private async createNextStationTask(completedTask: Task, remainingRequirements: ProductRequirementEntity[], remainingQuantity: number): Promise<void> {
@@ -1484,15 +1534,15 @@ export class OrchestratorService {
         completedTask.batch_id
       );
 
-      if (remainingRequirements.length === 0) {
-        // No more stations to visit - calculate remaining quantity and return to inventory
-        const remainingQuantity = await this.calculateRemainingQuantityAfterDrop(completedTask);
-        await this.createReturnToInventoryTask(completedTask, remainingQuantity);
+      // if (remainingRequirements.length === 0) {
+      //   // No more stations to visit - calculate remaining quantity and return to inventory
+      //   const remainingQuantity = await this.calculateRemainingQuantityAfterDrop(completedTask);
+      //   await this.createReturnToInventoryTask(completedTask, remainingQuantity);
         
-        // Check if batch is completed
-        await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
-        return;
-      }
+      //   // Check if batch is completed
+      //   await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
+      //   return;
+      // }
 
     // Check available stations in priority order
     let availableStation: Station | null = null;

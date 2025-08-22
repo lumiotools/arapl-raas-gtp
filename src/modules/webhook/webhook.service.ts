@@ -10,6 +10,8 @@ import { WaitingLocation} from 'src/entities/waiting-location.entity';
 import { WebhookRequestDto } from './dto/webhook-request.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { LoggingService } from '../../services/logging.service';
+import { WaitingLocationService } from '../waiting_location/waiting_location.service';
+import { MOVE_TYPE, Robot } from 'src/entities';
 
 @Injectable()
 export class WebhookService {
@@ -26,9 +28,12 @@ export class WebhookService {
     private readonly stationRepository: Repository<Station>,
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
+    @InjectRepository(Robot)
+    private readonly robotRepository: Repository<Robot>,
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly httpService: HttpService,
+    private readonly waitingLocationService: WaitingLocationService
   ) {}
 
   async processWebhook(webhookData: any): Promise<{ message: string }> {
@@ -81,6 +86,25 @@ export class WebhookService {
     }
     await this.taskRepository.save(task);
 
+    // unoccupy the current robot parking location
+    if (mappedStatus ===TaskStatus.PROCESSING && task.robot_id && task.start_location.location_attribute.attribute_value==='inventory'
+      && task.move_type !== MOVE_TYPE.PARKING
+    ) {
+      const robot = await this.robotRepository.findOne({ where: { robot_id: task.robot_id } });
+      if (robot) {
+        if (robot.parking_wait_location_id) {
+          const waitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: robot.parking_wait_location_id } });
+          if (waitingLocation){
+            waitingLocation.holded_by = null;
+            waitingLocation.status = LocationStatus.AVAILABLE;
+            await this.waitingLocationRepository.save(waitingLocation);
+          }
+        }
+        robot.parking_wait_location_id = null;
+        await this.robotRepository.save(robot);
+      }
+    }
+
     // Handle inventory updates based on task status changes
     await this.handleInventoryUpdates(task, oldStatus, mappedStatus, batchId);
     
@@ -114,15 +138,40 @@ export class WebhookService {
       if (currentTask && currentTask.status === TaskStatus.COMPLETED) {
         const destinationType = task.end_location?.location_attribute.attribute_value;
 
-        if (destinationType === 'waiting_location') {
-          // Task completed at waiting location - handle waiting location completion
-          this.logger.log(`Calling waiting location completion handler for task ${task.task_id}`);
-          await this.handleWaitingLocationCompletion(task);
-        } else if (destinationType === 'inventory') {
-          this.logger.log(`Task ${task.task_id} completed at inventory - freeing robot`);
-          // if (currentTask.robot_id) {
-          //   await this.freeRobot(currentTask.robot_id);
-          // }
+        if (destinationType === 'inventory') {
+          // Task completed at inventory - handle inventory return completion
+          this.logger.log(`Calling inventory return completion handler for task ${task.task_id}`);
+          // await this.handleInventoryReturnCompletion(task);
+
+          // Fetch all available waiting locations and try to reserve them
+          const availableWaitingLocations = await this.waitingLocationRepository.find({
+            where: { status: LocationStatus.AVAILABLE }
+          });
+
+          for (const waitingLocation of availableWaitingLocations) {
+            try {
+              if (await this.waitingLocationService.reserveWaitingLocation(waitingLocation.location_id)) {
+                const taskId = await this.orchestratorService.createTaskFromInventoryToWaitingLocation(
+                  task.end_location.location_id, // inventory location
+                  waitingLocation.location_id,   // waiting location
+                  task,
+                  MOVE_TYPE.PARKING
+                );
+                if (taskId) {
+                  const robot = await this.robotRepository.findOne({ where: { robot_id: task.robot_id } });
+                  if (robot){
+                    robot.parking_wait_location_id = waitingLocation.location_id;
+                    await this.robotRepository.save(robot);
+                  }
+                  this.logger.log(`Created task ${taskId} for inventory to waiting location`);
+                  break;
+                }
+              }
+            } catch (error) {
+              this.logger.error(`Failed to reserve waiting location ${waitingLocation.location_id}: ${error.message}`);
+              continue; // Try next available location
+            }
+          }
         }
       }
     }
@@ -140,6 +189,9 @@ export class WebhookService {
       }
     }
   }
+    reserveWaitingLocation(waitingLocation: WaitingLocation) {
+      throw new Error('Method not implemented.');
+    }
 
   private mapBatchStatus(webhookStatus: string): BatchStatus {
     const statusMap: { [key: string]: BatchStatus } = {
@@ -171,6 +223,7 @@ export class WebhookService {
       'in-queue': TaskStatus.PROCESSING,
       'processing': TaskStatus.PROCESSING,
       'in-progress': TaskStatus.PROCESSING,
+      'in progress': TaskStatus.PROCESSING,
       'pickup_successful': TaskStatus.PROCESSING,
       'robot_movement_started': TaskStatus.PROCESSING,
       'completed': TaskStatus.COMPLETED,

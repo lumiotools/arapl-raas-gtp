@@ -33,6 +33,7 @@ export  enum MOVE_TYPE {
   WAITING_LOCATION_TO_STATION = 'WaitingLocationToStation',
   INVENTORY_TO_WAITING_LOCATION = 'InventoryToWaitingLocation',
   WAITING_LOCATION_TO_INVENTORY = 'WaitingLocationToInventory',
+  PARKING = 'Parking'
 }
 
 
@@ -65,10 +66,10 @@ export class Task {
   @Column({ type: 'varchar', length: 32 })
   batch_id: string;
 
-  @Column({ type: 'varchar', length: 10 })
+  @Column({ type: 'varchar', length: 10, nullable: true })
   product_id: string;
 
-  @Column({ type: 'int' })
+  @Column({ type: 'int', nullable: true })
   quantity: number;
 
   @Column({

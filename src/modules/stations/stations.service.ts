@@ -335,7 +335,7 @@ export class StationsService {
       where: { station_id }
     });
     const tasks = await this.taskRepository.find({
-      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING]) }
+      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]) }
     });
     let robot_id : string | null = null;
     let robot_task : Task | null = null;

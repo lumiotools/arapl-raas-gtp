@@ -35,6 +35,7 @@ export  enum MOVE_TYPE {
   WAITING_LOCATION_TO_STATION = 'WaitingLocationToStation',
   INVENTORY_TO_WAITING_LOCATION = 'InventoryToWaitingLocation',
   WAITING_LOCATION_TO_INVENTORY = 'WaitingLocationToInventory',
+  PARKING = 'Parking'
 }
 
 
@@ -65,7 +66,7 @@ export class Robot {
     robot_id: string;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
-    parking_wait_location_id: string;
+    parking_wait_location_id: string | null;
 
     @ManyToOne(() => WaitingLocation, { eager: true })
     @JoinColumn({ name: 'parking_wait_location_id' })
