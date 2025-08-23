@@ -205,17 +205,12 @@ export class OrchestratorService {
       if (productRequirements.length == 0){
         return;
       }
-      // get all idle robots and number of tasks from inventory should be equal to the number of idle robots
-      let IdleRobots: string[] = await this.getIdleRobots();
-      await this.addIdleRobotsInDb(IdleRobots);
-      // let IdleRobots = 2;
-      console.log(`Idle robot count: ${IdleRobots.length}`);
       for (const requirement of productRequirements) {
         // if (IdleRobots.length <= 0) {
         //   this.logger.warn(`No idle robots available for product ${requirement.productId}`);
         //   break;  
         // }
-        IdleRobots = await this.processProductRequirement(requirement.productId, IdleRobots);
+        await this.processProductRequirement(requirement.productId);
       }
       return { message: 'Orchestrator process completed successfully' };
       
@@ -394,10 +389,10 @@ export class OrchestratorService {
     return [];
   }
 
-  private async processProductRequirement(productId: string, idleRobots: string[]): Promise<string[]> {
+  private async processProductRequirement(productId: string): Promise<void> {
 
     const allInventories = await this.inventoryService.findAllByProductId(productId);
-    if (!allInventories || allInventories.length === 0) {return idleRobots;}
+    if (!allInventories || allInventories.length === 0) {return;}
 
     // read the requirement of the product from the database
     const databaseRequirement = await this.productRequirementRepository.find({
@@ -464,7 +459,6 @@ export class OrchestratorService {
               await this.inventoryRepository.update({ id: inventory.id }, { status: LocationStatus.AVAILABLE });
             }
             console.log(`sent cancellation task followup`)
-            idleRobots = idleRobots.filter(id => id !== robotIdToUse);
             // Remove this station from sortedStations to prevent creating another task for the same station
             sortedStations = sortedStations.filter(st => st.station_id !== station.station_id);
             this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${station.station_id} (station)`);
@@ -479,22 +473,18 @@ export class OrchestratorService {
     }
     console.log(`effectiveSystemRequirement: ${effectiveSystemRequirement}`);
     if (effectiveSystemRequirement <= 0){
-      return idleRobots;
+      return ;
     }
 
-    if (selectedInventories.length === 0) {return idleRobots;}
+    if (selectedInventories.length === 0) {return ;}
 
     console.log(`sorted Stations: ${JSON.stringify(sortedStations)}`);
 
     for (const inventory of selectedInventories) {
-      const [taskID, updatedIdleRobots] = await this.createSingleTaskToFirstAvailableStation(
+      const taskID = await this.createSingleTaskToFirstAvailableStation(
         inventory,
         sortedStations,
-        idleRobots
       );
-      if (taskID){
-        idleRobots = updatedIdleRobots;
-      }
       if (!taskID){
         const inventory_to_station_waiting_location = await this.waitingLocationRepository.find({
           where: { type: WaitingLocationType.INVENTORY_TO_STATION, status: LocationStatus.AVAILABLE}
@@ -505,9 +495,12 @@ export class OrchestratorService {
           if (!reserved) {
             continue;
           }
-          console.log(`idle robots length: ${idleRobots.length}`);
-          const robotIdToUse = await this.decideRobotToUse(idleRobots);
-          if (!robotIdToUse) {continue;}
+          const robotIdToUse = await this.decideRobotToUse();
+          if (!robotIdToUse) {
+            await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: false, status: LocationStatus.AVAILABLE });
+            await this.waitingLocationRepository.update({ location_id: waitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
+            continue;
+          }
           console.log(`robotIdToUse: ${robotIdToUse}`);
           const batchId = await this.generateBatchId();
           await this.createBatch(batchId, inventory, inventory.product_id);
@@ -532,7 +525,6 @@ export class OrchestratorService {
             // Send task to WMS
             await this.sendSingleTaskToWms(returnTask);
             // remove the robotIdToUse from idleRobot list
-            idleRobots = idleRobots.filter(id => id !== robotIdToUse);
             this.logger.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
             await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
             break;
@@ -542,7 +534,6 @@ export class OrchestratorService {
         }
       }
     }
-    return idleRobots;
   }
 
   async CancelTask(parking_task: Task): Promise<any> {
@@ -598,13 +589,10 @@ export class OrchestratorService {
     }
   }
 
-  async decideRobotToUse(idleRobots: string[]): Promise<string | null> {
+  async decideRobotToUse(): Promise<string | null> {
     const allRobots = await this.getAllRobots();
-    console.log(`all robots: ${JSON.stringify(allRobots)}`);
-    // idleRobots = idleRobots.filter((robot: any) => robot['status'] === 'idle');
-    console.log(`idleRobots: ${JSON.stringify(idleRobots)}`);
-    idleRobots = allRobots.map((robot: any) => robot['id']);
-    for (const robotId of idleRobots) {
+    const allRobotIds = allRobots.map((robot: any) => robot['id']);
+    for (const robotId of allRobotIds) {
       const parking_task = await this.taskRepository.findOne({ where: { robot_id: robotId, move_type: MOVE_TYPE.PARKING, status: In([TaskStatus.PENDING, TaskStatus.INQUEUE, TaskStatus.PROCESSING]) } });
       if (parking_task) {
         try{
@@ -685,8 +673,7 @@ export class OrchestratorService {
   private async createSingleTaskToFirstAvailableStation(
     inventory: Inventory,
     sortedStations: Station[],
-    idleRobots: string[]
-  ): Promise<[string | null, string[]]> {
+  ): Promise<string | null> {
     // Find the first available station in priority order
     let targetStation: Station | null = null;
     
@@ -707,9 +694,12 @@ export class OrchestratorService {
       // Station is available - create task immediately
       const batchId = await this.generateBatchId();
       await this.createBatch(batchId, inventory, inventory.product_id);
-      const robotIdToUse = await this.decideRobotToUse(idleRobots);
+      const robotIdToUse = await this.decideRobotToUse();
       console.log(`robot id to use: ${robotIdToUse}`);
-      if (!robotIdToUse) {return [null, idleRobots];}
+      if (!robotIdToUse) {
+        await this.stationRepository.update(targetStation.station_id, { status: LocationStatus.AVAILABLE });
+        return null;
+      }
       const [taskId,task] = await this.createTask({
         batchId,
         productId: inventory.product_id,
@@ -723,7 +713,6 @@ export class OrchestratorService {
         taskDependency: null // May depend on previous batch
       });
       if (task) {
-        idleRobots = idleRobots.filter(id => id !== robotIdToUse);
         // reserve the inventory location
         inventory.isProcessing = true;
         inventory.status = LocationStatus.RESERVED;
@@ -732,11 +721,11 @@ export class OrchestratorService {
       }
       this.logger.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
       await this.loggingService.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${task?.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
-      return [taskId, idleRobots];
+      return taskId;
     } else {
       // No station is available - create task without station and add station request for first required station only
       // this.logger.warn(`No available stations found for (inventory ${inventory.id}) - skipping task creation`);
-      return [null, idleRobots];
+      return null;
     }
   }
 
@@ -2217,5 +2206,13 @@ export class OrchestratorService {
       messages: messages,
       count: messages.length
     };
+  }
+
+  async setInitialConfiguration(){
+    const idleRobots = await this.getIdleRobots();
+    await this.addIdleRobotsInDb(idleRobots);
+
+    await this.stationService.findAll();
+    await this.waitingLocationService.findAll();
   }
 }

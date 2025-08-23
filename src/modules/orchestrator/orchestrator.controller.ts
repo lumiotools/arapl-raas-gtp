@@ -576,4 +576,46 @@ export class OrchestratorController {
   async performErrorCheck() {
     return await this.orchestratorService.performErrorCheck();
   }
+
+  @Post('initial-config')
+  @ApiOperation({
+    summary: 'Set initial configuration',
+    description: 'Initialize the system with default configuration settings including robot status, location mappings, and system parameters.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Initial configuration set successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Initial configuration set successfully' },
+        data: {
+          type: 'object',
+          properties: {
+            robots_initialized: { type: 'number', example: 5 },
+            locations_mapped: { type: 'number', example: 20 },
+            configurations_set: { type: 'number', example: 10 }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    description: 'Failed to set initial configuration',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: false },
+        message: { type: 'string', example: 'Failed to set initial configuration' },
+        error: { type: 'string', example: 'Database connection error' }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  async setInitialConfiguration() {
+    return await this.orchestratorService.setInitialConfiguration();
+  }
 }
