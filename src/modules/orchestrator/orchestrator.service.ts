@@ -1,6 +1,6 @@
 import { Injectable, Logger, Move, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, MoreThan, Not, OneToOne, Repository } from 'typeorm';
+import { In, IsNull, LessThan, MoreThan, Not, OneToOne, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, last, min, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -422,47 +422,52 @@ export class OrchestratorService {
         where:{product_id: productId, move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY]), status: In([TaskStatus.PROCESSING])}
       })
       console.log(`task coming to inventory: ${JSON.stringify(taskComingToInventory)}`)
+      
       if (taskComingToInventory){
         console.log(`found task from inventory: trying to cancel`)
         try{
-          await this.CancelTask(taskComingToInventory);
-          const robotIdToUse = taskComingToInventory.robot_id;
-          for (const station of sortedStations) {
-            const reserved = await this.stationService.reserveStation(station.station_id);
-            if (!reserved) {
-              continue;
+          const inventory_id = taskComingToInventory.end_location.location_id;
+          const inventory = await this.inventoryRepository.findOne({ where: { id: inventory_id } });
+          if (inventory && inventory?.quantity - inventory?.missing_quantity - inventory?.defective_quantity > 0){
+            await this.CancelTask(taskComingToInventory);
+            const robotIdToUse = taskComingToInventory.robot_id;
+            for (const station of sortedStations) {
+              const reserved = await this.stationService.reserveStation(station.station_id);
+              if (!reserved) {  
+                continue;
+              }
+              if (!robotIdToUse) {continue;}
+              const batchId = taskComingToInventory.batch_id;
+              console.log(`cancelling at db_req > 0`)
+              const [returnTaskId, returnTask] = await this.createTask({
+                batchId,
+                productId: taskComingToInventory.product_id,
+                sourceInventoryId: taskComingToInventory.start_location.location_id,
+                destinationStationId: station.station_id,
+                quantity: taskComingToInventory.quantity,
+                robotId: robotIdToUse,
+                taskType: TaskType.GOODS_TO_PERSON,
+                move_type: MOVE_TYPE.STATION_TO_STATION,
+                sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
+                taskDependency: taskComingToInventory.task_id // Use last task of batch as dependency
+              });
+              if (!returnTask) {
+                await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
+                continue;
+              }
+              await this.reserveStationAndSendTask(returnTask, station); // Reserve the station and send task to WMS
+              // remove the robotIdToUse from idleRobot list
+              
+              if (inventory) {
+                inventory.status = LocationStatus.AVAILABLE;
+                await this.inventoryRepository.update({ id: inventory.id }, { status: LocationStatus.AVAILABLE });
+              }
+              console.log(`sent cancellation task followup`)
+              // Remove this station from sortedStations to prevent creating another task for the same station
+              sortedStations = sortedStations.filter(st => st.station_id !== station.station_id);
+              this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${station.station_id} (station)`);
+              await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${station.station_id} (station)`);
             }
-            if (!robotIdToUse) {continue;}
-            const batchId = taskComingToInventory.batch_id;
-            const [returnTaskId, returnTask] = await this.createTask({
-              batchId,
-              productId: taskComingToInventory.product_id,
-              sourceInventoryId: taskComingToInventory.start_location.location_id,
-              destinationStationId: station.station_id,
-              quantity: taskComingToInventory.quantity,
-              robotId: robotIdToUse,
-              taskType: TaskType.GOODS_TO_PERSON,
-              move_type: MOVE_TYPE.INVENTORY_TO_STATION,
-              sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
-              taskDependency: taskComingToInventory.task_id // Use last task of batch as dependency
-            });
-            if (!returnTask) {
-              await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
-              continue;
-            }
-            await this.reserveStationAndSendTask(returnTask, station); // Reserve the station and send task to WMS
-            // remove the robotIdToUse from idleRobot list
-            const inventory_id = taskComingToInventory.end_location.location_id;
-            const inventory = await this.inventoryRepository.findOne({ where: { id: inventory_id } });
-            if (inventory) {
-              inventory.status = LocationStatus.AVAILABLE;
-              await this.inventoryRepository.update({ id: inventory.id }, { status: LocationStatus.AVAILABLE });
-            }
-            console.log(`sent cancellation task followup`)
-            // Remove this station from sortedStations to prevent creating another task for the same station
-            sortedStations = sortedStations.filter(st => st.station_id !== station.station_id);
-            this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${station.station_id} (station)`);
-            await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${station.station_id} (station)`);
           }
         }
         catch (error) {
@@ -1439,7 +1444,7 @@ export class OrchestratorService {
         this.orchestratorWorking  = true;
 
         // add a function that sends a task again
-        // await this.resendPendingTasks();
+        await this.resendPendingTasks();
 
         await this.scheduleLPtoPickLocation();
         // check if a there is lp plate waiting for a pick location
@@ -1583,8 +1588,12 @@ export class OrchestratorService {
 
   async resendPendingTasks() {
     try {
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
       const pendingTasks = await this.taskRepository.find({
-        where: { status: TaskStatus.PENDING },
+        where: { 
+          status: TaskStatus.PENDING,
+          created_at: LessThan(twoMinutesAgo)
+        },
         order: { created_at: 'ASC' } // FIFO order
       });
       if (pendingTasks.length === 0) {return;}
@@ -1941,7 +1950,13 @@ export class OrchestratorService {
       const carrying_task = await this.taskRepository.findOne({
         where: { product_id: product_id, status: In([TaskStatus.PROCESSING, TaskStatus.INQUEUE]) }
       });
+      
       if (carrying_task) {
+        const firstTask = await this.taskRepository.findOne({where: { batch_id: carrying_task.batch_id, sequence_order: 1 }});
+        const inventoryId = firstTask?.start_location?.location_id;
+        const inventory = await this.inventoryRepository.findOne({where: { id: inventoryId }});
+        if (inventory && inventory.quantity - inventory.defective_quantity - inventory.missing_quantity <= 0){continue;}
+        console.log(`cancel at release station.`)
         // reserve the current station
         const response = await this.CancelTask(carrying_task);
         await this.taskRepository.update({ task_id: carrying_task.task_id }, { status: TaskStatus.CANCELLED });
