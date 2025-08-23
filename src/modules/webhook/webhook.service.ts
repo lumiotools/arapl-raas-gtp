@@ -115,9 +115,9 @@ export class WebhookService {
             waitingLocation.status = LocationStatus.AVAILABLE;
             await this.waitingLocationRepository.save(waitingLocation);
           }
+          robot.parking_wait_location_id = null;
+          await this.robotRepository.save(robot);
         }
-        robot.parking_wait_location_id = null;
-        await this.robotRepository.save(robot);
       }
     }
 
