@@ -1955,10 +1955,7 @@ export class OrchestratorService {
       if (carrying_task) {
         // reserve the current station
         const response = await this.CancelTask(carrying_task);
-        if (response.status !== 200) {
-          this.logger.error(`Failed to cancel task ${carrying_task.task_id}: ${response.statusText}`);
-          continue;
-        }
+        await this.taskRepository.update({ task_id: carrying_task.task_id }, { status: TaskStatus.CANCELLED });
         const [task_id, task] = await this.createTask({
           batchId: carrying_task.batch_id,
           productId: product_id,
