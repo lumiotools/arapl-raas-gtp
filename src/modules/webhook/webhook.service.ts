@@ -61,10 +61,26 @@ export class WebhookService {
       this.logger.log(`Task ${taskStatusData.task_id} is already triggered - skipping update`);
       return;
     }
+    // define priority for TaskStatus such that TRIGERRED = CANCELLED  > COMPLETED > PROCESSING > INQUEUE > ASSIGNED > PENDING
+    const statusPriority = {
+      [TaskStatus.TRIGERRED]: 7,
+      [TaskStatus.CANCELLED]: 7,
+      [TaskStatus.COMPLETED]: 6,
+      [TaskStatus.PROCESSING]: 5,
+      [TaskStatus.INQUEUE]: 4,
+      [TaskStatus.ASSIGNED]: 3,
+      [TaskStatus.PENDING]: 2
+    };
+
     const oldStatus = task.status;
     const mappedStatus = this.mapTaskStatus(taskStatusData.status);
 
-    if (oldStatus === mappedStatus && task.robot_id) {
+    if (statusPriority[mappedStatus] < statusPriority[oldStatus]) {
+      this.logger.log(`Skipping status update for task ${taskStatusData.task_id}: new status ${mappedStatus} (priority ${statusPriority[mappedStatus]}) has lower priority than current status ${oldStatus} (priority ${statusPriority[oldStatus]})`);
+      return;
+    }
+
+    if (oldStatus === mappedStatus) {
       this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
       return; // No change needed
     }
@@ -87,7 +103,7 @@ export class WebhookService {
     await this.taskRepository.save(task);
 
     // unoccupy the current robot parking location
-    if (mappedStatus ===TaskStatus.PROCESSING && task.robot_id && task.start_location.location_attribute.attribute_value==='inventory'
+    if ((mappedStatus ===TaskStatus.PROCESSING || mappedStatus === TaskStatus.COMPLETED) && task.robot_id && task.start_location.location_attribute.attribute_value=='inventory'
       && task.move_type !== MOVE_TYPE.PARKING
     ) {
       const robot = await this.robotRepository.findOne({ where: { robot_id: task.robot_id } });
@@ -110,25 +126,6 @@ export class WebhookService {
     
     // Handle station status updates
     await this.handleStationUpdates(task, oldStatus, mappedStatus);
-
-    if (mappedStatus === TaskStatus.CANCELLED){
-      if (task.end_location?.location_attribute?.attribute_value === 'station') {
-        const station = await this.stationRepository.findOne({where:{station_id: task.end_location.location_id}});
-        if (station) {
-          station.status = LocationStatus.AVAILABLE;
-          station.holded_by = null; // Clear holded_by since task is cancelled
-          await this.stationRepository.save(station);
-        }
-      }
-      if (task.end_location?.location_attribute?.attribute_value === 'waiting_location') {
-        const waitingLocation = await this.waitingLocationRepository.findOne({where:{location_id: task.end_location.location_id}});
-        if (waitingLocation) {
-          waitingLocation.status = LocationStatus.AVAILABLE;
-          waitingLocation.holded_by = null; // Clear holded_by since task is cancelled
-          await this.waitingLocationRepository.save(waitingLocation);
-        }
-      }
-    }
     
     // Handle task completion based on destination type
     if (mappedStatus === TaskStatus.COMPLETED) {
@@ -189,28 +186,8 @@ export class WebhookService {
       }
     }
   }
-    reserveWaitingLocation(waitingLocation: WaitingLocation) {
-      throw new Error('Method not implemented.');
-    }
 
-  private mapBatchStatus(webhookStatus: string): BatchStatus {
-    const statusMap: { [key: string]: BatchStatus } = {
-      'pending': BatchStatus.PENDING,
-      'inqueue': BatchStatus.INQUEUE,
-      'processing': BatchStatus.PROCESSING,
-      'completed': BatchStatus.COMPLETED,
-      'cancelled': BatchStatus.CANCELLED,
-      'failed': BatchStatus.FAILED,
-    };
-
-    const mapped = statusMap[webhookStatus.toLowerCase()];
-    if (!mapped) {
-      this.logger.warn(`Unknown batch status: ${webhookStatus}, defaulting to PENDING`);
-      return BatchStatus.PENDING;
-    }
-    
-    return mapped;
-  }
+  
 
   private mapTaskStatus(webhookStatus: string): TaskStatus {
     console.log(webhookStatus);

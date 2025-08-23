@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, Move, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, MoreThan, Not, OneToOne, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
@@ -330,7 +330,8 @@ export class OrchestratorService {
     );
     const res : any = [];
     if (response && response.data && Array.isArray(response.data.robots)){
-      res.push(...response.data.robots);
+      // res.push(...response.data.robots);
+      const idleRobots = response.data.robots.filter((robot: any) => robot.status === 'Idle');
       const holdingStations = await this.stationRepository.find({
         where: { holded_by: Not(IsNull()) }
       });
@@ -342,7 +343,9 @@ export class OrchestratorService {
         where: { holded_by: Not(IsNull()) }
       });
       const holdingWaitingTasks = await this.taskRepository.find({
-        where: { task_id: In(holdingWaitingLocations.map(wl => wl.holded_by).filter(id => id !== null)) }
+        where: { task_id: In(holdingWaitingLocations.map(wl => wl.holded_by).filter(id => id !== null)),
+          move_type: Not(MOVE_TYPE.PARKING)
+        }
       });
       res.push(...holdingWaitingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' })));
 
@@ -350,7 +353,11 @@ export class OrchestratorService {
         where: { status: TaskStatus.PROCESSING }
       });
       res.push(...processingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' })));
+
+      res.push(...idleRobots.filter(robot => !res.some(existingRobot => existingRobot.id === robot.id))
+        .map(robot => ({ 'id': robot.id, 'status': 'idle' })));
     }
+
 
     return res;
   }
