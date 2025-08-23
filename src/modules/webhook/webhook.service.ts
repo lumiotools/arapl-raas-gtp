@@ -117,7 +117,8 @@ export class WebhookService {
             await this.waitingLocationRepository.save(waitingLocation);
           }
           robot.parking_wait_location_id = null;
-          await this.robotRepository.save(robot);
+          console.log(`marking parking location as null`);
+          await this.robotRepository.update({ robot_id: task.robot_id }, { parking_wait_location_id: null } );
         }
       }
     }
@@ -127,6 +128,9 @@ export class WebhookService {
     
     // Handle station status updates
     await this.handleStationUpdates(task, oldStatus, mappedStatus);
+
+    // Handle waiting location updates
+      await this.handleWaitingLocationStatusUpdates(task, mappedStatus);
 
     if (mappedStatus === TaskStatus.CANCELLED){
       if (task.move_type===MOVE_TYPE.PARKING) {
@@ -194,7 +198,7 @@ export class WebhookService {
       
       if (currentTask && currentTask.status === TaskStatus.PROCESSING) {
         this.logger.log(`Calling task processing handler for task ${task.task_id}`);
-        await this.handleTaskProcessing(task);
+        await this.orchestratorService.handleTaskProcessing(currentTask);
       }
     }
   }
@@ -220,6 +224,7 @@ export class WebhookService {
       'canceled': TaskStatus.CANCELLED,
       'drop_successful': TaskStatus.COMPLETED,
       'task_cancelled': TaskStatus.CANCELLED,
+      'task_canceled': TaskStatus.CANCELLED,
       'drop_rejected': TaskStatus.CANCELLED,
       'pick_rejected': TaskStatus.CANCELLED,
       'pick_failed': TaskStatus.CANCELLED,
@@ -284,6 +289,9 @@ export class WebhookService {
           await this.isFirstTaskInBatch(task, batchId)) {
         // await this.setInventoryToZero(task);
         await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
+      }
+      if ((newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
+        await this.releaseCompleteInventory(task.start_location.location_id, task.product_id, task.quantity);
       }
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
           await this.updateInventoryWithTaskQuantity(task);
@@ -351,8 +359,6 @@ export class WebhookService {
       // Handle station updates
       await this.handleStationStatusUpdates(task, newStatus);
       
-      // Handle waiting location updates
-      await this.handleWaitingLocationStatusUpdates(task, newStatus);
     } catch (error) {
       this.logger.error(`Error handling location updates for task ${task.task_id}:`, error.message);
     }
@@ -447,17 +453,6 @@ export class WebhookService {
       this.logger.log(`✅ Batch ${batchId} marked as COMPLETED - all tasks finished!`);
     } catch (error) {
       this.logger.error(`Error marking batch ${batchId} as completed:`, error.message);
-    }
-  }
-
-  private async handleTaskProcessing(processingTask: Task): Promise<void> {
-    try {
-      this.logger.log(`Handling task ${processingTask.task_id} going to PROCESSING state`);
-      
-      // Call orchestrator to handle task processing (release source station)
-      await this.orchestratorService.handleTaskProcessing(processingTask);
-    } catch (error) {
-      this.logger.error(`Error handling task processing for task ${processingTask.task_id}:`, error.message);
     }
   }
 
