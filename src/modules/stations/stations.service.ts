@@ -126,6 +126,7 @@ export class StationsService {
 
   async findOne(id: string) {
     try{
+      return this.stationRepository.findOne({ where: { station_id: id }, relations: ['gtpLocations'] });
       const station_object = await this.getAllWmsStations();
       const bin_locations = station_object.available_location_types || [];
       const binLocation = bin_locations.find((bin: any) => bin.location_id === id);
