@@ -483,9 +483,10 @@ export class OrchestratorService {
     }
 
     if (selectedInventories.length === 0) {return idleRobots;}
-    
+
+    console.log(`sorted Stations: ${JSON.stringify(sortedStations)}`);
+
     for (const inventory of selectedInventories) {
-      if (idleRobots.length <= 0){return idleRobots;}
       const [taskID, updatedIdleRobots] = await this.createSingleTaskToFirstAvailableStation(
         inventory,
         sortedStations,
@@ -598,17 +599,29 @@ export class OrchestratorService {
   }
 
   async decideRobotToUse(idleRobots: string[]): Promise<string | null> {
+    const allRobots = await this.getAllRobots();
+    console.log(`all robots: ${JSON.stringify(allRobots)}`);
+    // idleRobots = idleRobots.filter((robot: any) => robot['status'] === 'idle');
+    console.log(`idleRobots: ${JSON.stringify(idleRobots)}`);
+    idleRobots = allRobots.map((robot: any) => robot['id']);
     for (const robotId of idleRobots) {
       const parking_task = await this.taskRepository.findOne({ where: { robot_id: robotId, move_type: MOVE_TYPE.PARKING, status: In([TaskStatus.PENDING, TaskStatus.INQUEUE, TaskStatus.PROCESSING]) } });
       if (parking_task) {
         try{
           await this.CancelTask(parking_task);
+          await this.taskRepository.update({ task_id: parking_task.task_id }, { status: TaskStatus.CANCELLED });
+          return robotId;
         } catch (error) {
           this.logger.error(`Failed to cancel task ${parking_task.task_id}: ${error.message}`);
           continue;
         }
       }
-      return robotId;
+      const robot_obj = allRobots.find((robot: any) => robot['id'] === robotId);
+      if(robot_obj){
+        if (robot_obj['status'] === 'idle') {
+          return robotId;
+        }
+      }
     }
     return null;
   }
@@ -688,12 +701,14 @@ export class OrchestratorService {
         break; // Take the first available station, don't skip to lower priority
       }
     }
+    console.log(`target station: ${JSON.stringify(targetStation)}`);
 
     if (targetStation) {
       // Station is available - create task immediately
       const batchId = await this.generateBatchId();
       await this.createBatch(batchId, inventory, inventory.product_id);
       const robotIdToUse = await this.decideRobotToUse(idleRobots);
+      console.log(`robot id to use: ${robotIdToUse}`);
       if (!robotIdToUse) {return [null, idleRobots];}
       const [taskId,task] = await this.createTask({
         batchId,

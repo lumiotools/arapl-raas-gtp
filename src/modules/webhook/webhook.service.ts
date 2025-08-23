@@ -291,7 +291,7 @@ export class WebhookService {
         await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
       }
       if ((newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
-        await this.releaseCompleteInventory(task.start_location.location_id, task.product_id, task.quantity);
+        await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
       }
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
           await this.updateInventoryWithTaskQuantity(task);
