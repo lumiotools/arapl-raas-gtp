@@ -423,13 +423,13 @@ export class OrchestratorService {
     
     for (const inventory of selectedInventories) {
       if (idleRobots.length <= 0){return idleRobots;}
-      const taskID = await this.createSingleTaskToFirstAvailableStation(
+      const [taskID, updatedIdleRobots] = await this.createSingleTaskToFirstAvailableStation(
         inventory,
         sortedStations,
-        idleRobots[0]
+        idleRobots
       );
       if (taskID){
-        idleRobots.shift();
+        idleRobots = updatedIdleRobots;
       }
       if (!taskID){
         const inventory_to_station_waiting_location = await this.waitingLocationRepository.find({
@@ -441,6 +441,8 @@ export class OrchestratorService {
           if (!reserved) {
             continue;
           }
+          const robotIdToUse = await this.decideRobotToUse(idleRobots);
+          if (!robotIdToUse) {continue;}
           const batchId = await this.generateBatchId();
           await this.createBatch(batchId, inventory, inventory.product_id);
           const [returnTaskId, returnTask] = await this.createTask({
@@ -449,7 +451,7 @@ export class OrchestratorService {
             sourceInventoryId: inventory.id,
             destinationWaitingLocationId: waitingLocation.location_id,
             quantity: inventory.quantity,
-            robotId: idleRobots[0],
+            robotId: robotIdToUse,
             taskType: TaskType.GOODS_TO_PERSON,
             move_type: MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
             sequenceOrder: 1, // First task in this batch
@@ -463,7 +465,8 @@ export class OrchestratorService {
             
             // Send task to WMS
             await this.sendSingleTaskToWms(returnTask);
-            idleRobots.shift();
+            // remove the robotIdToUse from idleRobot list
+            idleRobots = idleRobots.filter(id => id !== robotIdToUse);
             this.logger.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
             await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
             break;
@@ -474,6 +477,36 @@ export class OrchestratorService {
       }
     }
     return idleRobots;
+  }
+
+  async decideRobotToUse(idleRobots: string[]): Promise<string | null> {
+    for (const robotId of idleRobots) {
+      const parking_task = await this.taskRepository.findOne({ where: { robot_id: robotId, move_type: MOVE_TYPE.PARKING, status: In([TaskStatus.PENDING, TaskStatus.INQUEUE, TaskStatus.PROCESSING]) } });
+      if (parking_task){
+        const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+        const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+        const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
+        const fms_batch_id = parking_task.fms_batch_id;
+        const requestBody = {
+            "force": true,
+            "reason": "Cancel the current Parking Location Task",
+            "timestamp": new Date().toISOString()
+        };
+        const response = await firstValueFrom(
+          this.httpService.patch(`${wms_base_url}/robot-job/${warehouse_name}/tasks/${fms_batch_id}/cancel`, requestBody, {
+            headers: {
+              'authorization': `${warehouse_key}`,
+              'Content-Type': 'application/json'
+            }
+          })
+        );
+        if (response.status !== 200) {
+          continue;
+        }
+      }
+      return robotId;
+    }
+    return null;
   }
 
   /**
@@ -535,8 +568,8 @@ export class OrchestratorService {
   private async createSingleTaskToFirstAvailableStation(
     inventory: Inventory,
     sortedStations: Station[],
-    robot_id: string
-  ): Promise<string | null> {
+    idleRobots: string[]
+  ): Promise<[string | null, string[]]> {
     // Find the first available station in priority order
     let targetStation: Station | null = null;
     
@@ -556,12 +589,14 @@ export class OrchestratorService {
       // Station is available - create task immediately
       const batchId = await this.generateBatchId();
       await this.createBatch(batchId, inventory, inventory.product_id);
+      const robotIdToUse = await this.decideRobotToUse(idleRobots);
+      if (!robotIdToUse) {return [null, idleRobots];}
       const [taskId,task] = await this.createTask({
         batchId,
         productId: inventory.product_id,
         sourceInventoryId: inventory.id,
         destinationStationId: targetStation.station_id,
-        robotId: robot_id,
+        robotId: robotIdToUse,
         quantity: inventory.quantity, // Move entire available quantity
         taskType: TaskType.GOODS_TO_PERSON,
         move_type: MOVE_TYPE.INVENTORY_TO_STATION,
@@ -569,6 +604,7 @@ export class OrchestratorService {
         taskDependency: null // May depend on previous batch
       });
       if (task) {
+        idleRobots = idleRobots.filter(id => id !== robotIdToUse);
         // reserve the inventory location
         inventory.isProcessing = true;
         inventory.status = LocationStatus.RESERVED;
@@ -577,11 +613,11 @@ export class OrchestratorService {
       }
       this.logger.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
       await this.loggingService.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${task?.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
-      return taskId;
+      return [taskId, idleRobots];
     } else {
       // No station is available - create task without station and add station request for first required station only
       // this.logger.warn(`No available stations found for (inventory ${inventory.id}) - skipping task creation`);
-      return null;
+      return [null, idleRobots];
     }
   }
 

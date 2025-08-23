@@ -66,6 +66,9 @@ export class Task {
   @Column({ type: 'varchar', length: 32 })
   batch_id: string;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  fms_batch_id: string;
+
   @Column({ type: 'varchar', length: 10, nullable: true })
   product_id: string;
 

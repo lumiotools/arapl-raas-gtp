@@ -51,7 +51,7 @@ export class WebhookService {
     }
   }
 
-  private async updateTaskStatus(batchId: string, taskStatusData: any): Promise<void> {
+  private async updateTaskStatus(fms_batch_id: string, taskStatusData: any): Promise<void> {
     // Find task by task_id only (ignore batch_id as instructed)
     const task = await this.taskRepository.findOne({
       where: { task_id: taskStatusData.task_id }
@@ -90,6 +90,7 @@ export class WebhookService {
   
     task.status = mappedStatus;
     task.robot_id = taskStatusData.robot_id || null;
+    task.fms_batch_id = fms_batch_id;
     const currentTime = new Date();
     if (mappedStatus === TaskStatus.INQUEUE) {
       task.inqueue = currentTime;
@@ -122,11 +123,22 @@ export class WebhookService {
     }
 
     // Handle inventory updates based on task status changes
-    await this.handleInventoryUpdates(task, oldStatus, mappedStatus, batchId);
+    await this.handleInventoryUpdates(task, oldStatus, mappedStatus, task.batch_id);
     
     // Handle station status updates
     await this.handleStationUpdates(task, oldStatus, mappedStatus);
-    
+
+    if (mappedStatus === TaskStatus.CANCELLED){
+      if (task.move_type===MOVE_TYPE.PARKING) {
+        const destinationWaitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
+        if (destinationWaitingLocation){
+          destinationWaitingLocation.status = LocationStatus.AVAILABLE;
+          destinationWaitingLocation.holded_by = null;
+          await this.waitingLocationRepository.save(destinationWaitingLocation);
+        }
+      }
+    }
+
     // Handle task completion based on destination type
     if (mappedStatus === TaskStatus.COMPLETED) {
       const currentTask = await this.taskRepository.findOne({
