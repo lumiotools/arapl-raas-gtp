@@ -93,6 +93,7 @@ export class WaitingLocationService {
   }
 
   async findOne(id: string) {
+    return await this.waitingLocationRepository.findOne({ where: { location_id: id } });
     const waiting_object = await this.getAllWmsWaiting();
     const bin_locations = waiting_object.available_location_types || [];
     const binLocation = bin_locations.find((bin: { location_id: string }) => bin.location_id === id);
