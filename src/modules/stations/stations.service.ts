@@ -344,6 +344,7 @@ export class StationsService {
       if (task.end_location.location_attribute.attribute_value=='station' && task.end_location.location_id==station_id){
         robot_id = task.robot_id;
         robot_task = task;
+        break;
       }
     }
     let status: TaskStatus | null | string = null;

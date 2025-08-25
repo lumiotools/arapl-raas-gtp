@@ -168,6 +168,21 @@ export class WebhookService {
       });
       if (currentTask && currentTask.status === TaskStatus.COMPLETED) {
         const destinationType = task.end_location?.location_attribute.attribute_value;
+        const sourceType = task.start_location?.location_attribute.attribute_value;
+        if (sourceType === 'station'){
+          // free the source station
+          await this.stationRepository.update(
+            { station_id: task.start_location.location_id },
+            { is_active: true }
+          );
+        }
+        else if (sourceType === 'waiting_location'){
+          // free the source waiting location
+          await this.waitingLocationRepository.update(
+            { location_id: task.start_location.location_id },
+            { status: LocationStatus.AVAILABLE, holded_by: null }
+          );
+        }
 
         if (destinationType === 'inventory') {
           // Task completed at inventory - handle inventory return completion
@@ -178,7 +193,8 @@ export class WebhookService {
           const availableWaitingLocations = await this.waitingLocationRepository.find({
             where: { status: LocationStatus.AVAILABLE }
           });
-
+          availableWaitingLocations.sort((a, b) => b.location_id.localeCompare(a.location_id));
+          console.log(`Available waiting locations: ${availableWaitingLocations.map(loc => loc.location_id).join(', ')}`);
           for (const waitingLocation of availableWaitingLocations) {
             try {
               if (await this.waitingLocationService.reserveWaitingLocation(waitingLocation.location_id)) {
