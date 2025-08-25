@@ -663,6 +663,7 @@ export class OrchestratorController {
       }
     }
   })
+  @Get('robots/:robotId/tasks')
   async getTasksByRobotId(@Param('robotId') robotId: string) {
     return await this.orchestratorService.getTasksByRobotId(robotId);
   }
