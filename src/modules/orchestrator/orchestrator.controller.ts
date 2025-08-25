@@ -618,4 +618,52 @@ export class OrchestratorController {
   async setInitialConfiguration() {
     return await this.orchestratorService.setInitialConfiguration();
   }
+
+
+  @Get('robots/:robotId/tasks')
+  @ApiOperation({
+    summary: 'Get tasks by robot ID',
+    description: 'Retrieve all tasks assigned to a specific robot.',
+  })
+  @ApiParam({ 
+    name: 'robotId', 
+    description: 'Robot ID', 
+    example: 'ROBOT_001' 
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'List of tasks assigned to the robot',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          task_id: { type: 'number', example: 123 },
+          batch_id: { type: 'string', example: 'B1641234567' },
+          product_id: { type: 'string', example: 'PROD001' },
+          quantity: { type: 'number', example: 10 },
+          task_type: { type: 'string', example: 'GOODS_TO_PERSON' },
+          sequence_order: { type: 'number', example: 1 },
+          status: { type: 'string', example: 'IN_PROGRESS' },
+          start_location: { type: 'string', example: 'INV_LOC_001' },
+          end_location: { type: 'string', example: 'STATION_A' },
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'No tasks found for the robot',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'No tasks found for robot ROBOT_001' }
+      }
+    }
+  })
+  async getTasksByRobotId(@Param('robotId') robotId: string) {
+    return await this.orchestratorService.getTasksByRobotId(robotId);
+  }
 }

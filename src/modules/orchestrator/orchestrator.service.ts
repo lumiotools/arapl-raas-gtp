@@ -2316,4 +2316,12 @@ export class OrchestratorService {
     await this.stationService.findAll();
     await this.waitingLocationService.findAll();
   }
+
+  async getTasksByRobotId(robotId: string){
+    return await this.taskRepository.find({
+      where: { robot_id: robotId },
+      order: { created_at: 'ASC' },
+      select: ['start_location','end_location','batch_id','inqueue', 'processing','triggered','completed','created_at']
+    });
+  }
 }
