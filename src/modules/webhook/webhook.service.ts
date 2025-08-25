@@ -136,9 +136,27 @@ export class WebhookService {
       if (task.move_type===MOVE_TYPE.PARKING) {
         const destinationWaitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
         if (destinationWaitingLocation){
-          destinationWaitingLocation.status = LocationStatus.AVAILABLE;
-          destinationWaitingLocation.holded_by = null;
-          await this.waitingLocationRepository.save(destinationWaitingLocation);
+          await this.waitingLocationRepository.update({ location_id: destinationWaitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
+        }
+      }
+      else if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION){
+        console.log(`releasing destination waiting location for cancelled task ${task.task_id}`);
+        const destinationWaitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
+        if (destinationWaitingLocation){
+          await this.waitingLocationRepository.update({ location_id: destinationWaitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
+
+        }
+      }
+      else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY){
+        const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id, product_id: task.product_id } });
+        if (destinationInventoryLocation){
+          await this.inventoryRepository.update({ id: destinationInventoryLocation.id }, { status: LocationStatus.AVAILABLE });
+        }
+      }
+      else if (task.move_type === MOVE_TYPE.STATION_TO_INVENTORY){
+        const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id, product_id: task.product_id } });
+        if (destinationInventoryLocation){
+         await this.inventoryRepository.update({ id: destinationInventoryLocation.id }, { status: LocationStatus.AVAILABLE });
         }
       }
     }
