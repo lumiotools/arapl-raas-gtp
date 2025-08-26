@@ -412,6 +412,35 @@ export class WebhookService {
           holded_by: task.task_id
         }
       );
+
+      if (task.start_location?.location_attribute?.attribute_value === 'station') {
+        const stationId = task.start_location.location_id;
+        const station = await this.stationRepository.findOne({ where: { station_id: stationId } });
+        if (station && station.status !== LocationStatus.AVAILABLE && station.holded_by === task.task_id) {
+          this.logger.log(`Marking station ${stationId} as AVAILABLE (task ${task.task_id} completed)`);
+          await this.stationRepository.update(
+            { station_id: stationId },
+            {
+              status: LocationStatus.AVAILABLE,
+              holded_by: null
+            }
+          );
+        }
+      }
+      if (task.start_location?.location_attribute?.attribute_value === 'waiting_location') {
+        const waitingLocationId = task.start_location.location_id;
+        const waitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: waitingLocationId } });
+        if (waitingLocation && waitingLocation.status !== LocationStatus.AVAILABLE && waitingLocation.holded_by === task.task_id) {
+          this.logger.log(`Marking waiting location ${waitingLocationId} as AVAILABLE (task ${task.task_id} completed)`);
+          await this.waitingLocationRepository.update(
+            { location_id: waitingLocationId },
+            {
+              status: LocationStatus.AVAILABLE,
+              holded_by: null
+            }
+          );
+        }
+      }
     }
   }
 
@@ -429,7 +458,7 @@ export class WebhookService {
           status: LocationStatus.AVAILABLE,
           holded_by: null
         }
-      );
+      )
     }
 
     // When task status becomes COMPLETED and destination is waiting_location - mark waiting location as OCCUPIED
@@ -446,6 +475,20 @@ export class WebhookService {
           holded_by: task.task_id
         }
       );
+      if (task.start_location?.location_attribute?.attribute_value === 'station') {
+        const stationId = task.start_location.location_id;
+        const station = await this.stationRepository.findOne({ where: { station_id: stationId } });
+        if (station && station.status !== LocationStatus.AVAILABLE && station.holded_by === task.task_id) {
+          this.logger.log(`Marking station ${stationId} as AVAILABLE (task ${task.task_id} completed)`);
+          await this.stationRepository.update(
+            { station_id: stationId },
+            {
+              status: LocationStatus.AVAILABLE,
+              holded_by: null
+            }
+          );
+        }
+      }
     }
   }
 
