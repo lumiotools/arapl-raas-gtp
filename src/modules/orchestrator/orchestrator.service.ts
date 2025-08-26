@@ -589,13 +589,12 @@ export class OrchestratorService {
         });
         for (const waitingLocation of inventory_to_station_waiting_location) {
           if (waitingLocation.status !== LocationStatus.AVAILABLE || waitingLocation.holded_by !== null) {continue;} // a task is already holded by this waiting location
-          const reserved = await this.waitingLocationService.reserveWaitingLocation(waitingLocation.location_id) && await this.inventoryService.reserveInventory(inventory.id);
+          let reserved = await this.waitingLocationService.reserveWaitingLocation(waitingLocation.location_id);
           if (!reserved) {
             continue;
           }
           const robotIdToUse = await this.decideRobotToUse();
           if (!robotIdToUse) {
-            await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: false, status: LocationStatus.AVAILABLE });
             await this.waitingLocationRepository.update({ location_id: waitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
             continue;
           }
@@ -791,6 +790,7 @@ export class OrchestratorService {
       // Station is available - create task immediately
       const batchId = await this.generateBatchId();
       await this.createBatch(batchId, inventory, inventory.product_id);
+      console.log(`checking robot id to use`);
       const robotIdToUse = await this.decideRobotToUse();
       console.log(`robot id to use: ${robotIdToUse}`);
       if (!robotIdToUse) {

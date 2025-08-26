@@ -168,14 +168,14 @@ export class WebhookService {
         if (sourceType === 'station'){
           // free the source station
           await this.stationRepository.update(
-            { station_id: task.start_location.location_id },
+            { station_id: task.start_location.location_id, holded_by: task.task_id },
             { status: LocationStatus.AVAILABLE, holded_by: null }
           );
         }
         else if (sourceType === 'waiting_location'){
           // free the source waiting location
           await this.waitingLocationRepository.update(
-            { location_id: task.start_location.location_id },
+            { location_id: task.start_location.location_id, holded_by: task.task_id },
             { status: LocationStatus.AVAILABLE, holded_by: null }
           );
         }
