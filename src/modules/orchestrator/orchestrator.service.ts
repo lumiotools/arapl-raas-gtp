@@ -484,7 +484,8 @@ export class OrchestratorService {
             const waitingLocations = await this.waitingLocationRepository.find({where: {status: LocationStatus.AVAILABLE}});
             for (const waitLocation of waitingLocations){
               if (is_station_task_created){break;}
-              const reserved = await this.waitingLocationService.reserveWaitingLocation(waitLocation.location_id);
+              const reserved = await this.waitingLocationService.reserveWaitingLocation(waitLocation.location_id) && 
+              await this.stationService.reserveStation(taskComingToInventory.start_location.location_id);
               if (!reserved) {  
                 continue;
               }
@@ -502,12 +503,13 @@ export class OrchestratorService {
                 quantity: taskComingToInventory.quantity,
                 robotId: robotIdToUse,
                 taskType: TaskType.GOODS_TO_PERSON,
-                move_type: MOVE_TYPE.STATION_TO_STATION,
+                move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION,
                 sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
                 taskDependency: taskComingToInventory.task_id // Use last task of batch as dependency
               });
               if (returnTask) {
                 await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.RESERVED, holded_by: returnTaskId});
+                await this.stationRepository.update(taskComingToInventory.start_location.location_id, { status: LocationStatus.RESERVED, holded_by: returnTaskId });
                 await this.sendSingleTaskToWms(returnTask);
                 this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${waitLocation.location_id} (waiting location)`);
                 await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${waitLocation.location_id} (waiting location)`);
@@ -515,6 +517,7 @@ export class OrchestratorService {
               }
               if (!returnTask){
                 await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.AVAILABLE, holded_by: null});
+                await this.stationRepository.update(taskComingToInventory.start_location.location_id, { status: LocationStatus.AVAILABLE, holded_by: null });
               }
             }
           }
@@ -700,7 +703,7 @@ export class OrchestratorService {
       }
       const robot_obj = allRobots.find((robot: any) => robot['id'] === robotId);
       if(robot_obj){
-        if (robot_obj['status'] === 'idle') {
+        if (robot_obj['status'] === 'Idle') {
           return robotId;
         }
       }
