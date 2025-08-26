@@ -173,7 +173,7 @@ export class WebhookService {
           // free the source station
           await this.stationRepository.update(
             { station_id: task.start_location.location_id },
-            { is_active: true }
+            { status: LocationStatus.AVAILABLE, holded_by: null }
           );
         }
         else if (sourceType === 'waiting_location'){

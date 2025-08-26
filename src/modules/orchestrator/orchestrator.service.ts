@@ -331,7 +331,8 @@ export class OrchestratorService {
     const res : any = [];
     if (response && response.data && Array.isArray(response.data.robots)){
       // res.push(...response.data.robots);
-      const idleRobots = response.data.robots.filter((robot: any) => robot.status === 'Idle');
+      let idleRobots = response.data.robots.filter((robot: any) => robot.status === 'Idle');
+      await this.addIdleRobotsInDb(idleRobots);
       console.log(`idle robots: ${JSON.stringify(idleRobots)}`);
       const holdingStations = await this.stationRepository.find({
         where: { holded_by: Not(IsNull()) }
@@ -339,7 +340,17 @@ export class OrchestratorService {
       const holdingTasks = await this.taskRepository.find({
         where: { task_id: In(holdingStations.map(station => station.holded_by).filter(id => id !== null)) }
       });
-      res.push(...holdingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' })));
+      const station_holding_robots = holdingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' }));
+      idleRobots = idleRobots.filter((robot: any) => {
+        const existsInStation = station_holding_robots.some((shr) => shr.id === robot.id);
+        if (existsInStation) {
+          // If robot exists in station holding robots, mark it as working
+          res.push({ 'id': robot.id, 'status': 'working' });
+          return false; // Filter out from idle robots
+        }
+        return true; // Keep in idle robots
+      });
+
       const holdingWaitingLocations = await this.waitingLocationRepository.find({
         where: { holded_by: Not(IsNull()) }
       });
@@ -348,16 +359,39 @@ export class OrchestratorService {
           move_type: Not(MOVE_TYPE.PARKING)
         }
       });
-      res.push(...holdingWaitingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' })));
-      console.log(`holdingWaitingTasks: ${JSON.stringify(holdingWaitingTasks)}`);
+      const waiting_location_holding_robots = holdingWaitingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' }));
+      idleRobots = idleRobots.filter((robot: any) => {
+        const existsInWaitingLocation = waiting_location_holding_robots.some((shr) => shr.id === robot.id);
+        if (existsInWaitingLocation) {
+          // If robot exists in waiting location holding robots, mark it as working
+          res.push({ 'id': robot.id, 'status': 'working' });
+          return false; // Filter out from idle robots
+        }
+        return true; // Keep in idle robots
+      });
 
       const processingTasks = await this.taskRepository.find({
         where: { status: TaskStatus.PROCESSING }
       });
-      res.push(...processingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' })));
+      const processing_robots = processingTasks.map(task => ({ 'id': task.robot_id, 'status': 'working' }));
 
-      res.push(...idleRobots.filter(robot => !res.some(existingRobot => existingRobot.id === robot.id))
-        .map(robot => ({ 'id': robot.id, 'status': 'idle' })));
+      idleRobots = idleRobots.filter((robot: any) => {
+        const existsInProcessing = processing_robots.some((pr) => pr.id === robot.id);
+        if (existsInProcessing) {
+          // If robot exists in processing robots, mark it as working
+          res.push({ 'id': robot.id, 'status': 'working' });
+          return false; // Filter out from idle robots
+        }
+        return true; // Keep in idle robots
+      });
+
+      // Add processing robots to res
+      res.push(...processing_robots);
+
+      // Add remaining idle robots to res
+      res.push(...idleRobots.map((robot: any) => ({ 'id': robot.id, 'status': 'idle' })));
+
+      console.log(`all robots response: ${JSON.stringify(res)}`);
     }
 
 
