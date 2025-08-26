@@ -126,11 +126,10 @@ export class WebhookService {
     // Handle inventory updates based on task status changes
     await this.handleInventoryUpdates(task, oldStatus, mappedStatus, task.batch_id);
     
-    // Handle station status updates
-    await this.handleStationUpdates(task, oldStatus, mappedStatus);
+    await this.handleStationStatusUpdates(task,mappedStatus);
 
     // Handle waiting location updates
-      await this.handleWaitingLocationStatusUpdates(task, mappedStatus);
+    await this.handleWaitingLocationStatusUpdates(task, mappedStatus);
 
     if (mappedStatus === TaskStatus.CANCELLED){
       if (task.move_type===MOVE_TYPE.PARKING) {
@@ -163,10 +162,7 @@ export class WebhookService {
 
     // Handle task completion based on destination type
     if (mappedStatus === TaskStatus.COMPLETED) {
-      const currentTask = await this.taskRepository.findOne({
-        where: { task_id: task.task_id }
-      });
-      if (currentTask && currentTask.status === TaskStatus.COMPLETED) {
+      if (task && task.status === TaskStatus.COMPLETED) {
         const destinationType = task.end_location?.location_attribute.attribute_value;
         const sourceType = task.start_location?.location_attribute.attribute_value;
         if (sourceType === 'station'){
@@ -224,17 +220,17 @@ export class WebhookService {
     }
     
     // Handle task processing - release source station when task goes to PROCESSING
-    if (mappedStatus === TaskStatus.PROCESSING) {
-      this.logger.log(`Task ${task.task_id} PROCESSING - calling processing handler`);
-      const currentTask = await this.taskRepository.findOne({
-        where: { task_id: task.task_id }
-      });
+    // if (mappedStatus === TaskStatus.PROCESSING) {
+    //   this.logger.log(`Task ${task.task_id} PROCESSING - calling processing handler`);
+    //   const currentTask = await this.taskRepository.findOne({
+    //     where: { task_id: task.task_id }
+    //   });
       
-      if (currentTask && currentTask.status === TaskStatus.PROCESSING) {
-        this.logger.log(`Calling task processing handler for task ${task.task_id}`);
-        await this.orchestratorService.handleTaskProcessing(currentTask);
-      }
-    }
+    //   if (currentTask && currentTask.status === TaskStatus.PROCESSING) {
+    //     this.logger.log(`Calling task processing handler for task ${task.task_id}`);
+    //     await this.orchestratorService.handleTaskProcessing(currentTask);
+    //   }
+    // }
   }
 
   
@@ -318,14 +314,22 @@ export class WebhookService {
   private async handleInventoryUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus, batchId: string): Promise<void> {
     try {
       // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
-      if ((newStatus === TaskStatus.PROCESSING) && 
-          this.isTaskFromInventory(task) && 
-          await this.isFirstTaskInBatch(task, batchId)) {
-        // await this.setInventoryToZero(task);
-        await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
-      }
-      if ((newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
-        await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
+      if ((newStatus === TaskStatus.PROCESSING || newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
+        if (task.move_type === MOVE_TYPE.PARKING){
+            await this.inventoryRepository.update(
+              { 
+                id: task.start_location.location_id,
+                product_id: task.product_id 
+              },
+              {
+                isProcessing: false,
+                status: LocationStatus.AVAILABLE,
+              }
+            );
+        }
+        else{
+          await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
+        }
       }
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
           await this.updateInventoryWithTaskQuantity(task);
@@ -383,25 +387,18 @@ export class WebhookService {
     );
   }
 
-  private async isFirstTaskInBatch(task: Task, batchId: string): Promise<boolean> {
-    // Check if this task has sequence_order = 1 (first task in batch)
-    return task.sequence_order === 1;
-  }
-
-  private async handleStationUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus): Promise<void> {
-    try {
-      // Handle station updates
-      await this.handleStationStatusUpdates(task, newStatus);
-      
-    } catch (error) {
-      this.logger.error(`Error handling location updates for task ${task.task_id}:`, error.message);
-    }
-  }
-
   private async handleStationStatusUpdates(task: Task, newStatus: TaskStatus): Promise<void> {
+
+    if (newStatus === TaskStatus.PROCESSING && task.start_location.location_attribute?.attribute_value === 'station') {
+      // When task status becomes PROCESSING and source is station - mark station as OCCUPIED
+      const stationId = task.start_location.location_id;
+      await this.orchestratorService.releaseStation(stationId, task.task_id);
+    }
+
     // When task status becomes COMPLETED and destination is station - mark station as OCCUPIED
     if (newStatus === TaskStatus.COMPLETED && 
         task.end_location?.location_attribute?.attribute_value === 'station') {
+
       const stationId = task.end_location.location_id;
       this.logger.log(`Marking station ${stationId} as OCCUPIED (task ${task.task_id} completed)`);
       
@@ -412,35 +409,6 @@ export class WebhookService {
           holded_by: task.task_id
         }
       );
-
-      if (task.start_location?.location_attribute?.attribute_value === 'station') {
-        const stationId = task.start_location.location_id;
-        const station = await this.stationRepository.findOne({ where: { station_id: stationId } });
-        if (station && station.status !== LocationStatus.AVAILABLE && station.holded_by === task.task_id) {
-          this.logger.log(`Marking station ${stationId} as AVAILABLE (task ${task.task_id} completed)`);
-          await this.stationRepository.update(
-            { station_id: stationId },
-            {
-              status: LocationStatus.AVAILABLE,
-              holded_by: null
-            }
-          );
-        }
-      }
-      if (task.start_location?.location_attribute?.attribute_value === 'waiting_location') {
-        const waitingLocationId = task.start_location.location_id;
-        const waitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: waitingLocationId } });
-        if (waitingLocation && waitingLocation.status !== LocationStatus.AVAILABLE && waitingLocation.holded_by === task.task_id) {
-          this.logger.log(`Marking waiting location ${waitingLocationId} as AVAILABLE (task ${task.task_id} completed)`);
-          await this.waitingLocationRepository.update(
-            { location_id: waitingLocationId },
-            {
-              status: LocationStatus.AVAILABLE,
-              holded_by: null
-            }
-          );
-        }
-      }
     }
   }
 
@@ -475,20 +443,6 @@ export class WebhookService {
           holded_by: task.task_id
         }
       );
-      if (task.start_location?.location_attribute?.attribute_value === 'station') {
-        const stationId = task.start_location.location_id;
-        const station = await this.stationRepository.findOne({ where: { station_id: stationId } });
-        if (station && station.status !== LocationStatus.AVAILABLE && station.holded_by === task.task_id) {
-          this.logger.log(`Marking station ${stationId} as AVAILABLE (task ${task.task_id} completed)`);
-          await this.stationRepository.update(
-            { station_id: stationId },
-            {
-              status: LocationStatus.AVAILABLE,
-              holded_by: null
-            }
-          );
-        }
-      }
     }
   }
 
