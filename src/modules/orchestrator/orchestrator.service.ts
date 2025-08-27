@@ -1211,6 +1211,7 @@ export class OrchestratorService {
     const currentStationPriority = (await this.stationRepository.findOne({
       where: { station_id: currentStationId }
     }))?.priority || 999;
+    console.log(`create next station task. current station: ${currentStationId}, priority: ${currentStationPriority}`);
     for (const requirement of remainingRequirements) {
       const station = await this.stationRepository.findOne({
         where: { station_id: requirement.station_id}
@@ -1238,6 +1239,7 @@ export class OrchestratorService {
         }
       }
     }
+    console.log('found next station:', JSON.stringify(nextAvailableStation));
 
     const nextSequenceOrder = completedTask.sequence_order + 1;
     
@@ -1283,7 +1285,7 @@ export class OrchestratorService {
   ): Promise<void> {
     // Find an available waiting location
     const availableWaitingLocations = await this.waitingLocationRepository.find({
-      where: { status: LocationStatus.AVAILABLE, is_active: true, type: WaitingLocationType.STATION_TO_STATION},
+      where: { status: LocationStatus.AVAILABLE, type: WaitingLocationType.STATION_TO_STATION},
       order: { location_id: 'ASC' } // FIFO selection
     });
 

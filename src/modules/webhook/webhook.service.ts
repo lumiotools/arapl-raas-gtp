@@ -112,12 +112,8 @@ export class WebhookService {
         if (robot.parking_wait_location_id) {
           const waitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: robot.parking_wait_location_id } });
           if (waitingLocation){
-            waitingLocation.holded_by = null;
-            waitingLocation.status = LocationStatus.AVAILABLE;
-            await this.waitingLocationRepository.save(waitingLocation);
+            await this.waitingLocationRepository.update({ location_id: waitingLocation.location_id }, { holded_by: null, status: LocationStatus.AVAILABLE });
           }
-          robot.parking_wait_location_id = null;
-          console.log(`marking parking location as null`);
           await this.robotRepository.update({ robot_id: task.robot_id }, { parking_wait_location_id: null } );
         }
       }
@@ -165,14 +161,14 @@ export class WebhookService {
       if (task && task.status === TaskStatus.COMPLETED) {
         const destinationType = task.end_location?.location_attribute.attribute_value;
         const sourceType = task.start_location?.location_attribute.attribute_value;
-        if (sourceType === 'station'){
+        if (sourceType === 'station' && task.start_location.location_id !== task.end_location.location_id){
           // free the source station
           await this.stationRepository.update(
             { station_id: task.start_location.location_id, holded_by: task.task_id },
             { status: LocationStatus.AVAILABLE, holded_by: null }
           );
         }
-        else if (sourceType === 'waiting_location'){
+        else if (sourceType === 'waiting_location' && task.start_location.location_id !== task.end_location.location_id){
           // free the source waiting location
           await this.waitingLocationRepository.update(
             { location_id: task.start_location.location_id, holded_by: task.task_id },
@@ -389,7 +385,9 @@ export class WebhookService {
 
   private async handleStationStatusUpdates(task: Task, newStatus: TaskStatus): Promise<void> {
 
-    if (newStatus === TaskStatus.PROCESSING && task.start_location.location_attribute?.attribute_value === 'station') {
+    if (newStatus === TaskStatus.PROCESSING && task.start_location.location_attribute?.attribute_value === 'station'
+      && task.start_location.location_id !== task.end_location.location_id
+    ) {
       // When task status becomes PROCESSING and source is station - mark station as OCCUPIED
       const stationId = task.start_location.location_id;
       await this.orchestratorService.releaseStation(stationId, task.task_id);
@@ -415,7 +413,9 @@ export class WebhookService {
   private async handleWaitingLocationStatusUpdates(task: Task, newStatus: TaskStatus): Promise<void> {
     // When task status becomes PROCESSING and source location is waiting_location - mark waiting location as AVAILABLE
     if (newStatus === TaskStatus.PROCESSING && 
-        task.start_location?.location_attribute?.attribute_value === 'waiting_location') {
+        task.start_location?.location_attribute?.attribute_value === 'waiting_location'
+        && task.start_location.location_id !== task.end_location.location_id
+      ) {
       
       const waitingLocationId = task.start_location.location_id;
       this.logger.log(`Marking waiting location ${waitingLocationId} as AVAILABLE and clearing holded_by (task ${task.task_id} processing)`);
