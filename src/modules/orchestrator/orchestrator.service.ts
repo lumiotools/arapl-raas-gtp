@@ -2066,11 +2066,12 @@ export class OrchestratorService {
             sequenceOrder: carrying_task.sequence_order+1, 
             taskDependency: carrying_task.task_id
           });
-          if (task_id){
+          if (task && task_id){
             await this.stationRepository.update(
               { station_id: stationId },
               { status: LocationStatus.RESERVED, holded_by: task_id }
             );
+            await this.sendSingleTaskToWms(task);
             return;
           }
         }
