@@ -237,21 +237,7 @@ export class WebhookService {
     try {
       // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
       if ((newStatus === TaskStatus.PROCESSING || newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
-        if (task.move_type === MOVE_TYPE.PARKING){
-            await this.inventoryRepository.update(
-              { 
-                id: task.start_location.location_id,
-                product_id: task.product_id 
-              },
-              {
-                isProcessing: false,
-                status: LocationStatus.AVAILABLE,
-              }
-            );
-        }
-        else{
-          await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
-        }
+        await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
       }
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
           await this.updateInventoryWithTaskQuantity(task);
