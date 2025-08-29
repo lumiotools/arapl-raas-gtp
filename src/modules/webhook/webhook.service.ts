@@ -164,7 +164,7 @@ export class WebhookService {
       'assigned': TaskStatus.ASSIGNED,
       'inqueue': TaskStatus.INQUEUE,
       'task_acknowledged': TaskStatus.INQUEUE,
-      'robot_assigned': TaskStatus.INQUEUE,
+      'robot_assigned': TaskStatus.PROCESSING,
       'in-queue': TaskStatus.PROCESSING,
       'processing': TaskStatus.PROCESSING,
       'in-progress': TaskStatus.PROCESSING,
@@ -238,6 +238,9 @@ export class WebhookService {
       // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
       if ((newStatus === TaskStatus.PROCESSING || newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
         await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
+        if (newStatus === TaskStatus.PROCESSING){
+          await this.orchestratorService.unmarkSystemAsWaiting();
+        }
       }
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
           await this.updateInventoryWithTaskQuantity(task);
