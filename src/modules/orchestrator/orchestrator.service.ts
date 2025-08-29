@@ -443,8 +443,8 @@ export class OrchestratorService {
         where:{product_id: productId, move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY]), status: In([TaskStatus.PROCESSING])}
       })
       console.log(`task coming to inventory: ${JSON.stringify(taskComingToInventory)}`)
-      
-      if (taskComingToInventory){
+
+      if (taskComingToInventory && taskComingToInventory.robot_id) {
         console.log(`found task from inventory: trying to cancel`)
         try{
           const inventory_id = taskComingToInventory.end_location.location_id;
@@ -542,7 +542,7 @@ export class OrchestratorService {
       const taskToWaitingLocation = await this.taskRepository.findOne({
         where: { product_id: productId, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION]) }
       });
-      if (taskToWaitingLocation) {
+      if (taskToWaitingLocation && taskToWaitingLocation.robot_id) {
         // If a task is found, we can use it
         this.logger.log(`Found existing task for product ${productId}: ${taskToWaitingLocation.task_id}`);
         for (const station of sortedStations){
@@ -2013,7 +2013,7 @@ export class OrchestratorService {
         where: { product_id: product_id, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION]) }
       });
       try{
-        if (carrying_task) {
+        if (carrying_task && carrying_task.robot_id) {
           const firstTask = await this.taskRepository.findOne({where: { batch_id: carrying_task.batch_id, sequence_order: 1 }});
           const inventoryId = firstTask?.start_location?.location_id;
           const inventory = await this.inventoryRepository.findOne({where: { id: inventoryId }});
@@ -2296,5 +2296,35 @@ export class OrchestratorService {
       order: { created_at: 'ASC' },
       select: ['start_location','end_location','batch_id','inqueue', 'processing','triggered','completed','created_at']
     });
+  }
+
+  async getAllRobots(){
+    const moving_tasks = await this.taskRepository.find({
+      where: { status: TaskStatus.PROCESSING }
+    });
+    const res : any[] = [];
+    const robots = moving_tasks.map(task => task.robot_id);
+    for(const robot of robots){
+      res.push({
+        'id': robot,
+        'status': 'working'
+      })
+    }
+    const station_robots = await this.taskRepository.find({
+      where: {status: TaskStatus.COMPLETED, move_type: In([
+        MOVE_TYPE.STATION_TO_WAITING_LOCATION,
+        MOVE_TYPE.INVENTORY_TO_STATION,
+        MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
+        MOVE_TYPE.STATION_TO_STATION,
+        MOVE_TYPE.WAITING_LOCATION_TO_STATION,
+      ])}
+    })
+    for (const task of station_robots){
+      res.push({
+        'id': task.robot_id,
+        'status': 'working'
+      });
+    }
+    return res;
   }
 }
