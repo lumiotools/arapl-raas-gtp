@@ -209,6 +209,8 @@ export class OrchestratorService {
         // check if the system is in waiting state
         const isWaiting = await this.checkIfSystemIsInWaitingState();
         if (isWaiting){break;}
+        const isRobotAvailable = await this.isRobotAvailable();
+        if (!isRobotAvailable){ break; }
         await this.processProductRequirement(requirement.productId);
       }
       return { message: 'Orchestrator process completed successfully' };
@@ -218,10 +220,66 @@ export class OrchestratorService {
     }
   }
 
+  async isRobotAvailable(): Promise<boolean> {
+    const robots = await this.robotRepository.find();
+    if (robots.length === 0){
+      return false;
+    }
+    const robot = robots[0];
+    return robot.total_robots - robot.robot_in_use > 0
+  }
+  async incrementRobotInUse(): Promise<void> {
+    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const robots = await queryRunner.manager.find(Robot);
+      if (robots.length === 0) {
+        throw new Error('No Robot Entry Found');
+      }
+      
+      await queryRunner.manager.update(Robot, robots[0].id, { 
+        robot_in_use: robots[0].robot_in_use + 1 
+      });
+      
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async decrementRobotInUse(): Promise<void> {
+    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const robots = await queryRunner.manager.find(Robot);
+      if (robots.length === 0) {
+        throw new Error('No Robot Entry Found');
+      }
+
+      await queryRunner.manager.update(Robot, robots[0].id, { 
+        robot_in_use: robots[0].robot_in_use - 1 
+      });
+
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   async checkIfSystemIsInWaitingState(): Promise<boolean> {
     const robots = await this.robotRepository.find();
     if (robots.length === 0){
-      throw new Error('No Robot Entry Found');
+      return false;
     }
     const isWaiting = robots[0].is_waiting;
     return isWaiting;
@@ -531,6 +589,8 @@ export class OrchestratorService {
     for (const inventory of selectedInventories) {
       const isWaiting = await this.checkIfSystemIsInWaitingState();
       if (isWaiting){break;}
+      const isRobotAvailable = await this.isRobotAvailable();
+      if (!isRobotAvailable){break;}
       const taskID = await this.createSingleTaskToFirstAvailableStation(
         inventory,
         sortedStations,
@@ -571,6 +631,7 @@ export class OrchestratorService {
           await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED });
 
           await this.markSystemAsWaiting();
+          await this.incrementRobotInUse();
           // Send task to WMS
           await this.sendSingleTaskToWms(returnTask);
           // remove the robotIdToUse from idleRobot list

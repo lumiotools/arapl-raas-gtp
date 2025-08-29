@@ -139,6 +139,7 @@ export class WebhookService {
     if (mappedStatus === TaskStatus.COMPLETED) {
       if (task && task.status === TaskStatus.COMPLETED) {
         const sourceType = task.start_location?.location_attribute.attribute_value;
+        const destinationType = task.end_location?.location_attribute.attribute_value;
         if (sourceType === 'station' && task.start_location.location_id !== task.end_location.location_id){
           // free the source station
           await this.stationRepository.update(
@@ -151,6 +152,10 @@ export class WebhookService {
             { location_id: task.start_location.location_id, holded_by: task.task_id },
             { status: LocationStatus.AVAILABLE, holded_by: null }
           );
+        }
+
+        if (destinationType === 'inventory'){
+          await this.orchestratorService.decrementRobotInUse();
         }
       }
     }
