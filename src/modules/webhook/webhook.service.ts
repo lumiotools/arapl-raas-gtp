@@ -103,22 +103,6 @@ export class WebhookService {
     }
     await this.taskRepository.save(task);
 
-    // unoccupy the current robot parking location
-    if ((mappedStatus ===TaskStatus.PROCESSING || mappedStatus === TaskStatus.COMPLETED) && task.robot_id && task.start_location.location_attribute.attribute_value=='inventory'
-      && task.move_type !== MOVE_TYPE.PARKING
-    ) {
-      const robot = await this.robotRepository.findOne({ where: { robot_id: task.robot_id } });
-      if (robot) {
-        if (robot.parking_wait_location_id) {
-          const waitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: robot.parking_wait_location_id } });
-          if (waitingLocation){
-            await this.waitingLocationRepository.update({ location_id: waitingLocation.location_id }, { holded_by: null, status: LocationStatus.AVAILABLE });
-          }
-          await this.robotRepository.update({ robot_id: task.robot_id }, { parking_wait_location_id: null } );
-        }
-      }
-    }
-
     // Handle inventory updates based on task status changes
     await this.handleInventoryUpdates(task, oldStatus, mappedStatus, task.batch_id);
     
@@ -128,13 +112,7 @@ export class WebhookService {
     await this.handleWaitingLocationStatusUpdates(task, mappedStatus);
 
     if (mappedStatus === TaskStatus.CANCELLED){
-      if (task.move_type===MOVE_TYPE.PARKING) {
-        const destinationWaitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
-        if (destinationWaitingLocation){
-          await this.waitingLocationRepository.update({ location_id: destinationWaitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
-        }
-      }
-      else if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION){
+      if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION){
         console.log(`releasing destination waiting location for cancelled task ${task.task_id}`);
         const destinationWaitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
         if (destinationWaitingLocation){
@@ -159,7 +137,6 @@ export class WebhookService {
     // Handle task completion based on destination type
     if (mappedStatus === TaskStatus.COMPLETED) {
       if (task && task.status === TaskStatus.COMPLETED) {
-        const destinationType = task.end_location?.location_attribute.attribute_value;
         const sourceType = task.start_location?.location_attribute.attribute_value;
         if (sourceType === 'station' && task.start_location.location_id !== task.end_location.location_id){
           // free the source station
@@ -167,66 +144,15 @@ export class WebhookService {
             { station_id: task.start_location.location_id, holded_by: task.task_id },
             { status: LocationStatus.AVAILABLE, holded_by: null }
           );
-        }
-        else if (sourceType === 'waiting_location' && task.start_location.location_id !== task.end_location.location_id){
+        } else if (sourceType === 'waiting_location' && task.start_location.location_id !== task.end_location.location_id){
           // free the source waiting location
           await this.waitingLocationRepository.update(
             { location_id: task.start_location.location_id, holded_by: task.task_id },
             { status: LocationStatus.AVAILABLE, holded_by: null }
           );
         }
-
-        if (destinationType === 'inventory') {
-          // Task completed at inventory - handle inventory return completion
-          this.logger.log(`Calling inventory return completion handler for task ${task.task_id}`);
-          // await this.handleInventoryReturnCompletion(task);
-
-          // Fetch all available waiting locations and try to reserve them
-          const availableWaitingLocations = await this.waitingLocationRepository.find({
-            where: { status: LocationStatus.AVAILABLE }
-          });
-          availableWaitingLocations.sort((a, b) => b.location_id.localeCompare(a.location_id));
-          console.log(`Available waiting locations: ${availableWaitingLocations.map(loc => loc.location_id).join(', ')}`);
-          for (const waitingLocation of availableWaitingLocations) {
-            try {
-              if (await this.waitingLocationService.reserveWaitingLocation(waitingLocation.location_id)) {
-                const taskId = await this.orchestratorService.createTaskFromInventoryToWaitingLocation(
-                  task.end_location.location_id, // inventory location
-                  waitingLocation.location_id,   // waiting location
-                  task,
-                  MOVE_TYPE.PARKING
-                );
-                if (taskId) {
-                  const robot = await this.robotRepository.findOne({ where: { robot_id: task.robot_id } });
-                  if (robot){
-                    robot.parking_wait_location_id = waitingLocation.location_id;
-                    await this.robotRepository.save(robot);
-                  }
-                  this.logger.log(`Created task ${taskId} for inventory to waiting location`);
-                  break;
-                }
-              }
-            } catch (error) {
-              this.logger.error(`Failed to reserve waiting location ${waitingLocation.location_id}: ${error.message}`);
-              continue; // Try next available location
-            }
-          }
-        }
       }
     }
-    
-    // Handle task processing - release source station when task goes to PROCESSING
-    // if (mappedStatus === TaskStatus.PROCESSING) {
-    //   this.logger.log(`Task ${task.task_id} PROCESSING - calling processing handler`);
-    //   const currentTask = await this.taskRepository.findOne({
-    //     where: { task_id: task.task_id }
-    //   });
-      
-    //   if (currentTask && currentTask.status === TaskStatus.PROCESSING) {
-    //     this.logger.log(`Calling task processing handler for task ${task.task_id}`);
-    //     await this.orchestratorService.handleTaskProcessing(currentTask);
-    //   }
-    // }
   }
 
   

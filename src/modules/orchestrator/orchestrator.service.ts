@@ -315,96 +315,6 @@ export class OrchestratorService {
     }
     console.log(`Finished saving product requirements: ${JSON.stringify(Array.from(requirementMap.entries()))}`);
   }
-  
-  async getAllRobots(){
-    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-    const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
-    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robots';  
-
-    const response = await firstValueFrom(
-      this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/robots`, {
-        headers: {
-          'authorization': `${warehosue_key}`
-        }
-      })
-    );
-    const res : any = [];
-    if (response && response.data && Array.isArray(response.data.robots)){
-      // res.push(...response.data.robots);
-      let idleRobots = response.data.robots.filter((robot: any) => robot.status === 'Idle');
-      await this.addIdleRobotsInDb(idleRobots.map((robot: any) => robot.id));
-
-      const workingRobots = {};
-      const holdingStations = await this.stationRepository.find({where: { holded_by: Not(IsNull()) }});
-      const holdingStationTasks = await this.taskRepository.find({where: { task_id: In(holdingStations.map(station => station.holded_by)) }});
-      const stationWorkingRobots = holdingStationTasks.map(task => task.robot_id);
-
-      for (const robotId of stationWorkingRobots) {
-        workingRobots[robotId] = 'working';
-      }
-      
-      const holdingWaiting = await this.waitingLocationRepository.find({where: { holded_by: Not(IsNull()) }});
-      const holdingWaitingTasks = await this.taskRepository.find({where: { task_id: In(holdingWaiting.map(location => location.holded_by)), move_type: Not(MOVE_TYPE.PARKING) }}); // exclude parking tasks
-      const waitingLocationWorkingRobots = holdingWaitingTasks.map(task => task.robot_id);
-
-      const parkingTask = await this.taskRepository.find({where: { move_type: MOVE_TYPE.PARKING, status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING]) }});
-      for (const task of parkingTask) {
-        workingRobots[task.robot_id] = 'Idle';
-      }
-
-      for (const robotId of waitingLocationWorkingRobots) {
-        workingRobots[robotId] = 'working';
-      }
-
-      for (const robot of idleRobots) {
-        if (workingRobots[robot.id]) {
-          robot.status = 'working';
-        }
-        res.push(robot);
-      }
-      for (const robotId in workingRobots) {
-        const existingRobot = res.find(robot => robot.id === robotId);
-        if (!existingRobot) {
-          res.push({
-            id: robotId,
-            status: 'working'
-          });
-        }
-      }
-    }
-
-    return res;
-  }
-
-  async getIdleRobots(): Promise<string[]>{
-    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-    const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
-    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robots';  
-
-    const response = await firstValueFrom(
-      this.httpService.get(`${wms_base_url}/robot-job/${warehouse_name}/robots`, {
-        headers: {
-          'authorization': `${warehosue_key}`
-        }
-      })
-    );
-    if (response && response.data && Array.isArray(response.data.robots)) {
-      const idleRobots = response.data.robots.filter((robot: any) => robot.status === 'Idle');
-      const activeStationTasks = (await this.stationRepository.find({where: { holded_by: Not(IsNull()) }})).map(station => station.holded_by);
-      const activeWaitingLocationTasks = (await this.waitingLocationRepository.find({where: { holded_by: Not(IsNull()) }})).map(location => location.holded_by);
-      const activeWaitingLocationRobots = (await this.taskRepository.find({where:{task_id: In(activeWaitingLocationTasks) ,move_type: Not(MOVE_TYPE.PARKING) }})).map(task => task.robot_id);
-      const activeStationRobots = (await this.taskRepository.find({where:{task_id: In(activeStationTasks) }})).map(task => task.robot_id);
-      const idleRobots_ids = idleRobots.map(robot => robot.id);
-      console.log(`idle robots ids: ${idleRobots_ids}`);
-      console.log(`activeStationRobots: ${activeStationRobots}`);
-      console.log(`activeWaitingLocationRobots: ${activeWaitingLocationRobots}`);
-      const finalIdleRobots = idleRobots_ids.filter(robotId => 
-        !activeStationRobots.includes(robotId) && !activeWaitingLocationRobots.includes(robotId)
-      );
-      return finalIdleRobots;
-    }
-    return [];
-  }
 
   private async processProductRequirement(productId: string): Promise<void> {
 
@@ -598,11 +508,7 @@ export class OrchestratorService {
           if (!reserved) {
             continue;
           }
-          const robotIdToUse = await this.decideRobotToUse();
-          if (!robotIdToUse) {
-            await this.waitingLocationRepository.update({ location_id: waitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
-            continue;
-          }
+          const robotIdToUse = null;
           console.log(`robotIdToUse: ${robotIdToUse}`);
           const batchId = await this.generateBatchId();
           await this.createBatch(batchId, inventory, inventory.product_id);
@@ -691,31 +597,9 @@ export class OrchestratorService {
     }
   }
 
-  async decideRobotToUse(): Promise<string | null> {
-    console.log('decide to use');
-    const allRobots = await this.getAllRobots();
-    const allRobotIds = allRobots.map((robot: any) => robot['id']);
-    for (const robotId of allRobotIds) {
-      console.log('checking robotID ', robotId);
-      const parking_task = await this.taskRepository.findOne({ where: { robot_id: robotId, move_type: MOVE_TYPE.PARKING, status: In([TaskStatus.PENDING, TaskStatus.INQUEUE, TaskStatus.PROCESSING]) } });
-      if (parking_task) {
-        try{
-          const res = await this.CancelTask(parking_task);
-          console.log('check cancel response:', res);
-          return robotId;
-        } catch (error) {
-          this.logger.error(`Failed to cancel task ${parking_task.task_id}: ${error.message}`);
-          continue;
-        }
-      }
-      const robot_obj = allRobots.find((robot: any) => robot['id'] === robotId);
-      if(robot_obj){
-        if (robot_obj['status'] === 'Idle') {
-          return robotId;
-        }
-      }
-    }
-    return null;
+  async setInitialConfiguration(){
+    await this.stationService.findAll();
+    await this.waitingLocationService.findAll();
   }
 
   /**
@@ -799,12 +683,7 @@ export class OrchestratorService {
       const batchId = await this.generateBatchId();
       await this.createBatch(batchId, inventory, inventory.product_id);
       console.log(`checking robot id to use`);
-      const robotIdToUse = await this.decideRobotToUse();
-      console.log(`robot id to use: ${robotIdToUse}`);
-      if (!robotIdToUse) {
-        await this.stationRepository.update(targetStation.station_id, { status: LocationStatus.AVAILABLE });
-        return null;
-      }
+      const robotIdToUse = null;
       const [taskId,task] = await this.createTask({
         batchId,
         productId: inventory.product_id,
@@ -1180,36 +1059,6 @@ export class OrchestratorService {
     });
 
     return sortedRequirements;
-  }
-
-  async createTaskFromInventoryToWaitingLocation(start_location:string, waiting_location:string,task:Task, move_type:MOVE_TYPE){
-    const inventory = await this.inventoryRepository.findOne({ where: { id: start_location } });
-    if (!inventory) {
-      this.logger.log(`Inventory not found for location ${start_location}`);
-      return;
-    }
-    const batchId = await this.generateBatchId();
-    await this.createBatch(batchId, inventory, task.product_id);
-    console.log(`batch_id: ${batchId}`);
-    const [taskId, newTask] = await this.createTask(
-      {
-        batchId: batchId,
-        productId: undefined,
-        sourceInventoryId: start_location,
-        destinationWaitingLocationId: waiting_location,
-        robotId: task.robot_id,
-        quantity: undefined,
-        move_type: MOVE_TYPE.PARKING,
-        taskType: TaskType.GOODS_TO_PERSON,
-        sequenceOrder: 1,
-        taskDependency: null,
-      }
-    );
-    if (newTask) {
-      // Send task to WMS
-      await this.sendSingleTaskToWms(newTask);
-    }
-    return taskId;
   }
 
   private async createNextStationTask(completedTask: Task, remainingRequirements: ProductRequirementEntity[], remainingQuantity: number): Promise<void> {
@@ -2328,14 +2177,6 @@ export class OrchestratorService {
       messages: messages,
       count: messages.length
     };
-  }
-
-  async setInitialConfiguration(){
-    const idleRobots = await this.getAllRobots();
-    await this.addIdleRobotsInDb(idleRobots);
-
-    await this.stationService.findAll();
-    await this.waitingLocationService.findAll();
   }
 
   async getTasksByRobotId(robotId: string){
