@@ -11,7 +11,8 @@ import { WebhookRequestDto } from './dto/webhook-request.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { LoggingService } from '../../services/logging.service';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
-import { MOVE_TYPE, Robot } from 'src/entities';
+import { Robot } from 'src/entities';
+import { MOVE_TYPE } from 'src/entities/task.entity';
 
 @Injectable()
 export class WebhookService {

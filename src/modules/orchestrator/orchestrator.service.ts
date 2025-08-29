@@ -638,6 +638,13 @@ export class OrchestratorService {
   async setInitialConfiguration(){
     await this.stationService.findAll();
     await this.waitingLocationService.findAll();
+    const robots = await this.robotRepository.find();
+    if (robots.length === 0){
+      await this.robotRepository.save({id: crypto.randomUUID(), is_waiting: false, total_robots: 2, robot_in_use: 0 });
+    }
+    else{
+      await this.robotRepository.updateAll({ is_waiting: false, total_robots: 2, robot_in_use: 0 });
+    }
   }
 
   /**

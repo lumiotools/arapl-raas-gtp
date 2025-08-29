@@ -11,4 +11,4 @@ export { Wait, WaitType, WaitStatus, FallbackAction } from './wait.entity';
 export { Cargo, CargoDimension, CargoAttribute } from './cargo.entity';
 export { ProductRequirement } from './product-requirement.entity';
 export { Log } from './log.entity';
-export { Robot, MOVE_TYPE } from './robot.entity';
+export { Robot } from './robot.entity';

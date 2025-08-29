@@ -21,14 +21,13 @@ export class DatabaseResetService {
       const queries = [
         'DELETE FROM tasks_order_items_order_items',
         'DELETE FROM order_items',
-        'DELETE FROM order_items',
         'DELETE FROM product_requirements',
         'DELETE FROM tasks',
         'DELETE FROM batches',
         'DELETE FROM inventory',
         "UPDATE stations SET status = 'AVAILABLE', holded_by = NULL",
         "UPDATE waiting_locations SET status = 'AVAILABLE', holded_by = NULL",
-        'DELETE FROM robots'
+        "UPDATE robots SET total_robots = 2, robot_in_use = 0, is_waiting = false"
       ];
 
       for (const query of queries) {
