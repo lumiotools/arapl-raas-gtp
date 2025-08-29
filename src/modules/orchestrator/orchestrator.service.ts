@@ -347,13 +347,18 @@ export class OrchestratorService {
       const holdingWaitingTasks = await this.taskRepository.find({where: { task_id: In(holdingWaiting.map(location => location.holded_by)), move_type: Not(MOVE_TYPE.PARKING) }}); // exclude parking tasks
       const waitingLocationWorkingRobots = holdingWaitingTasks.map(task => task.robot_id);
 
+      const parkingTask = await this.taskRepository.find({where: { move_type: MOVE_TYPE.PARKING, status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING]) }});
+      for (const task of parkingTask) {
+        workingRobots[task.robot_id] = 'Idle';
+      }
+
       for (const robotId of waitingLocationWorkingRobots) {
         workingRobots[robotId] = 'working';
       }
 
       for (const robot of idleRobots) {
         if (workingRobots[robot.id]) {
-          robot.status = 'Working';
+          robot.status = 'working';
         }
         res.push(robot);
       }
@@ -362,7 +367,7 @@ export class OrchestratorService {
         if (!existingRobot) {
           res.push({
             id: robotId,
-            status: 'Working'
+            status: 'working'
           });
         }
       }
@@ -687,13 +692,16 @@ export class OrchestratorService {
   }
 
   async decideRobotToUse(): Promise<string | null> {
+    console.log('decide to use');
     const allRobots = await this.getAllRobots();
     const allRobotIds = allRobots.map((robot: any) => robot['id']);
     for (const robotId of allRobotIds) {
+      console.log('checking robotID ', robotId);
       const parking_task = await this.taskRepository.findOne({ where: { robot_id: robotId, move_type: MOVE_TYPE.PARKING, status: In([TaskStatus.PENDING, TaskStatus.INQUEUE, TaskStatus.PROCESSING]) } });
       if (parking_task) {
         try{
-          await this.CancelTask(parking_task);
+          const res = await this.CancelTask(parking_task);
+          console.log('check cancel response:', res);
           return robotId;
         } catch (error) {
           this.logger.error(`Failed to cancel task ${parking_task.task_id}: ${error.message}`);
@@ -2323,7 +2331,7 @@ export class OrchestratorService {
   }
 
   async setInitialConfiguration(){
-    const idleRobots = await this.getIdleRobots();
+    const idleRobots = await this.getAllRobots();
     await this.addIdleRobotsInDb(idleRobots);
 
     await this.stationService.findAll();
