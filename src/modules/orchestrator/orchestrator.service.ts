@@ -526,19 +526,19 @@ export class OrchestratorService {
           });
           waitingLocation.holded_by = returnTaskId;
           await this.waitingLocationRepository.save(waitingLocation);
-          if (returnTask) {
-            inventory.isProcessing = true;
-            await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED });
-
-            // Send task to WMS
-            await this.sendSingleTaskToWms(returnTask);
-            // remove the robotIdToUse from idleRobot list
-            this.logger.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
-            await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
-            break;
-          } else {
-            this.logger.error(`Failed to create return task for product ${inventory.product_id} from inventory ${inventory.id} to waiting location ${waitingLocation.location_id}`);
+          if (!returnTask) {
+            await this.waitingLocationRepository.update({ location_id: waitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
+            continue;
           }
+          inventory.isProcessing = true;
+          await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED });
+
+          // Send task to WMS
+          await this.sendSingleTaskToWms(returnTask);
+          // remove the robotIdToUse from idleRobot list
+          this.logger.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
+          await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
+          break;
         }
       }
     }
@@ -696,13 +696,15 @@ export class OrchestratorService {
         sequenceOrder: 1, // First (and only) task in this batch
         taskDependency: null // May depend on previous batch
       });
-      if (task) {
-        // reserve the inventory location
-        inventory.isProcessing = true;
-        inventory.status = LocationStatus.RESERVED;
-        await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED });
-        await this.reserveStationAndSendTask(task, targetStation);
+      if(!task){
+        await this.stationRepository.update(targetStation.station_id, { status: LocationStatus.AVAILABLE });
+        return null;
       }
+      // reserve the inventory location
+      inventory.isProcessing = true;
+      inventory.status = LocationStatus.RESERVED;
+      await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED });
+      await this.reserveStationAndSendTask(task, targetStation);
       this.logger.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
       await this.loggingService.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${task?.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
       return taskId;
