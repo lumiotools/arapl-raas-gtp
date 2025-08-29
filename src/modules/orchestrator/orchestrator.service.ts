@@ -229,6 +229,7 @@ export class OrchestratorService {
     return robot.total_robots - robot.robot_in_use > 0
   }
   async incrementRobotInUse(): Promise<void> {
+    console.log('increment robot in use count');
     const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -811,6 +812,7 @@ export class OrchestratorService {
       inventory.status = LocationStatus.RESERVED;
       await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED });
       await this.markSystemAsWaiting();
+      await this.incrementRobotInUse();
       await this.reserveStationAndSendTask(task, targetStation);
       this.logger.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
       await this.loggingService.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${task?.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
