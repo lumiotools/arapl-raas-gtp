@@ -632,7 +632,7 @@ export class OrchestratorService {
             continue;
           }
           inventory.isProcessing = true;
-          await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED });
+          await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED, holded_by: returnTaskId });
 
           await this.markSystemAsWaiting();
           await this.incrementRobotInUse();
@@ -813,7 +813,7 @@ export class OrchestratorService {
       // reserve the inventory location
       inventory.isProcessing = true;
       inventory.status = LocationStatus.RESERVED;
-      await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED });
+      await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED, holded_by: taskId });
       await this.markSystemAsWaiting();
       await this.incrementRobotInUse();
       await this.reserveStationAndSendTask(task, targetStation);

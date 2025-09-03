@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Product } from 'src/entities/product.entity';
 import { UploadInventoryResponseDto } from './dto/upload-inventory-response.dto';
@@ -10,6 +10,8 @@ import { ProductRequirement } from 'src/entities/product-requirement.entity';
 import { toBuffer } from 'bwip-js';
 import { LocationStatus } from 'src/entities/station.entity';
 import { firstValueFrom } from 'rxjs';
+import { Task, TaskStatus } from 'src/entities';
+import { MOVE_TYPE } from 'src/entities/task.entity';
 
 @Injectable()
 export class InventoryService {
@@ -21,6 +23,8 @@ export class InventoryService {
     private readonly productRepository: Repository<Product>,
     @InjectRepository(ProductRequirement)
     private readonly productRequirementRepository: Repository<ProductRequirement>,
+    @InjectRepository(Task)
+    private readonly taskRepository: Repository<Task>,
   ) {}
 
   async create(createInventoryDto: Inventory) {
@@ -397,23 +401,25 @@ export class InventoryService {
     }
   }
 
-  // async updateBarcodeImage(
-  //   id: string,
-  //   barcodeData: {
-  //     barcode_image: Buffer;
-  //     barcode_image_name: string;
-  //     barcode_image_mimetype: string;
-  //     barcode_image_size: number;
-  //   }
-  // ): Promise<Inventory> {
-  //   const result = await this.inventoryRepository.update(id, barcodeData);
-    
-  //   if (result.affected === 0) {
-  //     throw new NotFoundException(`Inventory item with ID ${id} not found`);
-  //   }
-
-  //   // Return the updated inventory item
-  //   const updatedInventory = await this.findOne(id);
-  //   return updatedInventory!;
-  // }
+  async getActiveRobotAtInventory(inventoryId: string) {
+    const inventory = await this.inventoryRepository.findOne({
+      where: { id: inventoryId },
+    });
+    if (!inventory){
+      throw new BadRequestException("Inventory not found");
+    }
+    if (inventory.holded_by === null){
+      return {robot_id: null}
+    }
+    const task = await this.taskRepository.findOne({
+      where: { task_id: inventory.holded_by },
+    });
+    return {
+      robot_id: task?.robot_id || null,
+      product_id: task?.product_id || null,
+      quantity: task?.quantity || null,
+      source: task?.start_location.location_id || null,
+      status: "HOLDED"
+    }
+  }
 }

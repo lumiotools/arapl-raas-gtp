@@ -44,6 +44,9 @@ export class Inventory {
   })
   status: LocationStatus;
 
+  @Column({ type: 'varchar', nullable: true })
+  holded_by: string | null;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

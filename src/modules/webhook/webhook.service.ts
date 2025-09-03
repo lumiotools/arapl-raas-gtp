@@ -300,6 +300,7 @@ export class WebhookService {
       {
         status: LocationStatus.AVAILABLE,
         isProcessing: false,
+        holded_by: null,
       }
     );
   }
