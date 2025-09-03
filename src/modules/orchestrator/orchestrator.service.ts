@@ -1,6 +1,6 @@
 import { Injectable, Logger, Move, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, LessThan, MoreThan, Not, OneToOne, Repository } from 'typeorm';
+import { Between, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, OneToOne, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, last, min, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -2320,7 +2320,8 @@ export class OrchestratorService {
         MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
         MOVE_TYPE.STATION_TO_STATION,
         MOVE_TYPE.WAITING_LOCATION_TO_STATION,
-      ])}
+      ])
+    }
     })
     for (const task of station_robots){
       res.push({
@@ -2329,5 +2330,77 @@ export class OrchestratorService {
       });
     }
     return res;
+  }
+
+  async getRobotReport(startDate: Date | undefined, endDate: Date | undefined) {
+    const whereCondition: any = {};
+    if (startDate && endDate) {
+      whereCondition.created_at = Between(startDate, endDate);
+    }
+    if (startDate){
+      whereCondition.created_at = MoreThanOrEqual(startDate);
+    }
+    if (endDate){
+      whereCondition.created_at = LessThanOrEqual(endDate);
+    }
+    const allTasks = await this.taskRepository.find({
+      where: whereCondition,
+    });
+    // keep a set of all the robot IDs used in allTasks
+    const robotIds = new Set<string>();
+    allTasks.forEach(task => {
+      if (task.robot_id) {
+        robotIds.add(task.robot_id);
+      }
+    });
+    const allRobotIds = Array.from(robotIds);
+    const res = {};
+    for (const robotId of allRobotIds){
+      const filteredTasks = allTasks.filter(task => task.robot_id === robotId);
+      if (filteredTasks.length == 0) continue;
+      if (!res[robotId]) {
+        res[robotId] = {
+          totalTasks: filteredTasks.length,
+          travel_time: [],
+          wait_time: [],
+          unloading_time: []
+        };
+      }
+      // get travel_time
+      for (const task of filteredTasks){
+        if (task.processing && task.completed){
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res[robotId].travel_time.push(travelTime);
+        }
+      }
+
+      // get unloading time
+      for (const task of filteredTasks){
+        if (task.end_location.location_attribute?.attribute_value === 'station' && task.completed && task.triggered){
+          const unloadingTime = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
+          res[robotId].unloading_time.push(unloadingTime);
+        }
+      }
+
+      // get waiting time
+      for (const task of filteredTasks){
+        if (task.end_location.location_attribute?.attribute_value === 'waiting_location' && task.completed && task.status !== TaskStatus.CANCELLED){
+          // Find the next task in the same batch with sequence order + 1
+          const nextTask = await this.taskRepository.findOne({
+            where: {
+              batch_id: task.batch_id,
+              sequence_order: task.sequence_order + 1
+            }
+          });
+
+          if (nextTask && nextTask.processing && task.completed) {
+            const waitTime = Math.floor((Number(nextTask.processing) - Number(task.completed)) / 1000);
+            res[robotId].wait_time.push(waitTime);
+          }
+        }
+      }
+    }
+    return res;
+
   }
 }

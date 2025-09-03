@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, HttpStatus, NotFoundException, Put, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, HttpStatus, NotFoundException, Put, UseGuards, Query, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { OrchestratorService } from './orchestrator.service';
 import { BatchResponseDto } from './dto/batch-response.dto';
@@ -666,5 +666,87 @@ export class OrchestratorController {
   @Get('robots/:robotId/tasks')
   async getTasksByRobotId(@Param('robotId') robotId: string) {
     return await this.orchestratorService.getTasksByRobotId(robotId);
+  }
+  
+  @Get('robot-report')
+    @ApiOperation({
+      summary: 'Get robot report',
+      description: 'Generate a comprehensive report of all robots including their current status, task assignments, and performance metrics within the specified time range.',
+    })
+    @ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Robot report generated successfully',
+      schema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string', example: 'Robot report generated successfully' },
+          data: {
+            type: 'object',
+            properties: {
+              total_robots: { type: 'number', example: 10 },
+              active_robots: { type: 'number', example: 8 },
+              idle_robots: { type: 'number', example: 2 },
+              robots: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    robot_id: { type: 'string', example: 'ROBOT_001' },
+                    status: { type: 'string', example: 'ACTIVE' },
+                    current_task_id: { type: 'number', example: 123 },
+                    location: { type: 'string', example: 'ZONE_A' },
+                    battery_level: { type: 'number', example: 85 },
+                    tasks_completed: { type: 'number', example: 15 },
+                    tasks_pending: { type: 'number', example: 3 },
+                    last_activity: { type: 'string', format: 'date-time' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+    @ApiResponse({
+      status: HttpStatus.INTERNAL_SERVER_ERROR,
+      description: 'Failed to generate robot report',
+      schema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: false },
+          message: { type: 'string', example: 'Failed to generate robot report' },
+          error: { type: 'string', example: 'Database connection error' }
+        }
+      }
+    })
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles('admin', 'operator')
+    async getRobotReport(
+      @Query('start_time') startTime?: string,
+      @Query('end_time') endTime?: string
+    ) {
+      let startDate: Date | undefined;
+      let endDate: Date | undefined;
+
+      if (startTime) {
+        startDate = new Date(startTime);
+        if (isNaN(startDate.getTime())) {
+          throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
+        }
+      }
+
+      if (endTime) {
+        endDate = new Date(endTime);
+        if (isNaN(endDate.getTime())) {
+          throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
+        }
+      }
+
+      if (startDate && endDate && startDate >= endDate) {
+        throw new BadRequestException('start_time must be before end_time');
+      }
+
+      return await this.orchestratorService.getRobotReport(startDate, endDate);
   }
 }
