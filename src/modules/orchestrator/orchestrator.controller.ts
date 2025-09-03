@@ -749,4 +749,82 @@ export class OrchestratorController {
 
       return await this.orchestratorService.getRobotReport(startDate, endDate);
   }
+
+  @Get('movement-report')
+  @ApiOperation({
+    summary: 'Get movement report',
+    description: 'Generate a report of all robot movements within the specified time range.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Movement report generated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Movement report generated successfully' },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              robot_id: { type: 'string', example: 'ROBOT_001' },
+              movements: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    from_location: { type: 'string', example: 'ZONE_A' },
+                    to_location: { type: 'string', example: 'ZONE_B' },
+                    timestamp: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00Z' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid date format',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)' },
+        error: { type: 'string', example: 'Bad Request' },
+        statusCode: { type: 'number', example: 400 }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  async getMovementReport(
+    @Query('start_time') startTime?: string,
+    @Query('end_time') endTime?: string
+  ) {
+    let startDate: Date | undefined;
+    let endDate: Date | undefined;
+
+    if (startTime) {
+      startDate = new Date(startTime);
+      if (isNaN(startDate.getTime())) {
+        throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
+      }
+    }
+
+    if (endTime) {
+      endDate = new Date(endTime);
+      if (isNaN(endDate.getTime())) {
+        throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
+      }
+    }
+
+    if (startDate && endDate && startDate >= endDate) {
+      throw new BadRequestException('start_time must be before end_time');
+    }
+
+    return await this.orchestratorService.getMovementReport(startDate, endDate);
+  }
 }

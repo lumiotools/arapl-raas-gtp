@@ -2403,4 +2403,23 @@ export class OrchestratorService {
     return res;
 
   }
+
+  async getMovementReport(startDate: Date | undefined, endDate: Date | undefined){
+    const whereCondition: any = {};
+    if (startDate && endDate) {
+      whereCondition.created_at = Between(startDate, endDate);
+    }
+    if (startDate){
+      whereCondition.created_at = MoreThanOrEqual(startDate);
+    }
+    if (endDate){
+      whereCondition.created_at = LessThanOrEqual(endDate);
+    }
+    const allTasks = await this.taskRepository.find({
+      where: whereCondition,
+    });
+    // const res: {
+    //   "InventoryToStation"
+    // }
+  }
 }
