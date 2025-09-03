@@ -332,9 +332,6 @@ export class StationsService {
   }
 
   async getActiveRobotAtStation(station_id: string): Promise<any | null> {
-    const station = await this.stationRepository.findOne({
-      where: { station_id }
-    });
     const tasks = await this.taskRepository.find({
       where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]) }
     });
@@ -345,6 +342,27 @@ export class StationsService {
         robot_id = task.robot_id;
         robot_task = task;
         break;
+      }
+    }
+    const station = await this.stationRepository.findOne({
+      where: { station_id },
+      relations: ['gtpLocations']
+    });
+    if (!station) {
+      throw new BadRequestException("Station not found")
+    }
+    let required_quantity = 0;
+    for (const gtpLocation of station?.gtpLocations || []) {
+      console.log(`Checking GTP Location: ${gtpLocation.gtp_location_id}`);
+      if (gtpLocation) {
+        const inProgressOrderItems = await this.orderItemRepository.find({
+          where: { 
+            assigned_gtp_location: gtpLocation.gtp_location_id,
+            status: OrderItemStatus.IN_PROGRESS,
+            product_id: robot_task?.product_id || ''
+          }
+        });
+        required_quantity += inProgressOrderItems.reduce((sum, item) => sum + item.remaining_quantity, 0);
       }
     }
     let status: TaskStatus | null | string = null;
@@ -364,6 +382,7 @@ export class StationsService {
       product_id: robot_task?.product_id || null,
       quantity: robot_task?.quantity || null,
       source: robot_task?.start_location.location_id || null,
+      drop_quantity: Math.min(required_quantity, robot_task?.quantity || 0),
       status: status
     }
   }

@@ -27,7 +27,7 @@ export class DatabaseResetService {
         'DELETE FROM inventory',
         "UPDATE stations SET status = 'AVAILABLE', holded_by = NULL",
         "UPDATE waiting_locations SET status = 'AVAILABLE', holded_by = NULL",
-        "UPDATE robots SET total_robots = 2, robot_in_use = 0, is_waiting = false"
+        "UPDATE robots SET total_robots = 4, robot_in_use = 0, is_waiting = false"
       ];
 
       for (const query of queries) {

@@ -443,21 +443,20 @@ export class OrchestratorService {
         where:{product_id: productId, move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY]), status: In([TaskStatus.PROCESSING])}
       })
       console.log(`task coming to inventory: ${JSON.stringify(taskComingToInventory)}`)
-
       if (taskComingToInventory && taskComingToInventory.robot_id) {
         console.log(`found task from inventory: trying to cancel`)
         try{
           const inventory_id = taskComingToInventory.end_location.location_id;
           const inventory = await this.inventoryRepository.findOne({ where: { id: inventory_id } });
           if (inventory && inventory?.quantity - inventory?.missing_quantity - inventory?.defective_quantity > 0){
-            await this.CancelTask(taskComingToInventory);
-            const robotIdToUse = taskComingToInventory.robot_id;
             let is_station_task_created = false;
+            const robotIdToUse = taskComingToInventory.robot_id;
             for (const station of sortedStations) {
               const reserved = await this.stationService.reserveStation(station.station_id);
               if (!reserved) {  
                 continue;
               }
+              await this.CancelTask(taskComingToInventory);
               if (!robotIdToUse) {
                 await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
                 return;
@@ -493,9 +492,13 @@ export class OrchestratorService {
             const waitingLocations = await this.waitingLocationRepository.find({where: {status: LocationStatus.AVAILABLE}});
             for (const waitLocation of waitingLocations){
               if (is_station_task_created){break;}
-              const reserved = await this.waitingLocationService.reserveWaitingLocation(waitLocation.location_id) && 
-              await this.stationService.reserveStation(taskComingToInventory.start_location.location_id);
+              let reserved = await this.waitingLocationService.reserveWaitingLocation(waitLocation.location_id);
+              if (!reserved){
+                continue;
+              }
+              reserved  = await this.stationService.reserveStation(taskComingToInventory.start_location.location_id);
               if (!reserved) {  
+                await this.waitingLocationRepository.update(waitLocation.location_id, { status: LocationStatus.AVAILABLE });
                 continue;
               }
               if (!robotIdToUse) {
@@ -704,9 +707,9 @@ export class OrchestratorService {
     if (robots.length === 0){
       await this.robotRepository.save({id: crypto.randomUUID(), is_waiting: false, total_robots: 2, robot_in_use: 0 });
     }
-    else{
-      await this.robotRepository.updateAll({ is_waiting: false, total_robots: 2, robot_in_use: 0 });
-    }
+    // else{
+    //   await this.robotRepository.updateAll({ is_waiting: false, total_robots: 4, robot_in_use: 0 });
+    // }
   }
 
   /**
@@ -1650,7 +1653,7 @@ export class OrchestratorService {
 
   async resendPendingTasks() {
     try {
-      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+      const twoMinutesAgo = new Date(Date.now() - 1 * 60 * 1000);
       const pendingTasks = await this.taskRepository.find({
         where: { 
           status: TaskStatus.PENDING,
