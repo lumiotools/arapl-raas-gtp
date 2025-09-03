@@ -1,9 +1,9 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateWaitingLocationDto } from './dto/create-waiting_location.dto';
 import { UpdateWaitingLocationDto } from './dto/update-waiting_location.dto';
-import { WaitingLocation } from 'src/entities';
+import { Task, TaskStatus, WaitingLocation } from 'src/entities';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { LocationStatus } from 'src/entities/station.entity';
 import { firstValueFrom } from 'rxjs';
 import { WaitingLocationType } from 'src/entities/waiting-location.entity';
@@ -14,6 +14,8 @@ export class WaitingLocationService {
   constructor(
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
+    @InjectRepository(Task)
+    private readonly taskRepository: Repository<Task>
   ){}
   async create(createWaitingLocationDto: CreateWaitingLocationDto) {
     // throw new ConflictException('Waiting location creation is not allowed');
@@ -192,4 +194,57 @@ export class WaitingLocationService {
         await queryRunner.release();
       }
     }
+  
+  async getActiveRobotAtWaiting(waiting_location_id: string){
+    const tasks = await this.taskRepository.find({
+      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]) },
+      order: { created_at: 'DESC' }
+    });
+
+    // Filter to get only the last task of each batch
+    const lastTasksPerBatch = new Map<string, Task>();
+    for (const task of tasks) {
+      if (task.batch_id) {
+        if (!lastTasksPerBatch.has(task.batch_id) || 
+            task.created_at > lastTasksPerBatch.get(task.batch_id)!.created_at) {
+          lastTasksPerBatch.set(task.batch_id, task);
+        }
+      }
+    }
+    const filteredTasks = Array.from(lastTasksPerBatch.values());
+    let robot_id : string | null = null;
+    let robot_task : Task | null = null;
+    for (const task of filteredTasks){
+      if (task.end_location.location_attribute.attribute_value=='waiting_location' && task.end_location.location_id==waiting_location_id){
+        robot_id = task.robot_id;
+        robot_task = task;
+        break;
+      }
+    }
+    const waitingLocation = await this.waitingLocationRepository.findOne({
+      where: { location_id: waiting_location_id },
+    });
+    if (!waitingLocation) {
+      throw new BadRequestException("Waiting location not found")
+    }
+    let status: TaskStatus | null | string = null;
+    if (robot_task) {
+      status = robot_task.status;
+      if (status === TaskStatus.PROCESSING) {
+        status = "COMING";
+      }
+      else if (status === TaskStatus.COMPLETED) {
+        status = "REACHED";
+      }
+    }
+    console.log(`status: ${status}`)
+    if (!robot_id){return {robot_id: null}}
+    return {
+      robot_id: robot_id,
+      product_id: robot_task?.product_id || null,
+      quantity: robot_task?.quantity || null,
+      source: robot_task?.start_location.location_id || null,
+      status: status
+    }
+  }
 }

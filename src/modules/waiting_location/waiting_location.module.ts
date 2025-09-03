@@ -4,9 +4,10 @@ import { WaitingLocation } from 'src/entities/waiting-location.entity'; // Impor
 import { WaitingLocationService } from './waiting_location.service';
 import { WaitingLocationController } from './waiting_location.controller';
 import { User } from 'src/entities/user.entity';
+import { Task } from 'src/entities';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([WaitingLocation,User])], // Import WaitingLocation entity
+  imports: [TypeOrmModule.forFeature([WaitingLocation,User, Task])], // Import WaitingLocation entity
   controllers: [WaitingLocationController],
   providers: [WaitingLocationService],
 })
