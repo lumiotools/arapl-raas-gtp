@@ -812,4 +812,40 @@ export class OrdersService {
     }
     return results;
   }
+
+  async getStationReportSummary(start_time: Date | undefined, end_time: Date | undefined): Promise<any>{
+    const whereCondition: any = {};
+    if (start_time && end_time) {
+      whereCondition.created_at = Between(start_time, end_time);
+    }
+    else if (start_time){
+      whereCondition.created_at = MoreThanOrEqual(start_time);
+    }
+    else if (end_time){
+      whereCondition.created_at = LessThan(end_time);
+    }
+    const orderItems = await this.orderItemRepository.find({
+      where: whereCondition,
+      relations: ['assignedGtpLocation'],
+    });
+    const res: any = {};
+    for (const orderItem of orderItems) {
+      const gtpLocation = orderItem.assignedGtpLocation;
+      if (gtpLocation) {
+        const stationId = gtpLocation.station_id;
+        if (!stationId) {continue;}
+        if (!res[stationId]) {
+          res[stationId] = {
+            completed: 0,
+            in_progress: 0,
+            cancelled: 0,
+            pending: 0,
+            assigned: 0
+          };
+        }
+        res[stationId][orderItem.status.toLowerCase()]++;
+      }
+    }
+    return res;
+  }
 }
