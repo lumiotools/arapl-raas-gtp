@@ -118,7 +118,6 @@ export class WebhookService {
         const destinationWaitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
         if (destinationWaitingLocation){
           await this.waitingLocationRepository.update({ location_id: destinationWaitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
-
         }
       }
       else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY){
@@ -312,7 +311,7 @@ export class WebhookService {
     ) {
       // When task status becomes PROCESSING and source is station - mark station as OCCUPIED
       const stationId = task.start_location.location_id;
-      await this.orchestratorService.releaseStation(stationId, task.task_id);
+      await this.orchestratorService.releaseStation(stationId);
     }
 
     // When task status becomes COMPLETED and destination is station - mark station as OCCUPIED

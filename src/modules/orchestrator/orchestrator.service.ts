@@ -1528,6 +1528,13 @@ export class OrchestratorService {
         await this.scheduleLPtoPickLocation();
         // check if a there is lp plate waiting for a pick location
 
+        const stations = await this.stationRepository.find();
+        for (const station of stations) {
+          if (station.status === LocationStatus.AVAILABLE){
+            await this.handleStationToWaitCancel(station.station_id);
+          }
+        }
+
         const cancelledStationIds = await this.stationService.getCancelledStations(); // get all the cancelled stations.
 
         // create tasks from all the cancelled stations to their respective inventories
@@ -1978,7 +1985,7 @@ export class OrchestratorService {
       
       // Only release if source is a station (not inventory or waiting location)
       if (sourceLocationType === 'station') {
-        await this.releaseStation(sourceStationId, processingTask.task_id);
+        await this.releaseStation(sourceStationId);
       }
       else if (sourceLocationType === 'waiting_location') {
         const waitingLocation = await this.waitingLocationRepository.findOne({
@@ -2004,24 +2011,7 @@ export class OrchestratorService {
     }
   }
 
-  async handleStationToWaitCancel(stationID:string){
-    
-  }
-  /**
-   * Release a station and make it available for other tasks
-   * Also process any pending station requests for this station
-   */
-  async releaseStation(stationId: string, taskId: string): Promise<void> {
-    this.logger.log(`Releasing station ${stationId} from task ${taskId}`);
-    
-    // Mark station as available
-    await this.stationRepository.update(
-      { station_id: stationId },
-      { 
-        status: LocationStatus.AVAILABLE,
-        holded_by: null
-      }
-    );
+  async handleStationToWaitCancel(stationId:string){
     const prdReqForStation = await this.getProductRequirementsByStationId(stationId);
     if (prdReqForStation.length > 0){
       const reservationStatus = await this.stationService.reserveStation(stationId);
@@ -2042,6 +2032,7 @@ export class OrchestratorService {
           // reserve the current station
           const response = await this.CancelTask(carrying_task);
           await this.taskRepository.update({ task_id: carrying_task.task_id }, { status: TaskStatus.CANCELLED });
+          await this.waitingLocationRepository.update({ location_id: carrying_task.end_location.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
           const [task_id, task] = await this.createTask({
             batchId: carrying_task.batch_id,
             productId: product_id,
@@ -2065,12 +2056,25 @@ export class OrchestratorService {
         }
       }
       catch(error){
+        this.releaseStation(stationId);
         this.logger.error(`Error processing product requirement for station ${stationId}:`, error.message);
       }
     }
+    this.releaseStation(stationId);
+  }
+  /**
+   * Release a station and make it available for other tasks
+   * Also process any pending station requests for this station
+   */
+  async releaseStation(stationId: string): Promise<void> {
+    
+    // Mark station as available
     await this.stationRepository.update(
       { station_id: stationId },
-      { status: LocationStatus.AVAILABLE, holded_by: null }
+      { 
+        status: LocationStatus.AVAILABLE,
+        holded_by: null
+      }
     );
   }
 
