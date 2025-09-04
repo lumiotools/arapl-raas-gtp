@@ -2420,8 +2420,53 @@ export class OrchestratorService {
     const allTasks = await this.taskRepository.find({
       where: whereCondition,
     });
-    // const res: {
-    //   "InventoryToStation"
-    // }
+    const res: Record<string, number[]> = {
+      "InventoryToStation": [],
+      "InventoryToWaitingLocation": [],
+      "StationToWaitingLocation": [],
+      "WaitingLocationToStation": [],
+      "StationToStation": [],
+      "StationToInventory": [],
+      "WaitingLocationToInventory": [],
+    };
+    for (const task of allTasks){
+      if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.InventoryToStation.push(travelTime);
+        }
+      }else if (task.move_type === MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.InventoryToWaitingLocation.push(travelTime);
+        }
+      }else if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.StationToWaitingLocation.push(travelTime);
+        }
+      }else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_STATION){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.WaitingLocationToStation.push(travelTime);
+        }
+      }else if (task.move_type === MOVE_TYPE.STATION_TO_STATION){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.StationToStation.push(travelTime);
+        }
+      }else if (task.move_type === MOVE_TYPE.STATION_TO_INVENTORY){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.StationToInventory.push(travelTime);
+        }
+      }else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.WaitingLocationToInventory.push(travelTime);
+        }
+      }
+    }
+    return res;
   }
 }
