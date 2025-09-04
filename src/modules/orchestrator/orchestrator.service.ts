@@ -2333,16 +2333,18 @@ export class OrchestratorService {
   }
 
   async getRobotReport(startDate: Date | undefined, endDate: Date | undefined) {
+    console.log(`Generating robot report from ${startDate} to ${endDate}`);
     const whereCondition: any = {};
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
     }
-    if (startDate){
+    else if (startDate){
       whereCondition.created_at = MoreThanOrEqual(startDate);
     }
-    if (endDate){
+    else if (endDate){
       whereCondition.created_at = LessThanOrEqual(endDate);
     }
+    console.log(whereCondition);
     const allTasks = await this.taskRepository.find({
       where: whereCondition,
     });
@@ -2409,10 +2411,10 @@ export class OrchestratorService {
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
     }
-    if (startDate){
+    else if (startDate){
       whereCondition.created_at = MoreThanOrEqual(startDate);
     }
-    if (endDate){
+    else if (endDate){
       whereCondition.created_at = LessThanOrEqual(endDate);
     }
     const allTasks = await this.taskRepository.find({

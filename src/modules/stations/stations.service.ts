@@ -393,10 +393,10 @@ export class StationsService {
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
     }
-    if (startDate){
+    else if (startDate){
       whereCondition.created_at = MoreThanOrEqual(startDate);
     }
-    if (endDate){
+    else if (endDate){
       whereCondition.created_at = LessThan(endDate);
     }
     const allTasks = await this.taskRepository.find({

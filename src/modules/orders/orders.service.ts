@@ -699,10 +699,10 @@ export class OrdersService {
     if (start_time && end_time) {
       whereCondition.created_at = Between(start_time, end_time);
     }
-    if (start_time){
+    else if (start_time){
       whereCondition.created_at = MoreThanOrEqual(start_time);
     }
-    if (end_time){
+    else if (end_time){
       whereCondition.created_at = LessThan(end_time);
     }
     console.log(`wherecondition: ${whereCondition}`)
