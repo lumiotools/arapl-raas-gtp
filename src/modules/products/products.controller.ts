@@ -14,6 +14,7 @@ import {
 import { Roles } from '../auth/guard/roles.decorator';
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
+import { Query, HttpCode } from '@nestjs/common';
 
 @ApiTags('Products')
 @Controller('products')
@@ -136,5 +137,57 @@ export class ProductsController {
   })
   async remove(@Param('id') id: string) {
     return await this.productsService.remove(id);
+  }
+
+  @Get('product-order-report/summary')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  @ApiOperation({
+    summary: 'Get product order report summary',
+    description: 'Returns a summary report for product orders within the specified date range.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved product order report summary',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Product order report summary generated' },
+        data: { type: 'array', items: { type: 'object' } }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid date format or missing parameters',
+    // type: BadRequestDto,
+  })
+  async getProductOrderReportSummary(
+    @Query('startDate') startTime?: string,
+    @Query('endDate') endTime?: string
+  ) {
+    let startDate: Date | undefined;
+    let endDate: Date | undefined;
+
+    if (startTime) {
+      startDate = new Date(startTime);
+      if (isNaN(startDate.getTime())) {
+        throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
+      }
+    }
+
+    if (endTime) {
+      endDate = new Date(endTime);
+      if (isNaN(endDate.getTime())) {
+        throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
+      }
+    }
+
+    if (startDate && endDate && startDate >= endDate) {
+      throw new BadRequestException('start_time must be before end_time');
+    }
+    return await this.productsService.getProductOrderReportSummary(startDate, endDate);
   }
 }
