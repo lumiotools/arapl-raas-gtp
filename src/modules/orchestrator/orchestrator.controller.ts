@@ -904,12 +904,13 @@ export class OrchestratorController {
     }
     
     return await this.orchestratorService.getTasksByStatus(statusList, startDate, endDate);
-  }
 
+  }
+  
   @Get('travel-analysis/movements')
   @ApiOperation({
     summary: 'Analyze robot movements between source and destination locations',
-    description: 'Returns a list of robot movements filtered by source/destination type/location and time range.',
+    description: 'Returns a list of robot movements filtered by source/destination type, multiple source locations, and time range.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -952,7 +953,7 @@ export class OrchestratorController {
   @Roles('admin', 'operator')
   async getTravelAnalysisMovements(
     @Query('source_type') sourceType: string,
-    @Query('source_location') sourceLocation: string,
+    @Query('source_location') sourceLocation: string | string[],
     @Query('destination_type') destinationType: string,
     @Query('start_time') startTime?: string,
     @Query('end_time') endTime?: string
@@ -987,9 +988,18 @@ export class OrchestratorController {
       throw new BadRequestException('start_time must be before end_time');
     }
 
+    // Normalize sourceLocation to array
+    let sourceLocations: string[] = [];
+    if (Array.isArray(sourceLocation)) {
+      sourceLocations = sourceLocation;
+    } else if (typeof sourceLocation === 'string' && sourceLocation.length > 0) {
+      // Support comma-separated values
+      sourceLocations = sourceLocation.split(',').map(loc => loc.trim()).filter(loc => loc.length > 0);
+    }
+
     return await this.orchestratorService.getTravelAnalysisMovements(
       sourceType,
-      sourceLocation,
+      sourceLocations,
       destinationType,
       startDate,
       endDate

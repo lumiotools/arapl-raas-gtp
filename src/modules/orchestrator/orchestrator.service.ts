@@ -2559,61 +2559,66 @@ export class OrchestratorService {
 
   async getTravelAnalysisMovements(
     sourceType: string,
-    sourceLocation: string,
+    sourceLocations: string[],
     destinationType: string,
     startDate: Date | undefined,
     endDate: Date | undefined
   ) {
-    if (!sourceType || !sourceLocation || !destinationType) {
+    if (!sourceType || !sourceLocations || !destinationType) {
       throw new BadRequestException('sourceType, sourceLocation, and destinationType are required');
     }
-    let source_location: any;
-    if (sourceType === 'station'){
-      source_location = await this.stationRepository.findOne({
-        where: { station_id: sourceLocation }
-      });
-    }else if (sourceType === 'waiting_location'){
-      source_location = await this.waitingLocationRepository.findOne({
-        where: { location_id: sourceLocation }
-      });
-    }else if (sourceType === 'inventory'){
-      source_location = await this.inventoryRepository.findOne({
-        where: { id: sourceLocation }
-      });
-    }
-
-    const whereCondition: any = {};
-    if (startDate && endDate) {
-      whereCondition.created_at = Between(startDate, endDate);
-    }
-    else if (startDate){
-      whereCondition.created_at = MoreThanOrEqual(startDate);
-    }
-    else if (endDate){
-      whereCondition.created_at = LessThanOrEqual(endDate);
-    }
-    const allTasks = await this.taskRepository.find({
-      where: whereCondition,
-    });
-    console.log(`where condition: ${JSON.stringify(whereCondition)}`);
-    console.log(`all tasks: ${allTasks.length}`);
-    console.log(`source location: ${JSON.stringify(source_location)}`);
-    console.log(`destination type: ${JSON.stringify(destinationType)}`);
     const res: any = {};
-    for (const task of allTasks){
-      if ((task.start_location.location_id === source_location.location_id ||
-          task.start_location.location_id === source_location.id ||
-          task.start_location.location_id === source_location.station_id) &&
-          task.end_location.location_attribute?.attribute_value === destinationType){
-        if(!res[task.end_location.location_id]){
-          res[task.end_location.location_id] = [];
-        }
-        if (task.processing && task.completed) {
-          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
-          res[task.end_location.location_id].push(travelTime);
+    for (const loc of sourceLocations){
+      res[loc] = {};
+      let source_location: any;
+      if (sourceType === 'station'){
+        source_location = await this.stationRepository.findOne({
+          where: { station_id: loc }
+        });
+      }else if (sourceType === 'waiting_location'){
+        source_location = await this.waitingLocationRepository.findOne({
+          where: { location_id: loc }
+        });
+      }else if (sourceType === 'inventory'){
+        source_location = await this.inventoryRepository.findOne({
+          where: { id: loc },
+        });
+      }
+
+      const whereCondition: any = {};
+      if (startDate && endDate) {
+        whereCondition.created_at = Between(startDate, endDate);
+      }
+      else if (startDate){
+        whereCondition.created_at = MoreThanOrEqual(startDate);
+      }
+      else if (endDate){
+        whereCondition.created_at = LessThanOrEqual(endDate);
+      }
+      const allTasks = await this.taskRepository.find({
+        where: whereCondition,
+      });
+      console.log(`where condition: ${JSON.stringify(whereCondition)}`);
+      console.log(`all tasks: ${allTasks.length}`);
+      console.log(`source location: ${JSON.stringify(source_location)}`);
+      console.log(`destination type: ${JSON.stringify(destinationType)}`);
+      
+      for (const task of allTasks){
+        if ((task.start_location.location_id === source_location.location_id ||
+            task.start_location.location_id === source_location.id ||
+            task.start_location.location_id === source_location.station_id) &&
+            task.end_location.location_attribute?.attribute_value === destinationType){
+          if(!res[loc][task.end_location.location_id]){
+            res[loc][task.end_location.location_id] = [];
+          }
+          if (task.processing && task.completed) {
+            const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+            res[loc][task.end_location.location_id].push(travelTime);
+          }
         }
       }
     }
+    
     return res;
   }
 }
