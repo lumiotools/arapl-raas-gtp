@@ -712,6 +712,20 @@ export class OrdersService {
         relations: ['completedTasks'],
       }));
     }
+    if (statusList.includes('pending')){
+      whereCondition.status = OrderItemStatus.PENDING;
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (statusList.includes('assigned')){
+      whereCondition.status = OrderItemStatus.ASSIGNED;
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
     if (statusList.includes('in_progress')){
       whereCondition.status = OrderItemStatus.IN_PROGRESS;
       orderItems.push(...await this.orderItemRepository.find({

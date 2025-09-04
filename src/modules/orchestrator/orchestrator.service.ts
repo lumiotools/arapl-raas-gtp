@@ -1,4 +1,4 @@
-import { Injectable, Logger, Move, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Move, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, OneToOne, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
@@ -52,6 +52,20 @@ interface ProductRequirement {
   productId: string;
   totalRequirement: number;
   stationRequirements: Map<string, number>;
+}
+
+export interface TaskDetails{
+  task_id: string;
+  batch_id: string;
+  product_id: string;
+  robot_id: string;
+  quantity: number;
+  move_type: MOVE_TYPE;
+  status: TaskStatus;
+  start_location_id: string;
+  end_location_id: string;
+  created_at: Date;
+  updated_at: Date;
 }
 
 @Injectable()
@@ -2468,5 +2482,71 @@ export class OrchestratorService {
       }
     }
     return res;
+  }
+
+  async getTasksByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined) {
+    const whereCondition: any = {};
+
+    if (!statusList || statusList.length === 0) {
+      throw new BadRequestException('Status is required');
+    }
+    const results: TaskDetails[] = [];
+    const TaskItems: Task[] = [];
+    if (start_time && end_time) {
+      whereCondition.created_at = Between(start_time, end_time);
+    }
+    else if (start_time){
+      whereCondition.created_at = MoreThanOrEqual(start_time);
+    }
+    else if (end_time){
+      whereCondition.created_at = LessThan(end_time);
+    }
+    if (statusList.includes('all')) {
+      TaskItems.push(...await this.taskRepository.find({
+        where: whereCondition,
+        order: { created_at: 'DESC' }
+      }));
+    }
+    if (statusList.includes('pending')) {
+      TaskItems.push(...await this.taskRepository.find({
+        where: { ...whereCondition, status: TaskStatus.PENDING },
+        order: { created_at: 'DESC' }
+      }));
+    }
+    if (statusList.includes('processing')) {
+      TaskItems.push(...await this.taskRepository.find({
+        where: { ...whereCondition, status: TaskStatus.PROCESSING },
+        order: { created_at: 'DESC' }
+      }));
+    }
+    if (statusList.includes('completed')) {
+      TaskItems.push(...await this.taskRepository.find({
+        where: { ...whereCondition, status: TaskStatus.COMPLETED },
+        order: { created_at: 'DESC' }
+      }));
+    }
+    if (statusList.includes('cancelled')) {
+      TaskItems.push(...await this.taskRepository.find({
+        where: { ...whereCondition, status: TaskStatus.CANCELLED },
+        order: { created_at: 'DESC' }
+      }));
+    }
+    for (const task of TaskItems) {
+      const taskDetails: TaskDetails = {
+        task_id: task.task_id,
+        batch_id: task.fms_batch_id,
+        product_id: task.product_id,
+        quantity: task.quantity,
+        move_type: task.move_type,
+        status: task.status,
+        robot_id: task.robot_id,
+        start_location_id: task.start_location.location_id,
+        end_location_id: task.end_location.location_id,
+        created_at: task.created_at,
+        updated_at: task.updated_at,
+      }
+      results.push(taskDetails);
+    }
+    return results;
   }
 }

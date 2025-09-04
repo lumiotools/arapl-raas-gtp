@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Param, HttpStatus, NotFoundException, Put, UseGuards, Query, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Param, HttpStatus, NotFoundException, Put, UseGuards, Query, BadRequestException, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
-import { OrchestratorService } from './orchestrator.service';
+import { OrchestratorService, TaskDetails } from './orchestrator.service';
 import { BatchResponseDto } from './dto/batch-response.dto';
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { Roles } from '../auth/guard/roles.decorator';
 import { RolesGuard } from '../auth/guard/roles.guard';
+import { BadRequestDto } from '../orders/dto/error-responses.dto';
 
 @ApiTags('Orchestrator')
 @Controller('orchestrator')
@@ -826,5 +827,82 @@ export class OrchestratorController {
     }
 
     return await this.orchestratorService.getMovementReport(startDate, endDate);
+  }
+
+  @Get('by-status')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles('admin', 'operator')
+    @ApiOperation({
+    summary: 'Get orders by status and time range',
+    description: 'Retrieve all orders filtered by their status and optionally by time range. Multiple statuses can be provided as comma-separated values.',
+    })
+    @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved orders by status and time range',
+    schema: {
+      type: 'object',
+      properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string', example: 'Found 5 orders with status PENDING, COMPLETED' },
+      data: {
+        type: 'array',
+        items: {
+        type: 'object',
+        properties: {
+          order_id: { type: 'string', example: 'ORD001' },
+          status: { type: 'string', example: 'PENDING' },
+          created_at: { type: 'string', format: 'date-time' },
+          updated_at: { type: 'string', format: 'date-time' }
+        }
+        }
+      }
+      }
+    }
+    })
+    @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid status parameter or time range',
+    type: BadRequestDto,
+    })
+    async getOrdersByStatus(
+    @Query('status') status: string,
+    @Query('start_time') startTime?: string,
+    @Query('end_time') endTime?: string
+    ): Promise<TaskDetails[]> {
+    if (!status) {
+      throw new BadRequestException('Status query parameter is required');
+    }
+    
+    // Split comma-separated statuses and trim whitespace
+    const statusList = status.split(',').map(s => s.trim()).filter(s => s.length > 0);
+    
+    if (statusList.length === 0) {
+      throw new BadRequestException('At least one valid status must be provided');
+    }
+
+    // Validate time parameters if provided
+    let startDate: Date | undefined;
+    let endDate: Date | undefined;
+
+    if (startTime) {
+      startDate = new Date(startTime);
+      if (isNaN(startDate.getTime())) {
+      throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
+      }
+    }
+
+    if (endTime) {
+      endDate = new Date(endTime);
+      if (isNaN(endDate.getTime())) {
+      throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
+      }
+    }
+
+    if (startDate && endDate && startDate >= endDate) {
+      throw new BadRequestException('start_time must be before end_time');
+    }
+    
+    return await this.orchestratorService.getTasksByStatus(statusList, startDate, endDate);
   }
 }
