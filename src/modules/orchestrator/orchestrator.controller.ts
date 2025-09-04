@@ -905,4 +905,94 @@ export class OrchestratorController {
     
     return await this.orchestratorService.getTasksByStatus(statusList, startDate, endDate);
   }
+
+  @Get('travel-analysis/movements')
+  @ApiOperation({
+    summary: 'Analyze robot movements between source and destination locations',
+    description: 'Returns a list of robot movements filtered by source/destination type/location and time range.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Movement analysis completed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Movement analysis completed' },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              robot_id: { type: 'string', example: 'ROBOT_001' },
+              from_type: { type: 'string', example: 'station' },
+              from_location: { type: 'string', example: 'ST001' },
+              to_type: { type: 'string', example: 'inventory' },
+              to_location: { type: 'string', example: 'R10X23' },
+              timestamp: { type: 'string', format: 'date-time', example: '2025-09-04T12:34:56Z' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid query parameters',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Invalid source_type value' },
+        error: { type: 'string', example: 'Bad Request' },
+        statusCode: { type: 'number', example: 400 }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  async getTravelAnalysisMovements(
+    @Query('source_type') sourceType: string,
+    @Query('source_location') sourceLocation: string,
+    @Query('destination_type') destinationType: string,
+    @Query('start_time') startTime?: string,
+    @Query('end_time') endTime?: string
+  ) {
+    const validTypes = ['station', 'waiting_location', 'inventory'];
+
+    if (sourceType && !validTypes.includes(sourceType)) {
+      throw new BadRequestException('Invalid source_type value');
+    }
+    if (destinationType && !validTypes.includes(destinationType)) {
+      throw new BadRequestException('Invalid destination_type value');
+    }
+
+    let startDate: Date | undefined;
+    let endDate: Date | undefined;
+
+    if (startTime) {
+      startDate = new Date(startTime);
+      if (isNaN(startDate.getTime())) {
+        throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-09-04T00:00:00Z)');
+      }
+    }
+
+    if (endTime) {
+      endDate = new Date(endTime);
+      if (isNaN(endDate.getTime())) {
+        throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-09-04T23:59:59Z)');
+      }
+    }
+
+    if (startDate && endDate && startDate >= endDate) {
+      throw new BadRequestException('start_time must be before end_time');
+    }
+
+    return await this.orchestratorService.getTravelAnalysisMovements(
+      sourceType,
+      sourceLocation,
+      destinationType,
+      startDate,
+      endDate
+    );
+  }
 }
