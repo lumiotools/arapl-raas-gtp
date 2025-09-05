@@ -2020,7 +2020,7 @@ export class OrchestratorService {
     for (const requirement of prdReqForStation) {
       const product_id = requirement.product_id;
       const carrying_task = await this.taskRepository.findOne({
-        where: { product_id: product_id, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION]) }
+        where: { product_id: product_id, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION, MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION]) }
       });
       try{
         if (carrying_task && carrying_task.robot_id) {
@@ -2561,8 +2561,8 @@ export class OrchestratorService {
     sourceType: string,
     sourceLocations: string[],
     destinationType: string,
-    startDate: Date | undefined,
-    endDate: Date | undefined
+    startDate?: Date,
+    endDate?: Date
   ) {
     if (!sourceType || !sourceLocations || !destinationType) {
       throw new BadRequestException('sourceType, sourceLocation, and destinationType are required');
@@ -2585,7 +2585,9 @@ export class OrchestratorService {
         });
       }
 
-      const whereCondition: any = {};
+      const whereCondition: any = {
+        status: In([TaskStatus.COMPLETED])
+      };
       if (startDate && endDate) {
         whereCondition.created_at = Between(startDate, endDate);
       }
@@ -2595,6 +2597,7 @@ export class OrchestratorService {
       else if (endDate){
         whereCondition.created_at = LessThanOrEqual(endDate);
       }
+      whereCondition.status = TaskStatus.COMPLETED;
       const allTasks = await this.taskRepository.find({
         where: whereCondition,
       });
