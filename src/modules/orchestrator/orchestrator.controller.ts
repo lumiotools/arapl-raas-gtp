@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, HttpStatus, NotFoundException, Put, UseGuards, Query, BadRequestException, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Param, HttpStatus, NotFoundException, Put, UseGuards, Query, BadRequestException, HttpCode, Body } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { OrchestratorService, TaskDetails } from './orchestrator.service';
 import { BatchResponseDto } from './dto/batch-response.dto';
@@ -1005,4 +1005,80 @@ export class OrchestratorController {
       endDate
     );
   }
+
+
+  @Put('update-robot')
+  @ApiOperation({
+    summary: 'Update total robots in system',
+    description: 'Updates the total number of robots in the system configuration.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Total robots updated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Total robots updated successfully' },
+        total_robots: { type: 'number', example: 10 }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid total_robots parameter',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'total_robots must be a positive number' },
+        error: { type: 'string', example: 'Bad Request' },
+        statusCode: { type: 'number', example: 400 }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin','operator')
+  async updateTotalRobots(@Body('total_robots') totalRobots: number) {
+    if (!totalRobots || totalRobots <= 0) {
+      throw new BadRequestException('total_robots must be a positive number');
+    }
+
+    await this.orchestratorService.updateTotalRobots(totalRobots);
+    
+    return {
+      success: true,
+      message: 'Total robots updated successfully',
+      total_robots: totalRobots
+    };
+  }
+
+  @Get('robots/total')
+  @ApiOperation({
+    summary: 'Get total number of robots in system',
+    description: 'Retrieve the total number of robots configured in the system.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Total robots retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Total robots retrieved successfully' },
+        total_robots: { type: 'number', example: 10 }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  async getTotalRobots() {
+    const totalRobots = await this.orchestratorService.getTotalRobots();
+    
+    return {
+      success: true,
+      message: 'Total robots retrieved successfully',
+      total_robots: totalRobots
+    };
+  }
+
 }

@@ -2635,4 +2635,41 @@ export class OrchestratorService {
     
     return res;
   }
+
+  async updateTotalRobots(totalRobots: number) {
+    const result = await this.robotRepository
+      .createQueryBuilder()
+      .select('COUNT(*)', 'count')
+      .getRawOne();
+
+    if (result.count === 0) {
+      await this.robotRepository.save({
+        id: crypto.randomUUID(),
+        is_waiting: false,
+        total_robots: totalRobots,
+        robot_in_use: 0
+      });
+      return;
+    }
+
+    // Check if any order is in progress state
+    const inProgressOrders = await this.orderItemRepository.findOne({
+      where: { status: OrderItemStatus.IN_PROGRESS }
+    });
+
+    if (inProgressOrders) {
+      throw new BadRequestException('Cannot update total robots while orders are in progress');
+    }
+    const robotRecord = (await this.robotRepository.find())[0];
+
+    await this.robotRepository.update({ id: robotRecord.id }, { total_robots: totalRobots });
+  }
+
+  async getTotalRobots() {
+    const result = await this.robotRepository.find();
+    if (result.length === 0) {
+      return 0;
+    }
+    return result[0].total_robots;
+  }
 }
