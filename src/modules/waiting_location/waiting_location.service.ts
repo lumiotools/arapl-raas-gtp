@@ -165,35 +165,38 @@ export class WaitingLocationService {
   }
 
   async reserveWaitingLocation(location_id: string): Promise<boolean> {
-      const queryRunner = this.waitingLocationRepository.manager.connection.createQueryRunner();
-      await queryRunner.connect();
-      await queryRunner.startTransaction();
-  
-      try {
-        const waitingLocation = await queryRunner.manager.findOne(WaitingLocation, { where: { location_id: location_id } });
+    const queryRunner = this.waitingLocationRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-        if (!waitingLocation) {
-          return false;
+    try {
+        // Single atomic operation: Update only if status is AVAILABLE
+        const result = await queryRunner.manager
+            .createQueryBuilder()
+            .update(WaitingLocation)
+            .set({ status: LocationStatus.RESERVED })
+            .where("location_id = :location_id AND status = :status", {
+                location_id: location_id,
+                status: LocationStatus.AVAILABLE
+            })
+            .execute();
+
+        // If no rows were affected, location was either not found or not available
+        if (result.affected === 0) {
+            await queryRunner.rollbackTransaction();
+            return false;
         }
-
-        if (waitingLocation.status !== LocationStatus.AVAILABLE) {
-          return false;
-        }
-
-        waitingLocation.status = LocationStatus.RESERVED;
-        await queryRunner.manager.save(WaitingLocation, waitingLocation);
 
         await queryRunner.commitTransaction();
-  
-        // Return the updated inventory (with isProcessing = true)
         return true;
-      } catch (error) {
+
+    } catch (error) {
         await queryRunner.rollbackTransaction();
         return false;
-      } finally {
+    } finally {
         await queryRunner.release();
-      }
     }
+  }
   
   async getActiveRobotAtWaiting(waiting_location_id: string){
     const tasks = await this.taskRepository.find({

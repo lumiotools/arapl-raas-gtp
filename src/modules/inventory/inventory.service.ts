@@ -377,27 +377,31 @@ export class InventoryService {
     await queryRunner.startTransaction();
 
     try {
-      const inventory = await queryRunner.manager.findOne(Inventory, { where: { id } });
+        // Single atomic operation: Update only if status is AVAILABLE
+        const result = await queryRunner.manager
+            .createQueryBuilder()
+            .update(Inventory)
+            .set({ status: LocationStatus.RESERVED })
+            .where("id = :id AND status = :status", {
+                id: id,
+                status: LocationStatus.AVAILABLE
+            })
+            .execute();
 
-      if (!inventory) {
-        return false;
-      }
-      if (inventory.status !== LocationStatus.AVAILABLE) {
-        return false;
-      }
+        // If no rows were affected, inventory was either not found or not available
+        if (result.affected === 0) {
+            await queryRunner.rollbackTransaction();
+            return false;
+        }
 
-      inventory.status = LocationStatus.RESERVED;
-      await queryRunner.manager.save(Inventory, inventory);
+        await queryRunner.commitTransaction();
+        return true;
 
-      await queryRunner.commitTransaction();
-
-      // Return the updated inventory (with isProcessing = true)
-      return true;
     } catch (error) {
-      await queryRunner.rollbackTransaction();
-      return false;
+        await queryRunner.rollbackTransaction();
+        return false;
     } finally {
-      await queryRunner.release();
+        await queryRunner.release();
     }
   }
 

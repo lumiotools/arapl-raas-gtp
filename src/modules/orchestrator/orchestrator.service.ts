@@ -249,21 +249,25 @@ export class OrchestratorService {
     await queryRunner.startTransaction();
 
     try {
-      const robots = await queryRunner.manager.find(Robot);
-      if (robots.length === 0) {
-        throw new Error('No Robot Entry Found');
-      }
-      
-      await queryRunner.manager.update(Robot, robots[0].id, { 
-        robot_in_use: robots[0].robot_in_use + 1 
-      });
-      
-      await queryRunner.commitTransaction();
+        // Atomic increment - no race condition possible
+        const result = await queryRunner.manager
+            .createQueryBuilder()
+            .update(Robot)
+            .set({ 
+                robot_in_use: () => "robot_in_use + 1" 
+            })
+            .execute();
+
+        if (result.affected === 0) {
+            throw new Error('No Robot Entry Found');
+        }
+        
+        await queryRunner.commitTransaction();
     } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
+        await queryRunner.rollbackTransaction();
+        throw error;
     } finally {
-      await queryRunner.release();
+        await queryRunner.release();
     }
   }
 
@@ -273,23 +277,28 @@ export class OrchestratorService {
     await queryRunner.startTransaction();
 
     try {
-      const robots = await queryRunner.manager.find(Robot);
-      if (robots.length === 0) {
-        throw new Error('No Robot Entry Found');
-      }
+        // Atomic decrement with safety check to prevent negative values
+        const result = await queryRunner.manager
+            .createQueryBuilder()
+            .update(Robot)
+            .set({ 
+                robot_in_use: () => "GREATEST(robot_in_use - 1, 0)" 
+            })
+            .execute();
 
-      await queryRunner.manager.update(Robot, robots[0].id, { 
-        robot_in_use: robots[0].robot_in_use - 1 
-      });
-
-      await queryRunner.commitTransaction();
+        if (result.affected === 0) {
+            throw new Error('No Robot Entry Found');
+        }
+        
+        await queryRunner.commitTransaction();
     } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
+        await queryRunner.rollbackTransaction();
+        throw error;
     } finally {
-      await queryRunner.release();
+        await queryRunner.release();
     }
   }
+
 
   async checkIfSystemIsInWaitingState(): Promise<boolean> {
     const robots = await this.robotRepository.find();
@@ -1399,6 +1408,7 @@ export class OrchestratorService {
             }
             order_item.completedTasks.push(task);
             await this.orderItemRepository.save(order_item);
+            // await this.orderItemRepository.update({ order_item_id: order_item.order_item_id, product_id: productId }, { remaining_quantity: order_item.remaining_quantity, completedTasks: order_item.completedTasks, status: order_item.status });
             console.log(`Order Item ${order_item.order_item_id} completed - remaining quantity: 0`);
             await this.loggingService.log(`Order ${order_item.order_id}: Product ${productId} at GTP Location ${gtpLocation.gtp_location_id} completed.`);
           }
@@ -1410,6 +1420,7 @@ export class OrchestratorService {
             }
             order_item.completedTasks.push(task);
             await this.orderItemRepository.save(order_item);
+            // await this.orderItemRepository.update({ order_item_id: order_item.order_item_id, product_id: productId }, { remaining_quantity: order_item.remaining_quantity, completedTasks: order_item.completedTasks, status: order_item.status });
             break;
           }
           console.log(`Updated Order Item ${order_item.order_item_id} - new quantity: ${order_item.quantity}`);

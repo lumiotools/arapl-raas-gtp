@@ -306,28 +306,31 @@ export class StationsService {
     await queryRunner.startTransaction();
 
     try {
-      const station = await queryRunner.manager.findOne(Station, { where: { station_id: station_id } });
+        // Single atomic operation: Update only if status is AVAILABLE
+        const result = await queryRunner.manager
+            .createQueryBuilder()
+            .update(Station)
+            .set({ status: LocationStatus.RESERVED })
+            .where("station_id = :station_id AND status = :status", {
+                station_id: station_id,
+                status: LocationStatus.AVAILABLE
+            })
+            .execute();
 
-      if (!station) {
-        return false;
-      }
+        // If no rows were affected, station was either not found or not available
+        if (result.affected === 0) {
+            await queryRunner.rollbackTransaction();
+            return false;
+        }
 
-      if (station.status !== LocationStatus.AVAILABLE) {
-        return false;
-      }
+        await queryRunner.commitTransaction();
+        return true;
 
-      station.status = LocationStatus.RESERVED;
-      await queryRunner.manager.save(Station, station);
-
-      await queryRunner.commitTransaction();
-
-      // Return the updated inventory (with isProcessing = true)
-      return true;
     } catch (error) {
-      await queryRunner.rollbackTransaction();
-      return false;
+        await queryRunner.rollbackTransaction();
+        return false;
     } finally {
-      await queryRunner.release();
+        await queryRunner.release();
     }
   }
 
