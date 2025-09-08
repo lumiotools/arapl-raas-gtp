@@ -17,6 +17,7 @@ import { WaitingLocationModule } from './modules/waiting_location/waiting_locati
 import { AuthModule } from './modules/auth/auth.module';
 import { BotModule } from './modules/bot/bot.module';
 import { LocationsModule } from './modules/locations/locations.module';
+import { BaseopsTaskModule } from './modules/baseops_task/baseops_task.module';
 
 @Module({
   imports: [
@@ -40,7 +41,8 @@ import { LocationsModule } from './modules/locations/locations.module';
     WaitingLocationModule,
     AuthModule,
     BotModule,
-    LocationsModule
+    LocationsModule,
+    BaseopsTaskModule
   ],
   controllers: [],
   providers: [],
