@@ -728,7 +728,7 @@ export class OrchestratorService {
     await this.waitingLocationService.findAll();
     const robots = await this.robotRepository.find();
     if (robots.length === 0){
-      await this.robotRepository.save({id: crypto.randomUUID(), is_waiting: false, total_robots: 2, robot_in_use: 0 });
+      await this.robotRepository.save({id: crypto.randomUUID(), is_waiting: false, total_robots: 1, robot_in_use: 0 });
     }
     // else{
     //   await this.robotRepository.updateAll({ is_waiting: false, total_robots: 4, robot_in_use: 0 });
@@ -941,16 +941,16 @@ export class OrchestratorService {
     const isWaitingToStation = taskData.sourceWaitingLocationId && taskData.destinationStationId;
     const isWaitingToInventory = taskData.sourceWaitingLocationId && taskData.destinationInventoryId;
 
-    if (isInventoryToStation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP;
-    if (isInventoryToWaitLocation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP;
-    if (isStationToStation) return position === 'start' ? LocationAction.NOP : LocationAction.NOP;
-    if (isStationToWaiting) return position === 'start' ? LocationAction.NOP : LocationAction.NOP;
-    if (isWaitingToStation) return position === 'start' ? LocationAction.NOP : LocationAction.NOP;
-    if (isStationToInventory) return position === 'start' ? LocationAction.NOP : LocationAction.DROP;
-    if (isWaitingToInventory) return position === 'start' ? LocationAction.NOP : LocationAction.DROP;
+    if (isInventoryToStation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP_PAUSE;
+    if (isInventoryToWaitLocation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP_PAUSE;
+    if (isStationToStation) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.NOP_PAUSE;
+    if (isStationToWaiting) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.NOP_PAUSE;
+    if (isWaitingToStation) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.NOP_PAUSE;
+    if (isStationToInventory) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
+    if (isWaitingToInventory) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
 
     // Default fallback
-    return LocationAction.NOP;
+    return LocationAction.NOP_PAUSE;
   }
 
   private async generateBatchId(): Promise<string> {
