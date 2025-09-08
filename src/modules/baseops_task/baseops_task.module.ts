@@ -8,9 +8,10 @@ import { Task } from 'src/entities';
 import { Batch } from 'src/entities/batch.entity';
 import { User } from 'src/entities/user.entity';
 import { HeapPriorityQueueService } from './heap.service';
+import { HttpModule } from '@nestjs/axios';
 
 @Module({
-  imports:[ TypeOrmModule.forFeature([Task, Batch,User]) ,OrchestratorModule],
+  imports:[ TypeOrmModule.forFeature([Task, Batch,User]) ,OrchestratorModule,HttpModule],
   controllers: [BaseopsTaskController],
   providers: [BaseopsTaskService, HeapPriorityQueueService],
 })

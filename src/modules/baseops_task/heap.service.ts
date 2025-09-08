@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 
 interface HeapItem {
@@ -22,10 +22,11 @@ export class HeapPriorityQueueService implements OnModuleInit {
   }
 
   private async initializeQueue() {
-    const pending_batches = await this.batchRepository.find({ where: {status: BatchStatus.PENDING} });
-    pending_batches.forEach(batch => {
-      this.enqueue(batch.batch_id , batch.priority);
-    });
+    const pending_batches = await this.batchRepository.find({ where: {status: In([BatchStatus.PENDING, BatchStatus.BATCH_ACKNOWLEDGED])} });
+    for (const batch of pending_batches) {
+      this.enqueue(batch.batch_id, batch.priority);
+      await this.batchRepository.update({batch_id: batch.batch_id}, {status: BatchStatus.BATCH_ACKNOWLEDGED});
+    }
     this.logger.log(`Priority Queue initialized with ${this.size()} pending batches`);
   }
 
@@ -179,6 +180,7 @@ export class HeapPriorityQueueService implements OnModuleInit {
     }
 
     this.enqueue(batch.batch_id, batch.priority);
+    await this.batchRepository.update({batch_id: batch.batch_id},{status: BatchStatus.BATCH_ACKNOWLEDGED})
     return true;
   }
 

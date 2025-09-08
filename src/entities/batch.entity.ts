@@ -17,11 +17,9 @@ export enum BatchStatus {
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
   FAILED = 'FAILED',
-  task_acknowledged = 'task_acknowledged',
-  robot_assigned = 'robot_assigned',
-  task_in_progress = 'task_in_progress',
-  task_cancelled = 'task_cancelled',
-  task_completed = 'task_completed',
+  BATCH_ACKNOWLEDGED='BATCH_ACKNOWLEDGED',
+  DISPATCHED='DISPATCHED',
+  
 }
 
 @Entity('batches')

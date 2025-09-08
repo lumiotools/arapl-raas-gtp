@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Task, TaskStatus } from 'src/entities/task.entity';
@@ -103,6 +103,14 @@ export class WebhookService {
       task.triggered = currentTime;
     }
     await this.taskRepository.save(task);
+
+    if (task.move_type==MOVE_TYPE.ZONE_TO_ZONE){
+      const not_completed_tasks = await this.taskRepository.count({ where: { batch_id: task.batch_id, status: Not(TaskStatus.COMPLETED) } });
+      if (not_completed_tasks===0){
+        await this.batchRepository.update({ batch_id: task.batch_id }, { status: BatchStatus.COMPLETED });
+      }
+      return;
+    }
 
     // Handle inventory updates based on task status changes
     await this.handleInventoryUpdates(task, oldStatus, mappedStatus, task.batch_id);

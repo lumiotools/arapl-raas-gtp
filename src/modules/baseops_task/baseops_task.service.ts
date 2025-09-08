@@ -9,12 +9,15 @@ import { LocationAction, LocationType } from 'src/entities/location.entity';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { HeapPriorityQueueService } from './heap.service';
 import { Cron } from '@nestjs/schedule';
+import { firstValueFrom } from 'rxjs';
+import { HttpService } from '@nestjs/axios';
 
 @Injectable()
 export class BaseopsTaskService {
   constructor(
     private readonly orchestratorService: OrchestratorService,
     private readonly queueService: HeapPriorityQueueService,
+    private readonly httpService: HttpService,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
     @InjectRepository(Batch)
@@ -50,40 +53,20 @@ export class BaseopsTaskService {
     }
   }
   async processNextBatch(): Promise<string | null> {
-    const batchId = this.queueService.dequeue();
+    const batchId = this.queueService.peek();
     if (!batchId) {
       // console.log('No batches in the queue');
       return null;
     }
 
     try {
-      // Update batch status to processing
-      await this.batchRepository.update(
-        { batch_id: batchId },
-        { status: BatchStatus.PROCESSING }
-      );
-
       // Your batch processing logic here
       await this.processBatch(batchId);
-
-      // Update batch status to completed
-      await this.batchRepository.update(
-        { batch_id: batchId },
-        { status: BatchStatus.COMPLETED }
-      );
-
-      console.log(`Successfully processed batch: ${batchId}`);
+      this.queueService.dequeue();
       return batchId;
 
     } catch (error) {
-      console.error(`Error processing batch ${batchId}:`, error);
-      
-      // Update batch status to failed and re-queue with lower priority
-      await this.batchRepository.update(
-        { batch_id: batchId },
-        { status: BatchStatus.FAILED }
-      );
-
+      console.error(`Error sending batch ${batchId} to WMS Layer:`, error);
       throw error;
     }
   }
@@ -91,26 +74,54 @@ export class BaseopsTaskService {
   private async processBatch(batchId: string): Promise<void> {
     // Implement your actual batch processing logic here
     console.log(`Processing batch: ${batchId}`);
+    const batch = await this.batchRepository.findOne({ where: { batch_id: batchId } });
+    if (!batch) {throw new Error(`Batch with id ${batchId} not found`);}
+    const tasks = await this.taskRepository.find({ where: { batch_id: batchId } });
+    const req_tasks : any[] = [];
+    for (const task of tasks) {
+      req_tasks.push({
+        task_id: task.task_id,
+        task_type: task.task_type,
+        task_dependency: task.task_dependency,
+        robot_id: task.robot_id,
+        start_location: {
+          location_id: task.start_location.location_id,
+          location_type: task.start_location.location_type,
+          location_action: task.start_location.location_action,
+          location_dimension: task.start_location.location_dimension,
+        },
+        end_location: {
+          location_id: task.end_location.location_id,
+          location_type: task.end_location.location_type,
+          location_action: task.end_location.location_action,
+          location_dimension: task.end_location.location_dimension,
+        },
+        wait: task.wait,
+        cargos: task.cargos
+      })
+    }
+    const req_body = {
+      batch_job_id: batchId,
+      batch_type: "DISCRETE",
+      tasks: req_tasks
+    }
+    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+    const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
 
+    const response = await firstValueFrom(
+      this.httpService.post(`${wms_base_url}/robot-job/${warehouse_name}/tasks`, req_body, {
+        headers: {
+          'authorization': `${warehosue_key}`,
+          'Content-Type': 'application/json'
+        }
+      })
+    );
+    await this.batchRepository.update(
+      {batch_id: batchId},
+      {status: BatchStatus.DISPATCHED}
+    );
     
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Your actual processing logic would go here
-  }
-  async addBatchToQueue(batchId: string, priority: number): Promise<void> {
-    // Create batch in database
-    const batch = this.batchRepository.create({
-      batch_id: batchId,
-      priority,
-      status: BatchStatus.PENDING
-    });
-    
-    await this.batchRepository.save(batch);
-    
-    // Add to queue
-    this.queueService.enqueue(batchId, priority);
-    
-    console.log(`Added batch to queue: ${batchId} with priority: ${priority}`);
   }
 
   async processCsvTasks(csvData: string, priority: number): Promise<any> {
@@ -182,6 +193,8 @@ export class BaseopsTaskService {
       }];
       await this.taskRepository.save(newTask);
     }
+
+    await this.queueService.addPendingBatch(batch.batch_id);
 
     return tasks;
   }
