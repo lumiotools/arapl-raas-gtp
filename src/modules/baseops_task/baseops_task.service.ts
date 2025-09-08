@@ -6,12 +6,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Task, TaskStatus, TaskType, MOVE_TYPE } from 'src/entities/task.entity';
 import { LocationAction, LocationType } from 'src/entities/location.entity';
-import { Batch } from 'src/entities/batch.entity';
+import { Batch, BatchStatus } from 'src/entities/batch.entity';
+import { HeapPriorityQueueService } from './heap.service';
+import { Cron } from '@nestjs/schedule';
 
 @Injectable()
 export class BaseopsTaskService {
   constructor(
     private readonly orchestratorService: OrchestratorService,
+    private readonly queueService: HeapPriorityQueueService,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
     @InjectRepository(Batch)
@@ -36,6 +39,78 @@ export class BaseopsTaskService {
 
   remove(id: number) {
     return `This action removes a #${id} baseopsTask`;
+  }
+
+  @Cron('*/5 * * * * *')
+  async cronProcessNextBatch(): Promise<void> {
+    try {
+      await this.processNextBatch();
+    } catch (error) {
+      console.error('Error in cron job processNextBatch:', error);
+    }
+  }
+  async processNextBatch(): Promise<string | null> {
+    const batchId = this.queueService.dequeue();
+    if (!batchId) {
+      // console.log('No batches in the queue');
+      return null;
+    }
+
+    try {
+      // Update batch status to processing
+      await this.batchRepository.update(
+        { batch_id: batchId },
+        { status: BatchStatus.PROCESSING }
+      );
+
+      // Your batch processing logic here
+      await this.processBatch(batchId);
+
+      // Update batch status to completed
+      await this.batchRepository.update(
+        { batch_id: batchId },
+        { status: BatchStatus.COMPLETED }
+      );
+
+      console.log(`Successfully processed batch: ${batchId}`);
+      return batchId;
+
+    } catch (error) {
+      console.error(`Error processing batch ${batchId}:`, error);
+      
+      // Update batch status to failed and re-queue with lower priority
+      await this.batchRepository.update(
+        { batch_id: batchId },
+        { status: BatchStatus.FAILED }
+      );
+
+      throw error;
+    }
+  }
+
+  private async processBatch(batchId: string): Promise<void> {
+    // Implement your actual batch processing logic here
+    console.log(`Processing batch: ${batchId}`);
+
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Your actual processing logic would go here
+  }
+  async addBatchToQueue(batchId: string, priority: number): Promise<void> {
+    // Create batch in database
+    const batch = this.batchRepository.create({
+      batch_id: batchId,
+      priority,
+      status: BatchStatus.PENDING
+    });
+    
+    await this.batchRepository.save(batch);
+    
+    // Add to queue
+    this.queueService.enqueue(batchId, priority);
+    
+    console.log(`Added batch to queue: ${batchId} with priority: ${priority}`);
   }
 
   async processCsvTasks(csvData: string, priority: number): Promise<any> {

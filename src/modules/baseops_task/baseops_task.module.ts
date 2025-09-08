@@ -7,10 +7,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Task } from 'src/entities';
 import { Batch } from 'src/entities/batch.entity';
 import { User } from 'src/entities/user.entity';
+import { HeapPriorityQueueService } from './heap.service';
 
 @Module({
   imports:[ TypeOrmModule.forFeature([Task, Batch,User]) ,OrchestratorModule],
   controllers: [BaseopsTaskController],
-  providers: [BaseopsTaskService],
+  providers: [BaseopsTaskService, HeapPriorityQueueService],
 })
 export class BaseopsTaskModule {}
