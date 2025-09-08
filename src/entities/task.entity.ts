@@ -33,6 +33,7 @@ export  enum MOVE_TYPE {
   WAITING_LOCATION_TO_STATION = 'WaitingLocationToStation',
   INVENTORY_TO_WAITING_LOCATION = 'InventoryToWaitingLocation',
   WAITING_LOCATION_TO_INVENTORY = 'WaitingLocationToInventory',
+  ZONE_TO_ZONE = 'ZoneToZone',
 }
 
 

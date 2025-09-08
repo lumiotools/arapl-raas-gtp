@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseInterceptors, UploadedFile, UseGuards } from '@nestjs/common';
 import { BaseopsTaskService } from './baseops_task.service';
 import { CreateBaseopsTaskDto } from './dto/create-baseops_task.dto';
 import { UpdateBaseopsTaskDto } from './dto/update-baseops_task.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
 
 @Controller('baseops-task')
 export class BaseopsTaskController {
@@ -14,6 +16,7 @@ export class BaseopsTaskController {
   }
   
   @Post('upload-tasks')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @UseInterceptors(FileInterceptor('file'))
   async uploadTasks(@UploadedFile() file: Express.Multer.File, @Query('priority') priority: string) {
     try {

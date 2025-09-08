@@ -29,6 +29,9 @@ export class Batch {
   @PrimaryColumn({ type: 'varchar', length: 32 })
   batch_id: string;
 
+  @Column({ type: 'int', nullable: true })
+  priority: number;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   description: string;
 

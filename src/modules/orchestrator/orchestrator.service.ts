@@ -953,13 +953,13 @@ export class OrchestratorService {
     return LocationAction.NOP_PAUSE;
   }
 
-  private async generateBatchId(): Promise<string> {
+  async generateBatchId(): Promise<string> {
     const timestamp = Date.now();
     return `B${timestamp.toString().slice(-10)}`;
   }
 
-  private async createBatch(batchId: string, inventory: Inventory, productId: string) {
-    const description = `Batch for inventory ${inventory.id} - Product ${productId} (Qty: ${inventory.quantity})`;
+  async createBatch(batchId: string, inventory: Inventory | null, productId: string | null) {
+    const description = `Batch for inventory ${inventory?.id} - Product ${productId} (Qty: ${inventory?.quantity})`;
 
     const batch = this.batchRepository.create({
       batch_id: batchId,
@@ -1689,7 +1689,8 @@ export class OrchestratorService {
       const pendingTasks = await this.taskRepository.find({
         where: { 
           status: TaskStatus.PENDING,
-          created_at: LessThan(twoMinutesAgo)
+          created_at: LessThan(twoMinutesAgo),
+          move_type: Not(MOVE_TYPE.ZONE_TO_ZONE),
         },
         order: { created_at: 'ASC' } // FIFO order
       });
