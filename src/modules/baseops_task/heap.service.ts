@@ -2,6 +2,8 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
+import { Task } from 'src/entities';
+import { MOVE_TYPE } from 'src/entities/task.entity';
 
 interface HeapItem {
   data: string;
@@ -15,6 +17,8 @@ export class HeapPriorityQueueService implements OnModuleInit {
 
   @InjectRepository(Batch)
   private readonly batchRepository: Repository<Batch>;
+  @InjectRepository(Task)
+  private readonly taskRepository: Repository<Task>;
 
   async onModuleInit() {
     this.logger.log('Initializing Heap Priority Queue...');
@@ -24,6 +28,11 @@ export class HeapPriorityQueueService implements OnModuleInit {
   private async initializeQueue() {
     const pending_batches = await this.batchRepository.find({ where: {status: In([BatchStatus.PENDING, BatchStatus.BATCH_ACKNOWLEDGED])} });
     for (const batch of pending_batches) {
+      const tasks = await this.taskRepository.find({ where: { batch_id: batch.batch_id, move_type: MOVE_TYPE.ZONE_TO_ZONE } });
+      if (tasks.length === 0) {
+        this.logger.warn(`Batch ${batch.batch_id} has no associated tasks, skipping...`);
+        continue;
+      }
       this.enqueue(batch.batch_id, batch.priority);
       await this.batchRepository.update({batch_id: batch.batch_id}, {status: BatchStatus.BATCH_ACKNOWLEDGED});
     }

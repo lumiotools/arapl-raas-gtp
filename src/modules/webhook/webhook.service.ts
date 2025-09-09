@@ -57,7 +57,7 @@ export class WebhookService {
     const task = await this.taskRepository.findOne({
       where: { task_id: taskStatusData.taskID }
     });
-    if (!task) {return;}
+    if (!task || !taskStatusData.taskID) {return;}
     if (task.status === TaskStatus.TRIGERRED) {
       this.logger.log(`Task ${taskStatusData.taskID} is already triggered - skipping update`);
       return;
@@ -104,13 +104,13 @@ export class WebhookService {
     }
     await this.taskRepository.save(task);
 
-    if (task.move_type==MOVE_TYPE.ZONE_TO_ZONE){
-      const not_completed_tasks = await this.taskRepository.count({ where: { batch_id: task.batch_id, status: Not(TaskStatus.COMPLETED) } });
-      if (not_completed_tasks===0){
-        await this.batchRepository.update({ batch_id: task.batch_id }, { status: BatchStatus.COMPLETED });
-      }
-      return;
-    }
+    // if (task.move_type==MOVE_TYPE.ZONE_TO_ZONE){
+    //   const not_completed_tasks = await this.taskRepository.count({ where: { batch_id: task.batch_id, status: Not(TaskStatus.COMPLETED) } });
+    //   if (not_completed_tasks===0){
+    //     await this.batchRepository.update({ batch_id: task.batch_id }, { status: BatchStatus.COMPLETED });
+    //   }
+    //   return;
+    // }
     
     await this.handleStationStatusUpdates(task,mappedStatus);
 

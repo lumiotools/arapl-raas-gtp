@@ -11,7 +11,7 @@ import { HeapPriorityQueueService } from './heap.service';
 import { HttpModule } from '@nestjs/axios';
 
 @Module({
-  imports:[ TypeOrmModule.forFeature([Task, Batch,User]) ,OrchestratorModule,HttpModule],
+  imports:[ TypeOrmModule.forFeature([Task, Batch,User,Task]) ,OrchestratorModule,HttpModule],
   controllers: [BaseopsTaskController],
   providers: [BaseopsTaskService, HeapPriorityQueueService],
 })
