@@ -2068,11 +2068,11 @@ export class OrchestratorService {
         }
       }
       catch(error){
-        // this.releaseStation(stationId);
+        this.releaseStation(stationId);
         this.logger.error(`Error processing product requirement for station ${stationId}:`, error.message);
       }
     }
-    // this.releaseStation(stationId);
+    this.releaseStation(stationId);
   }
   /**
    * Release a station and make it available for other tasks
