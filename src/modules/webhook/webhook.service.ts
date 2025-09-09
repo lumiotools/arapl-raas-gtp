@@ -55,11 +55,11 @@ export class WebhookService {
   private async updateTaskStatus(fms_batch_id: string, taskStatusData: any): Promise<void> {
     // Find task by task_id only (ignore batch_id as instructed)
     const task = await this.taskRepository.findOne({
-      where: { task_id: taskStatusData.task_id }
+      where: { task_id: taskStatusData.taskID }
     });
     if (!task) {return;}
     if (task.status === TaskStatus.TRIGERRED) {
-      this.logger.log(`Task ${taskStatusData.task_id} is already triggered - skipping update`);
+      this.logger.log(`Task ${taskStatusData.taskID} is already triggered - skipping update`);
       return;
     }
     // define priority for TaskStatus such that TRIGERRED = CANCELLED  > COMPLETED > PROCESSING > INQUEUE > ASSIGNED > PENDING
@@ -111,9 +111,6 @@ export class WebhookService {
       }
       return;
     }
-
-    // Handle inventory updates based on task status changes
-    await this.handleInventoryUpdates(task, oldStatus, mappedStatus, task.batch_id);
     
     await this.handleStationStatusUpdates(task,mappedStatus);
 
@@ -177,8 +174,8 @@ export class WebhookService {
       'assigned': TaskStatus.ASSIGNED,
       'inqueue': TaskStatus.INQUEUE,
       'task_acknowledged': TaskStatus.INQUEUE,
-      'robot_assigned': TaskStatus.INQUEUE,
-      'in-queue': TaskStatus.PROCESSING,
+      'robot_assigned': TaskStatus.PROCESSING,
+      'in-queue': TaskStatus.INQUEUE,
       'processing': TaskStatus.PROCESSING,
       'in-progress': TaskStatus.PROCESSING,
       'in progress': TaskStatus.PROCESSING,

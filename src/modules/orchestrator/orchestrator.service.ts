@@ -581,7 +581,7 @@ export class OrchestratorService {
             const [returnTaskId, returnTask] = await this.createTask({
               batchId: taskToWaitingLocation.batch_id,
               productId,
-              sourceStationId: station.station_id,
+              sourceStationId: taskToWaitingLocation.start_location.location_id,
               destinationStationId: station.station_id,
               quantity: taskToWaitingLocation.quantity,
               robotId: taskToWaitingLocation.robot_id,
@@ -675,7 +675,7 @@ export class OrchestratorService {
       console.log(`Cancelling task ${parking_task.task_id}`);
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
       const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test'; // Fixed typo
-      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030';
+      const wms_base_url = process.env.WMS_BAS_URL || 'http://localhost:3030';
       const fms_batch_id = parking_task.fms_batch_id;
       
       const requestBody = {
@@ -2048,7 +2048,7 @@ export class OrchestratorService {
           const [task_id, task] = await this.createTask({
             batchId: carrying_task.batch_id,
             productId: product_id,
-            sourceStationId: stationId,
+            sourceStationId: carrying_task.end_location.location_id,
             destinationStationId: stationId,
             quantity: carrying_task.quantity,
             taskType: TaskType.GOODS_TO_PERSON,
@@ -2068,11 +2068,11 @@ export class OrchestratorService {
         }
       }
       catch(error){
-        this.releaseStation(stationId);
+        // this.releaseStation(stationId);
         this.logger.error(`Error processing product requirement for station ${stationId}:`, error.message);
       }
     }
-    this.releaseStation(stationId);
+    // this.releaseStation(stationId);
   }
   /**
    * Release a station and make it available for other tasks
