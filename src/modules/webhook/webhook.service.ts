@@ -239,7 +239,7 @@ export class WebhookService {
       'inqueue': TaskStatus.INQUEUE,
       'task_acknowledged': TaskStatus.INQUEUE,
       'robot_assigned': TaskStatus.INQUEUE,
-      'in-queue': TaskStatus.PROCESSING,
+      'in-queue': TaskStatus.INQUEUE,
       'processing': TaskStatus.PROCESSING,
       'in-progress': TaskStatus.PROCESSING,
       'in progress': TaskStatus.PROCESSING,
