@@ -462,6 +462,7 @@ export class OrchestratorService {
     const stationIds = databaseRequirement.map(pr => pr.station_id);
     let sortedStations = await this.getStationsSortedByPriority(stationIds);
     if (db_req > 0) {
+      console.log('task coming to inventory product_id: ', productId);
       const taskComingToInventory = await this.taskRepository.findOne({
         where:{product_id: productId, move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY]), status: In([TaskStatus.PROCESSING])}
       })
@@ -472,6 +473,7 @@ export class OrchestratorService {
           const inventory_id = taskComingToInventory.end_location.location_id;
           const inventory = await this.inventoryRepository.findOne({ where: { id: inventory_id } });
           if (inventory && inventory?.quantity - inventory?.missing_quantity - inventory?.defective_quantity > 0){
+            console.log(`cancelling task ${taskComingToInventory.task_id} for product ${productId}`);
             let is_station_task_created = false;
             const robotIdToUse = taskComingToInventory.robot_id;
             for (const station of sortedStations) {
@@ -1486,7 +1488,7 @@ export class OrchestratorService {
   }
 
   // Manual trigger method for testing
-  @Cron('*/10 * * * * *')
+  @Cron('*/5 * * * * *')
   async orchestratorCronJob() {
     await this.triggerOrchestrator();
   }

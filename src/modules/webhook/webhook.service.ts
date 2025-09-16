@@ -55,11 +55,11 @@ export class WebhookService {
   private async updateTaskStatus(fms_batch_id: string, taskStatusData: any): Promise<void> {
     // Find task by task_id only (ignore batch_id as instructed)
     const task = await this.taskRepository.findOne({
-      where: { task_id: taskStatusData.taskID }
+      where: { task_id: taskStatusData.task_id }
     });
-    if (!task || !taskStatusData.taskID) {return;}
+    if (!task || !taskStatusData.task_id) {return;}
     if (task.status === TaskStatus.TRIGERRED) {
-      this.logger.log(`Task ${taskStatusData.taskID} is already triggered - skipping update`);
+      this.logger.log(`Task ${taskStatusData.task_id} is already triggered - skipping update`);
       return;
     }
     // define priority for TaskStatus such that TRIGERRED = CANCELLED  > COMPLETED > PROCESSING > INQUEUE > ASSIGNED > PENDING
