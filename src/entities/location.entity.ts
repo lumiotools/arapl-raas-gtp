@@ -11,8 +11,8 @@ export enum LocationType {
 export enum LocationAction {
   PICK = 'PICK',
   DROP = 'DROP',
-  NOP_RESUME = 'NOP-resume',
-  NOP_PAUSE = 'NOP-pause',
+  NOP_RESUME = 'NOP_RESUME',
+  NOP_PAUSE = 'NOP_PAUSE',
 }
 
 export interface LocationDimension {

@@ -223,8 +223,8 @@ export class OrchestratorService {
         // check if the system is in waiting state
         const isWaiting = await this.checkIfSystemIsInWaitingState();
         if (isWaiting){break;}
-        const isRobotAvailable = await this.isRobotAvailable();
-        if (!isRobotAvailable){ break; }
+        // const isRobotAvailable = await this.isRobotAvailable();
+        // if (!isRobotAvailable){ break; }
         await this.processProductRequirement(requirement.productId);
       }
       return { message: 'Orchestrator process completed successfully' };
@@ -462,6 +462,8 @@ export class OrchestratorService {
     const stationIds = databaseRequirement.map(pr => pr.station_id);
     let sortedStations = await this.getStationsSortedByPriority(stationIds);
     if (db_req > 0) {
+      console.log(`db req > 0 - check if any task is coming to inventory for this product`);
+      console.log(`product_id: ${productId}`);
       const taskComingToInventory = await this.taskRepository.findOne({
         where:{product_id: productId, move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY]), status: In([TaskStatus.PROCESSING])}
       })
@@ -1486,7 +1488,7 @@ export class OrchestratorService {
   }
 
   // Manual trigger method for testing
-  @Cron('*/10 * * * * *')
+  @Cron('*/5 * * * * *')
   async orchestratorCronJob() {
     await this.triggerOrchestrator();
   }
