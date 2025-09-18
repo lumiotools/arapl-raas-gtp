@@ -7,12 +7,14 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Task } from 'src/entities';
 import { Batch } from 'src/entities/batch.entity';
 import { User } from 'src/entities/user.entity';
+import { LocationEntity } from 'src/entities/location.entity';
 import { HeapPriorityQueueService } from './heap.service';
+import { ValidationService } from './validation.service';
 import { HttpModule } from '@nestjs/axios';
 
 @Module({
-  imports:[ TypeOrmModule.forFeature([Task, Batch,User]) ,OrchestratorModule,HttpModule],
+  imports:[ TypeOrmModule.forFeature([Task, Batch, User, LocationEntity]) ,OrchestratorModule,HttpModule],
   controllers: [BaseopsTaskController],
-  providers: [BaseopsTaskService, HeapPriorityQueueService],
+  providers: [BaseopsTaskService, HeapPriorityQueueService, ValidationService],
 })
 export class BaseopsTaskModule {}

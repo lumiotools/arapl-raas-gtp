@@ -8,6 +8,7 @@ import { Task, TaskStatus, TaskType, MOVE_TYPE } from 'src/entities/task.entity'
 import { LocationAction, LocationType } from 'src/entities/location.entity';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { HeapPriorityQueueService } from './heap.service';
+import { ValidationService } from './validation.service';
 import { Cron } from '@nestjs/schedule';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
@@ -17,6 +18,7 @@ export class BaseopsTaskService {
   constructor(
     private readonly orchestratorService: OrchestratorService,
     private readonly queueService: HeapPriorityQueueService,
+    private readonly validationService: ValidationService,
     private readonly httpService: HttpService,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
@@ -70,6 +72,7 @@ export class BaseopsTaskService {
     }
   }
 
+
   private async processBatch(batchId: string): Promise<void> {
     // Implement your actual batch processing logic here
     console.log(`Processing batch: ${batchId}`);
@@ -79,10 +82,19 @@ export class BaseopsTaskService {
     if (tasks.length === 0) return;
     const req_tasks : any[] = [];
     for (const task of tasks) {
-      // need to put the location valiation system here.
-      // need to check if the destination location is occupied or not.
-      // if the destination location is occupied, break the current task in to two, one to move to a transient location (waiting location),
-      // another take the pallet from that transient location to the destination location.
+      // Validate task location
+      const validation = await this.validationService.validateTaskLocation(task);
+      
+      // Cancel the task if validation fails
+      if (!validation.isValid) {
+        console.log(`Cancelling task ${task.task_id} - ${validation.reason}`);
+        await this.taskRepository.update(
+          { task_id: task.task_id },
+          { status: TaskStatus.CANCELLED }
+        );
+        continue;
+      }
+      
       req_tasks.push({
         task_id: task.task_id,
         task_type: task.task_type,
@@ -104,7 +116,15 @@ export class BaseopsTaskService {
         cargos: task.cargos
       });
     }
-    if (req_tasks.length === 0) return;
+    // If all pending tasks were invalid and got cancelled, cancel the batch and dequeue
+    if (req_tasks.length === 0) {
+      await this.batchRepository.update(
+        { batch_id: batchId },
+        { status: BatchStatus.CANCELLED }
+      );
+      this.queueService.dequeue();
+      return;
+    }
     const req_body = {
       batch_job_id: batchId,
       batch_type: "DISCRETE",

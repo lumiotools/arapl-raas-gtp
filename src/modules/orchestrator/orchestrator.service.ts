@@ -2093,7 +2093,7 @@ export class OrchestratorService {
   }
 
   private async loadProductRequirementsFromDatabase(): Promise<ProductRequirement[]> {
-    this.logger.log('Loading product requirements from database...');
+    // this.logger.log('Loading product requirements from database...');
     
     // Load all product requirements from database
     const dbRequirements = await this.productRequirementRepository.find({
@@ -2125,7 +2125,7 @@ export class OrchestratorService {
       (a, b) => b.totalRequirement - a.totalRequirement
     );
 
-    this.logger.log(`Loaded ${productRequirements.length} product requirements from database`);
+    // this.logger.log(`Loaded ${productRequirements.length} product requirements from database`);
     return productRequirements;
   }
 
