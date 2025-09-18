@@ -62,7 +62,6 @@ export class BaseopsTaskService {
     try {
       // Your batch processing logic here
       await this.processBatch(batchId);
-      this.queueService.dequeue();
       return batchId;
 
     } catch (error) {
@@ -73,13 +72,17 @@ export class BaseopsTaskService {
 
   private async processBatch(batchId: string): Promise<void> {
     // Implement your actual batch processing logic here
-    return;
     console.log(`Processing batch: ${batchId}`);
     const batch = await this.batchRepository.findOne({ where: { batch_id: batchId } });
     if (!batch) {throw new Error(`Batch with id ${batchId} not found`);}
-    const tasks = await this.taskRepository.find({ where: { batch_id: batchId } });
+    const tasks = await this.taskRepository.find({ where: { batch_id: batchId, move_type: MOVE_TYPE.ZONE_TO_ZONE, status: TaskStatus.PENDING } });
+    if (tasks.length === 0) return;
     const req_tasks : any[] = [];
     for (const task of tasks) {
+      // need to put the location valiation system here.
+      // need to check if the destination location is occupied or not.
+      // if the destination location is occupied, break the current task in to two, one to move to a transient location (waiting location),
+      // another take the pallet from that transient location to the destination location.
       req_tasks.push({
         task_id: task.task_id,
         task_type: task.task_type,
@@ -99,13 +102,14 @@ export class BaseopsTaskService {
         },
         wait: task.wait,
         cargos: task.cargos
-      })
+      });
     }
+    if (req_tasks.length === 0) return;
     const req_body = {
       batch_job_id: batchId,
       batch_type: "DISCRETE",
       tasks: req_tasks
-    }
+    };
     const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
     const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
     const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
@@ -118,11 +122,19 @@ export class BaseopsTaskService {
         }
       })
     );
-    await this.batchRepository.update(
-      {batch_id: batchId},
-      {status: BatchStatus.DISPATCHED}
-    );
-    
+    for (const task of req_tasks){
+      await this.taskRepository.update(
+        {task_id: task.task_id},
+        {status: TaskStatus.ASSIGNED}
+      );
+    }
+    if (req_tasks.length === tasks.length){
+      await this.batchRepository.update(
+        {batch_id: batchId},
+        {status: BatchStatus.DISPATCHED}
+      );
+      this.queueService.dequeue();
+    }
   }
 
   async processCsvTasks(csvData: string, priority: number): Promise<any> {
@@ -155,7 +167,7 @@ export class BaseopsTaskService {
       newTask.task_type = TaskType.CROSSDOCK;
       newTask.status = TaskStatus.PENDING;
       newTask.move_type = MOVE_TYPE.ZONE_TO_ZONE;
-      newTask.sequence_order = 0;
+      newTask.sequence_order = 1;
       newTask.task_dependency = null as any;
       newTask.robot_id = null as any;
       newTask.start_location = {
