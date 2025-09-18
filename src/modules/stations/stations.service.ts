@@ -190,7 +190,7 @@ export class StationsService {
       // Check if this GTP location is assigned to any IN_PROGRESS order items
       const inProgressOrderItems = await this.orderItemRepository.find({
         where: { 
-          assigned_gtp_location: gtpLocationId,
+          destination_pallet_slot_id: gtpLocationId,
           status: OrderItemStatus.IN_PROGRESS // Using the enum value instead of string literal
         }
       });
@@ -360,12 +360,11 @@ export class StationsService {
       if (gtpLocation) {
         const inProgressOrderItems = await this.orderItemRepository.find({
           where: { 
-            assigned_gtp_location: gtpLocation.gtp_location_id,
+            destination_pallet_slot_id: gtpLocation.gtp_location_id,
             status: OrderItemStatus.IN_PROGRESS,
-            product_id: robot_task?.product_id || ''
           }
         });
-        required_quantity += inProgressOrderItems.reduce((sum, item) => sum + item.remaining_quantity, 0);
+        required_quantity += inProgressOrderItems.reduce((sum, item) => sum , 0);
       }
     }
     let status: TaskStatus | null | string = null;

@@ -87,16 +87,11 @@ export class BotService {
 
         if (toolCalls) {
             const availableFunctions = {
-                "getAllInventory": this.toolService.getAllInventory.bind(this.toolService),
-                "getAllProducts": this.toolService.getAllProducts.bind(this.toolService),
                 "getOrderItems": this.toolService.getOrderItems.bind(this.toolService),
                 "getStations": this.toolService.getStations.bind(this.toolService),
                 "getPickLocations": this.toolService.getPickLocations.bind(this.toolService),
                 "getStationFromPickLocation": this.toolService.getStationFromPickLocation.bind(this.toolService),
                 "getPickLocationFromStation": this.toolService.getPickLocationFromStation.bind(this.toolService),
-                "getLicensePlateNumberRequirement": this.toolService.getLicensePlateNumberRequirement.bind(this.toolService),
-                "getLicensePlateNumberInitialRequirement": this.toolService.getLicensePlateNumberInitialRequirement.bind(this.toolService),
-                "getOrderItemAssignedToPickLocation": this.toolService.getOrderItemAssignedToPickLocation.bind(this.toolService),
                 "getWaitingLocations": this.toolService.getWaitingLocations.bind(this.toolService),
                 "getContext": this.toolService.getContext.bind(this.toolService),
             };
