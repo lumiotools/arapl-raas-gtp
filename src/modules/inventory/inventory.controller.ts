@@ -70,53 +70,6 @@ export class InventoryController {
     return await this.inventoryService.create(createInventoryDto as any);
   }
 
-  @Post('upload')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ 
-    summary: 'Upload inventory data from CSV file',
-    description: 'Bulk upload inventory data from a CSV file. Supports upsert logic - updates existing entries or creates new ones.'
-  })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        file: {
-          type: 'string',
-          format: 'binary',
-          description: 'CSV file with columns: Inv Locations, Product ID, Qty'
-        }
-      },
-      required: ['file']
-    }
-  })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
-    description: 'File processed successfully', 
-    type: UploadInventoryResponseDto 
-  })
-  @ApiResponse({ 
-    status: HttpStatus.BAD_REQUEST, 
-    description: 'Invalid file format or processing error',
-    type: ValidationErrorResponseDto
-  })
-  async uploadInventory(@UploadedFile() file: Express.Multer.File): Promise<UploadInventoryResponseDto> {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
-
-    const allowedExtensions = ['csv'];
-    const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
-
-    if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
-      throw new BadRequestException('Invalid file format. Please upload a CSV file (.csv)');
-    }
-
-    return await this.inventoryService.processInventoryFile(file);
-  }
-
   @Get()
   @ApiOperation({ 
     summary: 'Get all inventory entries',
@@ -153,26 +106,6 @@ export class InventoryController {
     return await this.inventoryService.findOne(id);
   }
 
-  @Get('product/:productId')
-  @ApiOperation({ 
-    summary: 'Get inventory entries by product ID',
-    description: 'Retrieve all inventory entries for a specific product.'
-  })
-  @ApiParam({ name: 'productId', description: 'Product ID', example: 'PRD001' })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
-    description: 'Inventory entries found for the product',
-    type: [InventoryResponseDto]
-  })
-  @ApiResponse({ 
-    status: HttpStatus.NOT_FOUND, 
-    description: 'No inventory found for the product',
-    type: NotFoundResponseDto
-  })
-  async findByProductId(@Param('productId') productId: string) {
-    return await this.inventoryService.findByProductId(productId);
-  }
-
   @Patch(':id')
   @ApiOperation({ 
     summary: 'Update an inventory entry',
@@ -204,30 +137,6 @@ export class InventoryController {
     }
     
     return await this.inventoryService.update(id, updateInventoryDto as any);
-  }
-
-  @Put(':id/quantity')
-  @ApiOperation({ summary: 'Update inventory quantity' })
-  @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        quantity: {
-          type: 'number',
-          description: 'New quantity value',
-          example: 150,
-          minimum: 0,
-        }
-      },
-      required: ['quantity']
-    }
-  })
-  @ApiResponse({ status: HttpStatus.OK, description: 'Inventory quantity updated successfully' })
-  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Inventory entry not found' })
-  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Invalid quantity value' })
-  async updateQuantity(@Param('id') id: string, @Body() body: { quantity: number }) {
-    return await this.inventoryService.updateQuantity(id, body.quantity);
   }
 
   @Delete(':id')

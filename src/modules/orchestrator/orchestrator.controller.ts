@@ -120,20 +120,6 @@ export class OrchestratorController {
     return await this.orchestratorService.getAllProductRequirements();
   }
 
-  @Get('product-requirements/product/:productId')
-  @ApiOperation({
-    summary: 'Get product requirements by product ID',
-    description: 'Retrieve all station requirements for a specific product.',
-  })
-  @ApiParam({ name: 'productId', description: 'Product ID', example: 'P001' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Product requirements for the specified product',
-  })
-  async getProductRequirementsByProductId(@Param('productId') productId: string) {
-    return await this.orchestratorService.getProductRequirementsByProductId(productId);
-  }
-
   @Get('product-requirements/station/:stationId')
   @ApiOperation({
     summary: 'Get product requirements by station ID',

@@ -256,8 +256,7 @@ export class StationsService {
     });
     
     if (productRequirements.length > 0) {
-      const productIds = productRequirements.map(pr => pr.product_id).join(', ');
-      throw new ForbiddenException(`Cannot delete station ${id}: Products are scheduled to reach this station. Products: ${productIds}.`);
+      throw new ForbiddenException(`Cannot delete station ${id}: An Order exists for this station.`);
     }
     
     for (const gtpLocationarray in existing.gtpLocations) {
@@ -381,10 +380,7 @@ export class StationsService {
     if (!robot_id){return {robot_id: null}}
     return {
       robot_id: robot_id,
-      product_id: robot_task?.product_id || null,
-      quantity: robot_task?.quantity || null,
       source: robot_task?.start_location.location_id || null,
-      drop_quantity: Math.min(required_quantity, robot_task?.quantity || 0),
       status: status
     }
   }

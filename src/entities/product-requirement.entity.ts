@@ -5,22 +5,22 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
+  Relation,
 } from 'typeorm';
+import { Inventory } from './inventory.entity';
 
 @Entity('product_requirements')
-@Index(['product_id', 'station_id'], { unique: true })
 export class ProductRequirement {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'varchar', length: 10 })
-  product_id: string;
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  source_location_id: string;
 
   @Column({ type: 'varchar', length: 10 })
   station_id: string;
-
-  @Column({ type: 'integer' })
-  requirement: number;
 
   @Column({ type: 'boolean', default: false })
   isPaused: boolean;
@@ -37,4 +37,8 @@ export class ProductRequirement {
     onUpdate: 'CURRENT_TIMESTAMP',
   })
   updated_at: Date;
+
+  // If you want to keep both the column and relationship, don't use @JoinColumn
+  @ManyToOne(() => Inventory, { nullable: true })
+  sourceLocation: Relation<Inventory>;
 }

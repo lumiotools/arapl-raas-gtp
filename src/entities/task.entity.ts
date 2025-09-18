@@ -70,10 +70,7 @@ export class Task {
   fms_batch_id: string;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
-  product_id: string;
-
-  @Column({ type: 'int', nullable: true })
-  quantity: number;
+  origin_location: string;
 
   @Column({
     type: 'enum',

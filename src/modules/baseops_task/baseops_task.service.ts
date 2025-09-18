@@ -154,7 +154,7 @@ export class BaseopsTaskService {
     });
     // generate a batch
     const batch_id = await this.orchestratorService.generateBatchId();
-    await this.orchestratorService.createBatch(batch_id, null, null);
+    await this.orchestratorService.createBatch(batch_id, null);
     const batch = await this.batchRepository.findOne({ where: { batch_id: batch_id } });
     if (!batch) {
       throw new Error('Failed to create or retrieve the batch');

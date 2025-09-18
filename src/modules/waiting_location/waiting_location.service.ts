@@ -244,8 +244,6 @@ export class WaitingLocationService {
     if (!robot_id){return {robot_id: null}}
     return {
       robot_id: robot_id,
-      product_id: robot_task?.product_id || null,
-      quantity: robot_task?.quantity || null,
       source: robot_task?.start_location.location_id || null,
       status: status
     }

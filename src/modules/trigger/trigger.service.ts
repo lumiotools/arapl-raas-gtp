@@ -62,7 +62,7 @@ export class TriggerService {
     // Log trigger action
     await this.loggingService.log(`Station ${stationId} triggered - Task ${currentTask.task_id} status updated to TRIGGERED`);
 
-    await this.processNextTask(currentTask, dropped_quantity, message_code);
+    await this.processNextTask(currentTask, message_code);
 
     // Free the robot holding this station
     // if (currentTask.robot_id) {
@@ -74,7 +74,6 @@ export class TriggerService {
       triggered_task: {
         task_id: currentTask.task_id,
         batch_id: currentTask.batch_id,
-        product_id: currentTask.product_id,
         previous_status: 'COMPLETED',
         new_status: 'TRIGGERED',
       },
@@ -88,11 +87,11 @@ export class TriggerService {
     };
   }
 
-  private async processNextTask(completedTask: Task, dropped_quantity: number, message_code: MessageCode): Promise<void> {
+  private async processNextTask(completedTask: Task, message_code: MessageCode): Promise<void> {
     try {
       // Check if the completed task was at a station and handle station workflow
       if (completedTask.end_location?.location_attribute?.attribute_value === 'station') {
-        await this.orchestratorService.handleTaskCompletion(completedTask,dropped_quantity, message_code);
+        await this.orchestratorService.handleTaskCompletion(completedTask, message_code);
         return;
       }
     } catch (error) {
