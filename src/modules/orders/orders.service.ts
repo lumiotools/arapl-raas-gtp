@@ -145,6 +145,8 @@ export class OrdersService {
             destination_pallet_slot_id: order['destination_location']
           });
 
+          orderItem.status = OrderItemStatus.ASSIGNED;
+
           await this.orderItemRepository.save(orderItem);
           processedItems++;
         }catch (error) {
@@ -365,5 +367,28 @@ export class OrdersService {
       }
     }
     return res;
+  }
+
+  async getSourceByGtpLocation(gtpLocationId: string): Promise<any> {
+    const orderItems = await this.orderItemRepository.find({
+      where: { destination_pallet_slot_id: gtpLocationId,
+        status: In([OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS, OrderItemStatus.COMPLETED, OrderItemStatus.CANCELLED])
+      },
+    });
+    let sourceLocationStats = {};
+    for (const orderItem of orderItems) {
+      const sourceLocationId = orderItem.source_location_id;
+      if (!sourceLocationStats[sourceLocationId]) {
+        sourceLocationStats[sourceLocationId] = {};
+      }
+      if (!sourceLocationStats[sourceLocationId]['totalOrder']){sourceLocationStats[sourceLocationId]['totalOrder'] = 0;}
+      if (!sourceLocationStats[sourceLocationId]['completed']){sourceLocationStats[sourceLocationId]['completed'] = 0;}
+      sourceLocationStats[sourceLocationId][orderItem.order_item_id.toString()] = {
+        status: orderItem.status,
+      };
+      if (orderItem.status == OrderItemStatus.COMPLETED){ sourceLocationStats[sourceLocationId]['completed'] += 1; }
+      sourceLocationStats[sourceLocationId]['totalOrder'] += 1;
+    }
+    return sourceLocationStats;
   }
 }

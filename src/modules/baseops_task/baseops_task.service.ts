@@ -71,6 +71,7 @@ export class BaseopsTaskService {
   }
 
   private async processBatch(batchId: string): Promise<void> {
+    return;
     // Implement your actual batch processing logic here
     console.log(`Processing batch: ${batchId}`);
     const batch = await this.batchRepository.findOne({ where: { batch_id: batchId } });

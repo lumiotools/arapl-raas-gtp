@@ -180,34 +180,34 @@ export class OrdersController {
   //   return await this.ordersService.getCompletedTasksForOrderItems(body.order_item_ids);
   // }
 
-  // @Get('gtp-location-status/:gtpLocationId')
-  // @HttpCode(HttpStatus.OK)
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('admin', 'operator')
-  // @ApiOperation({
-  //   summary: 'Get GTP location status',
-  //   description: 'Returns the status (boolean) for the specified GTP location.',
-  // })
-  // @ApiResponse({
-  //   status: HttpStatus.OK,
-  //   description: 'Successfully retrieved status for the GTP location',
-  //   schema: {
-  //     type: 'object',
-  //     properties: {
-  //       status: { type: 'boolean', example: true }
-  //     }
-  //   }
-  // })
-  // @ApiResponse({
-  //   status: HttpStatus.BAD_REQUEST,
-  //   description: 'Invalid GTP location ID',
-  //   type: BadRequestDto,
-  // })
-  // async getGtpLocationStatus(
-  //   @Param('gtpLocationId') gtpLocationId: string
-  // ): Promise<{ status: boolean }> {
-  //   return await this.ordersService.getGtpLocationStatus(gtpLocationId);
-  // }
+  @Get('gtp-location-status/:gtpLocationId')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  @ApiOperation({
+    summary: 'Get GTP location status',
+    description: 'Returns the status (boolean) for the specified GTP location.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved status for the GTP location',
+    schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'boolean', example: true }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid GTP location ID',
+    type: BadRequestDto,
+  })
+  async getGtpLocationStatus(
+    @Param('gtpLocationId') gtpLocationId: string
+  ): Promise<{ status: boolean }> {
+    return await this.ordersService.getGtpLocationStatus(gtpLocationId);
+  }
 
   // @Get('by-status')
   // @HttpCode(HttpStatus.OK)
@@ -337,5 +337,51 @@ export class OrdersController {
       throw new BadRequestException('start_time must be before end_time');
     }
     return await this.ordersService.getStationReportSummary(startDate, endDate);
+  }
+
+  @Get('source/gtp-location/:gtp_location_id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  @ApiOperation({
+    summary: 'Get source by GTP location',
+    description: 'Retrieve all source associated with the specified GTP location ID.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved source for the GTP location',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Found 3 sources for GTP location GTP001' },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              source_id: { type: 'string', example: 'SRC001' },
+              order_id: { type: 'string', example: 'ORD001' },
+              status: { type: 'string', example: 'ACTIVE' },
+              created_at: { type: 'string', format: 'date-time' },
+              updated_at: { type: 'string', format: 'date-time' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid GTP location ID',
+    type: BadRequestDto,
+  })
+  async getSourceByGtpLocation(
+    @Param('gtp_location_id') gtpLocationId: string
+  ) {
+    if (!gtpLocationId) {
+      throw new BadRequestException('GTP location ID is required');
+    }
+    return await this.ordersService.getSourceByGtpLocation(gtpLocationId);
   }
 }
