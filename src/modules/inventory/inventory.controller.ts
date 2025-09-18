@@ -139,6 +139,55 @@ export class InventoryController {
     return await this.inventoryService.update(id, updateInventoryDto as any);
   }
 
+
+  @Post('upload')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ 
+    summary: 'Upload inventory data from CSV file',
+    description: 'Bulk upload inventory data from a CSV file. Supports upsert logic - updates existing entries or creates new ones.'
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'CSV file with columns: Inv Locations, Product ID, Qty'
+        }
+      },
+      required: ['file']
+    }
+  })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'File processed successfully', 
+    type: UploadInventoryResponseDto 
+  })
+  @ApiResponse({ 
+    status: HttpStatus.BAD_REQUEST, 
+    description: 'Invalid file format or processing error',
+    type: ValidationErrorResponseDto
+  })
+  async uploadInventory(@UploadedFile() file: Express.Multer.File): Promise<UploadInventoryResponseDto> {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const allowedExtensions = ['csv'];
+    const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
+
+    if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
+      throw new BadRequestException('Invalid file format. Please upload a CSV file (.csv)');
+    }
+
+    return await this.inventoryService.processInventoryFile(file);
+  }
+
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete an inventory entry' })
   @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })

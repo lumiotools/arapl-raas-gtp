@@ -359,41 +359,6 @@ export class OrchestratorService {
     return assignedItems;
   }
 
-  private async calculateProductRequirements(orderItems: OrderItem[]): Promise<ProductRequirement[]> {
-    const requirementMap = new Map<string, ProductRequirement>();
-
-    // for (const item of orderItems) {
-    //   const productId = item.product_id;
-    //   const stationId = item.assignedGtpLocation?.station_id;
-    //   console.log(`product id: ${productId}, station_id: ${stationId}`);
-    //   if (!stationId) {continue;}
-
-    //   if (!requirementMap.has(productId)) {
-    //     requirementMap.set(productId, {
-    //       productId,
-    //       totalRequirement: 0,
-    //       stationRequirements: new Map<string, number>()
-    //     });
-    //   }
-
-    //   const requirement = requirementMap.get(productId)!;
-    //   requirement.totalRequirement += item.quantity;
-      
-    //   const currentStationReq = requirement.stationRequirements.get(stationId) || 0;
-    //   requirement.stationRequirements.set(stationId, currentStationReq + item.quantity);
-    // }
-
-    // // Save requirements to database
-    // console.log(`requirement Map: ${JSON.stringify(Array.from(requirementMap.entries()))}`)
-    // await this.saveProductRequirementsToDatabase(requirementMap);
-
-    // Sort by descending total requirement
-    // return Array.from(requirementMap.values()).sort(
-    //   (a, b) => b.totalRequirement - a.totalRequirement
-    // );
-    return Array.from(requirementMap.values());
-  }
-
   private async processInventoryRequirement(inventoryID: string): Promise<void> {
 
     // read the requirement of the product from the database
@@ -988,6 +953,32 @@ export class OrchestratorService {
       const currentStationId = completedTask.end_location.location_id;
       // await this.removeProductRequirement(completedTask, completedTask.product_id, currentStationId, droppedQuantity, message_code);
       
+      const req = await this.productRequirementRepository.findOne({
+        where: {
+          source_location_id: completedTask.origin_location,
+          station_id: currentStationId,
+        }});
+      const gtpLocations = await this.gtpLocationRepository.find({
+        where: { station_id: currentStationId }
+      });
+      for (const gtpLocation of gtpLocations){
+          if (req && message_code != MessageCode.INSUFFICIENT_QUANTITY && message_code != MessageCode.DEFECTIVE_PRODUCT){
+          const orderItem = await this.orderItemRepository.findOne({where: 
+            {
+              source_location_id: completedTask.origin_location,
+              destination_pallet_slot_id: gtpLocation.gtp_location_id,
+              status: OrderItemStatus.IN_PROGRESS
+            }
+          });
+          if (orderItem){
+            await this.orderItemRepository.update({order_item_id: orderItem.order_item_id}, {status: OrderItemStatus.COMPLETED});
+            await this.productRequirementRepository.remove(req);
+            break;
+          }
+        }
+      }
+      
+
       
       if (!back_to_inventory) {
         const remainingRequirements = await this.getRemainingProductRequirements(
@@ -1324,8 +1315,34 @@ export class OrchestratorService {
     if (assignedItems.length === 0) {
       return { message: 'No assigned order items found' };
     }
-    await this.calculateProductRequirements(assignedItems);
+    // await this.calculateProductRequirements(assignedItems);
     return { message: 'Assigned order items processed successfully'};
+  }
+
+  public async triggerOrderService(order_id: string, sourceLocation: string, gtpLocationId:string){
+    const assignedOrderItem = await this.orderItemRepository.findOne({
+      where:{
+        order_item_id: Number(order_id),
+        status: OrderItemStatus.ASSIGNED,
+      }});
+    if (!assignedOrderItem) {
+      console.log(`No assigned order items found for order ${order_id}`);
+      return { message: 'No assigned order items found' };
+    }
+    console.log(`Assigned order items for order ${order_id}: ${JSON.stringify(assignedOrderItem)}`);
+    for (const orderItem of assignedOrderItem ? [assignedOrderItem] : []) {
+      orderItem.status = OrderItemStatus.IN_PROGRESS;
+      await this.orderItemRepository.save(orderItem);
+    }
+    const gtpLocation = await this.gtpLocationRepository.findOne({
+      where: { gtp_location_id: gtpLocationId }
+    });
+    await this.productRequirementRepository.save({
+      source_location_id: sourceLocation, 
+      station_id: gtpLocation?.station_id || '',
+    })
+    console.log(`Order ${order_id} started successfully`);
+    return { message: 'Order started successfully' };
   }
 
   public async triggerLicensePlateService(license_plate_id: string){
@@ -1348,7 +1365,7 @@ export class OrchestratorService {
       await this.orderItemRepository.save(orderItem);
     }
     console.log(`License plate ${license_plate_id} started successfully`);
-    await this.calculateProductRequirements(assignedOrderItems);
+    // await this.calculateProductRequirements(assignedOrderItems);
     return { message: 'License plate started successfully' };
   }
   

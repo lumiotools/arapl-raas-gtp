@@ -1067,4 +1067,30 @@ export class OrchestratorController {
     };
   }
 
+  @Post('trigger-order/:orderId')
+  @ApiOperation({
+    summary: 'Trigger orchestrator process for a specific order',
+    description: 'Manually start the orchestrator process for the given order ID with provided source and GTP location.',
+  })
+  @ApiParam({ name: 'orderId', description: 'Order ID', example: 'ORD123456' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Orchestrator process triggered for order successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Orchestrator process triggered for order successfully' }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  async triggerOrder(
+    @Param('orderId') orderId: string,
+    @Body('source_location') sourceLocation: string,
+    @Body('gtp_location_id') gtpLocationId: string
+  ) {
+    return await this.orchestratorService.triggerOrderService(orderId, sourceLocation, gtpLocationId);
+  }
+
 }
