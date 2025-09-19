@@ -11,12 +11,14 @@ import { HeapPriorityQueueService } from './heap.service';
 import { Cron } from '@nestjs/schedule';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
+import { LocationManagerService } from './location_manager.service';
 
 @Injectable()
 export class BaseopsTaskService {
   constructor(
     private readonly orchestratorService: OrchestratorService,
     private readonly queueService: HeapPriorityQueueService,
+    private readonly locationManagerService: LocationManagerService,
     private readonly httpService: HttpService,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
