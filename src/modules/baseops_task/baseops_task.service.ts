@@ -180,6 +180,10 @@ export class BaseopsTaskService {
       newTask.sequence_order = 1;
       newTask.task_dependency = null as any;
       newTask.robot_id = null as any;
+      let end_location_id = null;
+      if (task['end_location_location_type'] === LocationType.PALLET) {
+        end_location_id = task['end_location_location_id'];
+      }
       newTask.start_location = {
         location_id: task['start_location_location_id'],
         location_type: LocationType.ZONE,
@@ -187,21 +191,17 @@ export class BaseopsTaskService {
         location_dimension: {
           length: 1, width: 1, height: 1
         },
-        location_attribute: {
-          attribute_name: 'zone_id',
-          attribute_value: task['start_location_zone_id'] || ''
-        }
       };
       newTask.end_location = {
-        location_id: task['end_location_location_id'],
+        location_id: end_location_id!==null ? end_location_id : 'unknown',
         location_type: LocationType.ZONE,
         location_action: LocationAction.DROP,
         location_dimension: {
           length: 1, width: 1, height: 1
         },
         location_attribute: {
-          attribute_name: 'zone_id',
-          attribute_value: task['end_location_zone_id'] || ''
+          attribute_name: end_location_id==null ? 'Zone' : 'LocationID',
+          attribute_value: task['end_location_location_id']
         }
       };
       newTask.wait = null as any;

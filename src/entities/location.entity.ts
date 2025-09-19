@@ -32,7 +32,7 @@ export interface Location {
   location_type: LocationType;
   location_action: LocationAction;
   location_dimension?: LocationDimension;
-  location_attribute: LocationAttribute;
+  location_attribute?: LocationAttribute;
 }
 
 @Entity('locations')
