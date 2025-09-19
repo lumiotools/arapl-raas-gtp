@@ -53,7 +53,7 @@ export class BaseopsTaskService {
     }
   }
   async processNextBatch(): Promise<string | null> {
-    const batchId = this.queueService.peek();
+    const batchId = this.queueService.dequeue();
     if (!batchId) {
       // console.log('No batches in the queue');
       return null;
@@ -114,14 +114,21 @@ export class BaseopsTaskService {
     const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
     const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
 
-    const response = await firstValueFrom(
-      this.httpService.post(`${wms_base_url}/robot-job/${warehouse_name}/tasks`, req_body, {
-        headers: {
-          'authorization': `${warehosue_key}`,
-          'Content-Type': 'application/json'
-        }
-      })
-    );
+    try{
+      await firstValueFrom(
+        this.httpService.post(`${wms_base_url}/robot-job/${warehouse_name}/tasks`, req_body, {
+          headers: {
+            'authorization': `${warehosue_key}`,
+            'Content-Type': 'application/json'
+          }
+        })
+      );
+    } catch (error) {
+      console.error(`Error sending batch ${batchId} to WMS Layer:`, error);
+      await this.queueService.addPendingBatch(batchId);
+      return;
+    }
+    
     for (const task of req_tasks){
       await this.taskRepository.update(
         {task_id: task.task_id},
@@ -133,7 +140,8 @@ export class BaseopsTaskService {
         {batch_id: batchId},
         {status: BatchStatus.DISPATCHED}
       );
-      this.queueService.dequeue();
+    }else{
+      await this.queueService.addPendingBatch(batchId);
     }
   }
 
