@@ -31,9 +31,4 @@ export class LocationsController {
   remove(@Param('id') id: string) {
     return this.locationsService.remove(+id);
   }
-
-  @Get('zone/:zone_id')
-  async findByZone(@Param('zone_id') zoneId: string) {
-    return await this.locationsService.findByZone(zoneId);
-  }
 }

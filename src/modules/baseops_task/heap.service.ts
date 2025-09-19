@@ -22,10 +22,9 @@ export class HeapPriorityQueueService implements OnModuleInit {
   }
 
   private async initializeQueue() {
-    const pending_batches = await this.batchRepository.find({ where: {status: In([BatchStatus.PENDING, BatchStatus.BATCH_ACKNOWLEDGED])} });
+    const pending_batches = await this.batchRepository.find({ where: {status: In([BatchStatus.PENDING])} });
     for (const batch of pending_batches) {
       this.enqueue(batch.batch_id, batch.priority);
-      await this.batchRepository.update({batch_id: batch.batch_id}, {status: BatchStatus.BATCH_ACKNOWLEDGED});
     }
     this.logger.log(`Priority Queue initialized with ${this.size()} pending batches`);
   }
@@ -180,7 +179,6 @@ export class HeapPriorityQueueService implements OnModuleInit {
     }
 
     this.enqueue(batch.batch_id, batch.priority);
-    await this.batchRepository.update({batch_id: batch.batch_id},{status: BatchStatus.BATCH_ACKNOWLEDGED})
     return true;
   }
 

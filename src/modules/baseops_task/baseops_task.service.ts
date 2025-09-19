@@ -94,6 +94,11 @@ export class BaseopsTaskService {
           await this.queueService.addPendingBatch(batchId);
           return;
         }
+        task.end_location.location_id = end_location_id;
+        await this.taskRepository.update(
+          {task_id: task.task_id},
+          {end_location: task.end_location}
+        );
       }
       else{
         end_location_id = task.end_location.location_id;

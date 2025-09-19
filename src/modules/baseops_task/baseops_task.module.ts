@@ -10,9 +10,10 @@ import { User } from 'src/entities/user.entity';
 import { HeapPriorityQueueService } from './heap.service';
 import { HttpModule } from '@nestjs/axios';
 import { BaseOpsLocationManagerService } from './location_manager.service';
+import { LocationEntity } from 'src/entities/location.entity';
 
 @Module({
-  imports:[ TypeOrmModule.forFeature([Task, Batch,User]) ,OrchestratorModule,HttpModule],
+  imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity]) ,OrchestratorModule,HttpModule],
   controllers: [BaseopsTaskController],
   providers: [BaseopsTaskService, HeapPriorityQueueService, BaseOpsLocationManagerService],
 })

@@ -32,8 +32,4 @@ export class LocationsService {
   remove(id: number) {
     return `This action removes a #${id} location`;
   }
-
-  async findByZone(zoneId: string) {
-    return await this.locationRepository.find({ where: { zone_id: zoneId } });
-  }
 }

@@ -13,10 +13,11 @@ import { LoggingModule } from '../logging/logging.module';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities';
 import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
+import { LocationEntity } from 'src/entities/location.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation, Robot]),
+    TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation, Robot, LocationEntity]),
     HttpModule,
     forwardRef(() => OrchestratorModule),
     LoggingModule,

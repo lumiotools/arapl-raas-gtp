@@ -108,7 +108,7 @@ export class WebhookService {
         await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
       }
       if (mappedStatus === TaskStatus.COMPLETED){
-        await this.BaseOpsLocationManagerService.freeLocation(task.end_location.location_id);
+        await this.BaseOpsLocationManagerService.occupyLocation(task.end_location.location_id);
           const not_completed_tasks = await this.taskRepository.count({ where: { batch_id: task.batch_id, status: Not(TaskStatus.COMPLETED) } });
         if (not_completed_tasks===0){
           await this.batchRepository.update({ batch_id: task.batch_id }, { status: BatchStatus.COMPLETED });
