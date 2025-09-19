@@ -98,9 +98,16 @@ export class BaseopsTaskService {
       else{
         end_location_id = task.end_location.location_id;
       }
-      const reserve = await this.BaseOpsLocationManagerService.reserveLocation(end_location_id);
-      if (!reserve){
+      const reserveEndLocation = await this.BaseOpsLocationManagerService.reserveLocation(end_location_id);
+      if (!reserveEndLocation){
         console.log(`Location ${end_location_id} is not available, re-queue the batch ${batchId}`);
+        await this.queueService.addPendingBatch(batchId);
+        return;
+      }
+      const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveLocation(task.start_location.location_id);
+      if (!reserveStartLocation){
+        console.log(`Location ${task.start_location.location_id} is not available, re-queue the batch ${batchId}`);
+        await this.BaseOpsLocationManagerService.freeLocation(end_location_id);
         await this.queueService.addPendingBatch(batchId);
         return;
       }

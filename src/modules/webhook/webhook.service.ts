@@ -13,6 +13,7 @@ import { LoggingService } from '../../services/logging.service';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
+import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 
 @Injectable()
 export class WebhookService {
@@ -30,11 +31,9 @@ export class WebhookService {
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
     @InjectRepository(Robot)
-    private readonly robotRepository: Repository<Robot>,
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
-    private readonly httpService: HttpService,
-    private readonly waitingLocationService: WaitingLocationService
+    private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
   ) {}
 
   async processWebhook(webhookData: any): Promise<{ message: string }> {
@@ -105,9 +104,15 @@ export class WebhookService {
     await this.taskRepository.save(task);
 
     if (task.move_type==MOVE_TYPE.ZONE_TO_ZONE){
-      const not_completed_tasks = await this.taskRepository.count({ where: { batch_id: task.batch_id, status: Not(TaskStatus.COMPLETED) } });
-      if (not_completed_tasks===0){
-        await this.batchRepository.update({ batch_id: task.batch_id }, { status: BatchStatus.COMPLETED });
+      if (mappedStatus === TaskStatus.PROCESSING){
+        await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
+      }
+      if (mappedStatus === TaskStatus.COMPLETED){
+        await this.BaseOpsLocationManagerService.freeLocation(task.end_location.location_id);
+          const not_completed_tasks = await this.taskRepository.count({ where: { batch_id: task.batch_id, status: Not(TaskStatus.COMPLETED) } });
+        if (not_completed_tasks===0){
+          await this.batchRepository.update({ batch_id: task.batch_id }, { status: BatchStatus.COMPLETED });
+        }
       }
       return;
     }

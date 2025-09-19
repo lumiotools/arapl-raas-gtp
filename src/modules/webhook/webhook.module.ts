@@ -12,6 +12,7 @@ import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { LoggingModule } from '../logging/logging.module';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities';
+import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import { Robot } from 'src/entities';
     LoggingModule,
   ],
   controllers: [WebhookController],
-  providers: [WebhookService, WaitingLocationService],
+  providers: [WebhookService, WaitingLocationService, BaseOpsLocationManagerService],
   exports: [WebhookService],
 })
 export class WebhookModule {}

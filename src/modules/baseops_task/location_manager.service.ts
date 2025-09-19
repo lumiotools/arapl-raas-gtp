@@ -53,4 +53,12 @@ export class BaseOpsLocationManagerService {
         return location ? location.display_name : null;
     }
 
+    async freeLocation(location_id: string): Promise<void> {
+        await this.locationRepository.update({ location_id }, { location_status: LocationStatus.AVAILABLE });
+    }
+
+    async occupyLocation(location_id: string): Promise<void> {
+        await this.locationRepository.update({ location_id }, { location_status: LocationStatus.OCCUPIED });
+    }
+
 }
