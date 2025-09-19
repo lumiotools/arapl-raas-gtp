@@ -43,7 +43,7 @@ export class LocationEntity {
   @Column({ type: 'varchar', length: 100 })
   display_name: string;
 
-  @Column({ type: 'varchar', length: 100})
+  @Column({ type: 'varchar', length: 100, nullable: true })
   parent_id: string;
 
   @Column({ type: 'enum', enum: LocationType })

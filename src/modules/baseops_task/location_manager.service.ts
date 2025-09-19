@@ -51,12 +51,29 @@ export class BaseOpsLocationManagerService {
             console.log(`Zone with ID ${zone_id} not found.`);
             return null;
         }
-        const location = await this.locationRepository.findOne({
+        const locations = await this.locationRepository.find({
             where: { parent_id: zone.location_id, location_status: LocationStatus.AVAILABLE, location_type: LocationType.PALLET },
             order: { drop_priority: "ASC" }
         });
-        console.log('Optimal drop location:', JSON.stringify(location));
-        return location ? location.display_name : null;
+        if (locations.length === 0){return null;}
+        // fetch the location from the locations with smallest (highest priority) drop_priority
+
+        const optimalLocation = locations.find(loc => loc.drop_priority !== null);
+        if (optimalLocation) {
+            return optimalLocation.display_name;
+        }
+        const validLocations = locations.filter(loc => 
+            loc.row != null && loc.column != null
+        );
+        if (!validLocations.length) return null;
+
+        return validLocations.reduce((min, current) => {
+            if (current.row < min.row || 
+            (current.row === min.row && current.column < min.column)) {
+            return current;
+            }
+            return min;
+        }).display_name;
     }
 
     async freeLocation(display_name: string): Promise<void> {

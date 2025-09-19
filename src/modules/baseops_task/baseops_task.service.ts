@@ -65,6 +65,12 @@ export class BaseopsTaskService {
     }
   }
   async processNextBatch(): Promise<string | null> {
+    // check if there is any batch in the BATCH_DISPATCHED status
+    const dispatched_batch = await this.batchRepository.findOne({ where: { status: BatchStatus.DISPATCHED } });
+    if (dispatched_batch) {
+      // console.log('A batch is already being processed:', dispatched_batch.batch_id);
+      return null;
+    }
     const batchId = this.queueService.dequeue();
     if (!batchId) {
       // console.log('No batches in the queue');
