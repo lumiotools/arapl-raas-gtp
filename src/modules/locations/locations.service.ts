@@ -51,11 +51,11 @@ export class LocationsService {
 
   async findByZone(zoneId: string) {
     // Return only actual locations that belong to the zone (exclude the zone record itself)
-    return await this.locationRepository.find({ where: { parent_id: zoneId, location_type: LocationType.PALLET } });
+    return await this.locationRepository.find({ where: { parent_id: zoneId, location_type: LocationType.PALLET }, order: { display_name: 'ASC' } });
   }
 
   async findZones() {
     // Return locations that are defined as zones
-    return await this.locationRepository.find({ where: { location_type: LocationType.ZONE } });
+    return await this.locationRepository.find({ where: { location_type: LocationType.ZONE }, order: { display_name: 'ASC' } });
   }
 }
