@@ -88,6 +88,12 @@ export class BaseopsTaskService {
       let end_location_id: string | null = null;
       if (task.end_location.location_attribute?.attribute_name === "Zone"){
         // write the logic to find the pallet location in that zone
+        end_location_id = await this.BaseOpsLocationManagerService.findOptimalDropLocation(task.end_location.location_attribute?.attribute_value);
+        if (!end_location_id){
+          console.log(`No available drop location in zone ${task.end_location.location_attribute?.attribute_value}, re-queue the batch ${batchId}`);
+          await this.queueService.addPendingBatch(batchId);
+          return;
+        }
       }
       else{
         end_location_id = task.end_location.location_id;

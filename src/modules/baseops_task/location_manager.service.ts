@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { LocationEntity } from "src/entities/location.entity";
+import { LocationEntity, LocationType } from "src/entities/location.entity";
 import { LocationStatus } from "src/entities/station.entity";
 import { Repository } from "typeorm";
 
@@ -45,5 +45,12 @@ export class BaseOpsLocationManagerService {
         }
     }
 
-    
+    async findOptimalDropLocation(zone_id: string): Promise<string | null> {
+        const location = await this.locationRepository.findOne({
+            where: { parent_id: zone_id, location_status: LocationStatus.AVAILABLE, location_type: LocationType.PALLET },
+            order: { drop_priority: "ASC" }
+        });
+        return location ? location.display_name : null;
+    }
+
 }
