@@ -11,14 +11,14 @@ import { HeapPriorityQueueService } from './heap.service';
 import { Cron } from '@nestjs/schedule';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
-import { LocationManagerService } from './location_manager.service';
+import { BaseOpsLocationManagerService } from './location_manager.service';
 
 @Injectable()
 export class BaseopsTaskService {
   constructor(
     private readonly orchestratorService: OrchestratorService,
     private readonly queueService: HeapPriorityQueueService,
-    private readonly locationManagerService: LocationManagerService,
+    private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
     private readonly httpService: HttpService,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
@@ -85,6 +85,19 @@ export class BaseopsTaskService {
       // need to check if the destination location is occupied or not.
       // if the destination location is occupied, break the current task in to two, one to move to a transient location (waiting location),
       // another take the pallet from that transient location to the destination location.
+      let end_location_id: string | null = null;
+      if (task.end_location.location_attribute?.attribute_name === "Zone"){
+        // write the logic to find the pallet location in that zone
+      }
+      else{
+        end_location_id = task.end_location.location_id;
+      }
+      const reserve = await this.BaseOpsLocationManagerService.reserveLocation(end_location_id);
+      if (!reserve){
+        console.log(`Location ${end_location_id} is not available, re-queue the batch ${batchId}`);
+        await this.queueService.addPendingBatch(batchId);
+        return;
+      }
       req_tasks.push({
         task_id: task.task_id,
         task_type: task.task_type,
@@ -97,7 +110,7 @@ export class BaseopsTaskService {
           location_dimension: task.start_location.location_dimension,
         },
         end_location: {
-          location_id: task.end_location.location_id,
+          location_id: end_location_id,
           location_type: task.end_location.location_type,
           location_action: task.end_location.location_action,
           location_dimension: task.end_location.location_dimension,
@@ -191,6 +204,7 @@ export class BaseopsTaskService {
         location_dimension: {
           length: 1, width: 1, height: 1
         },
+        location_attribute: {attribute_name: 'Pallet', attribute_value: task['start_location_location_id']},
       };
       newTask.end_location = {
         location_id: end_location_id!==null ? end_location_id : 'unknown',
@@ -200,7 +214,7 @@ export class BaseopsTaskService {
           length: 1, width: 1, height: 1
         },
         location_attribute: {
-          attribute_name: end_location_id==null ? 'Zone' : 'LocationID',
+          attribute_name: end_location_id==null ? 'Zone' : 'Pallet',
           attribute_value: task['end_location_location_id']
         }
       };
