@@ -1,4 +1,5 @@
 import { Column, Entity, PrimaryColumn } from "typeorm";
+import { LocationStatus } from "./station.entity";
 
 export enum LocationType {
   ZONE = 'Zone',
@@ -36,11 +37,14 @@ export interface Location {
 
 @Entity('locations')
 export class LocationEntity {
-  @PrimaryColumn({ type: 'varchar', length: 50 })
+  @PrimaryColumn('uuid')
   location_id: string;
 
-  @Column({ type: 'varchar', length: 50 })
-  zone_id: string;
+  @Column({ type: 'varchar', length: 100 })
+  display_name: string;
+
+  @Column({ type: 'varchar', length: 100})
+  parent_id: string;
 
   @Column({ type: 'enum', enum: LocationType })
   location_type: LocationType;
@@ -51,8 +55,14 @@ export class LocationEntity {
   @Column({ type: 'int', nullable: true })
   column: number;
 
-  @Column({ type: 'boolean', default: false })
-  is_occupied: boolean;
+  @Column({ type: 'int', nullable: true })
+  pick_priority: number;
+
+  @Column({type: 'int', nullable: true})
+  drop_priority: number;
+
+  @Column({ type: 'enum', enum: LocationStatus, default: LocationStatus.AVAILABLE })
+  location_status: LocationStatus;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
