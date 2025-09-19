@@ -31,7 +31,16 @@ export class BaseopsTaskService {
   }
 
   findAll() {
-    return `This action returns all baseopsTask`;
+    // Return tasks that originate from baseops flows.
+    // The CSV importer in this module creates tasks with TaskType.CROSSDOCK
+    // and MOVE_TYPE.ZONE_TO_ZONE — treat those as "base ops" tasks.
+    return this.taskRepository.find({
+      where: [
+        { task_type: TaskType.CROSSDOCK },
+        { move_type: MOVE_TYPE.ZONE_TO_ZONE },
+      ],
+      order: { created_at: 'DESC' },
+    });
   }
 
   findOne(id: number) {

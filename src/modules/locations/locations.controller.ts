@@ -17,6 +17,11 @@ export class LocationsController {
     return this.locationsService.findAll();
   }
 
+  @Get('zones')
+  async findZones() {
+    return await this.locationsService.findZones();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.locationsService.findOne(+id);

@@ -803,7 +803,8 @@ export class OrchestratorController {
   @Roles('admin', 'operator')
   async getMovementReport(
     @Query('start_time') startTime?: string,
-    @Query('end_time') endTime?: string
+    @Query('end_time') endTime?: string,
+    @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
   ) {
     let startDate: Date | undefined;
     let endDate: Date | undefined;
@@ -826,7 +827,7 @@ export class OrchestratorController {
       throw new BadRequestException('start_time must be before end_time');
     }
 
-    return await this.orchestratorService.getMovementReport(startDate, endDate);
+    return await this.orchestratorService.getMovementReport(startDate, endDate, module);
   }
 
   @Get('by-status')

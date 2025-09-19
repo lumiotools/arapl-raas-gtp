@@ -2441,7 +2441,7 @@ export class OrchestratorService {
 
   }
 
-  async getMovementReport(startDate: Date | undefined, endDate: Date | undefined){
+  async getMovementReport(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps") {
     const whereCondition: any = {};
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
@@ -2455,7 +2455,7 @@ export class OrchestratorService {
     const allTasks = await this.taskRepository.find({
       where: whereCondition,
     });
-    const res: Record<string, number[]> = {
+    const res: Record<string, number[]> = module === "FlowOps" ? {
       "InventoryToStation": [],
       "InventoryToWaitingLocation": [],
       "StationToWaitingLocation": [],
@@ -2463,7 +2463,11 @@ export class OrchestratorService {
       "StationToStation": [],
       "StationToInventory": [],
       "WaitingLocationToInventory": [],
-    };
+    }: module === "BaseOps" ? {
+      "ZoneToZone": [],
+    }:{};
+
+    if(module === "FlowOps"){
     for (const task of allTasks){
       if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION){
         if (task.processing && task.completed) {
@@ -2502,6 +2506,16 @@ export class OrchestratorService {
         }
       }
     }
+  }  else if (module === "BaseOps"){
+    for (const task of allTasks){
+      if (task.move_type === MOVE_TYPE.ZONE_TO_ZONE){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.ZoneToZone.push(travelTime);
+        }
+      }
+    } 
+  }
     return res;
   }
 
