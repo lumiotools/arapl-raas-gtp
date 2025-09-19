@@ -36,9 +36,10 @@ export class BaseopsTaskService {
     // and MOVE_TYPE.ZONE_TO_ZONE — treat those as "base ops" tasks.
     return this.taskRepository.find({
       where: [
-        { task_type: TaskType.CROSSDOCK },
+        { task_type: TaskType.BASEOPS },
         { move_type: MOVE_TYPE.ZONE_TO_ZONE },
       ],
+      relations: ['batch'],
       order: { created_at: 'DESC' },
     });
   }
