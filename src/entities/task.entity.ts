@@ -20,6 +20,7 @@ export enum TaskType {
   CROSSDOCK = 'Crossdock',
   PUTAWAY = 'Putaway', 
   PICKING = 'PICKING',
+  BASEOPS = 'Baseops',
   DROP = 'DROP',
   GOODS_TO_PERSON = 'GoodsToPerson',
   NOP = "NOP"

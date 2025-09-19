@@ -178,79 +178,146 @@ export class BaseopsTaskService {
     }
   }
 
-  async processCsvTasks(csvData: string, priority: number): Promise<any> {
-    // Parse the CSV data
-    const lines = csvData.split('\n').filter(line => line.trim() !== '');
-    const headers = lines[0].split(',').map(header => header.trim());
+    async processCsvTasks(csvData: string, priority: number): Promise<any> {
+      // Parse the CSV data
+      const lines = csvData.split('\n').filter(line => line.trim() !== '');
+      const headers = lines[0].split(',').map(header => header.trim());
 
-    // Process each line of the CSV
-    const tasks = lines.slice(1).map(line => {
-      const values = line.split(',').map(value => value.trim());
-      const task: any = {};
-      headers.forEach((header, index) => {
-        task[header] = values[index] || '';
+      // Process each line of the CSV
+      const tasks = lines.slice(1).map((line, index) => {
+        const values = line.split(',').map(value => value.trim());
+        const task: any = {};
+        headers.forEach((header, headerIndex) => {
+          task[header] = values[headerIndex] || '';
+        });
+        task._rowNumber = index + 2; // For error reporting (accounting for header row)
+        return task;
       });
-      return task;
-    });
-    // generate a batch
-    const batch_id = await this.orchestratorService.generateBatchId();
-    await this.orchestratorService.createBatch(batch_id, null, null);
-    const batch = await this.batchRepository.findOne({ where: { batch_id: batch_id } });
-    if (!batch) {
-      throw new Error('Failed to create or retrieve the batch');
-    }
-    batch.priority = priority;
-    await this.batchRepository.save(batch);
-    
-    for (const task of tasks){
-      const newTask = new Task();
-      newTask.batch_id = batch.batch_id;
-      newTask.task_type = TaskType.CROSSDOCK;
-      newTask.status = TaskStatus.PENDING;
-      newTask.move_type = MOVE_TYPE.ZONE_TO_ZONE;
-      newTask.sequence_order = 1;
-      newTask.task_dependency = null as any;
-      newTask.robot_id = null as any;
-      let end_location_id = null;
-      if (task['end_location_location_type'] === LocationType.PALLET) {
-        end_location_id = task['end_location_location_id'];
-      }
-      newTask.start_location = {
-        location_id: task['start_location_location_id'],
-        location_type: LocationType.ZONE,
-        location_action: LocationAction.PICK,
-        location_dimension: {
-          length: 1, width: 1, height: 1
-        },
-        location_attribute: {attribute_name: 'Pallet', attribute_value: task['start_location_location_id']},
-      };
-      newTask.end_location = {
-        location_id: end_location_id!==null ? end_location_id : 'unknown',
-        location_type: LocationType.ZONE,
-        location_action: LocationAction.DROP,
-        location_dimension: {
-          length: 1, width: 1, height: 1
-        },
-        location_attribute: {
-          attribute_name: end_location_id==null ? 'Zone' : 'Pallet',
-          attribute_value: task['end_location_location_id']
+
+      // ===== VALIDATION SECTION =====
+      const validationErrors: string[] = [];
+      const startLocationIds = new Set<string>();
+      const palletEndLocationIds = new Set<string>();
+
+      for (const task of tasks) {
+        const rowNum = task._rowNumber;
+        
+        // 1. Validate start_location_type is always PALLET
+        if (task['start_location_location_type'] !== 'PALLET') {
+          validationErrors.push(`Row ${rowNum}: start_location_type must be 'PALLET', found '${task['start_location_location_type']}'`);
         }
-      };
-      newTask.wait = null as any;
-      newTask.cargos = [{
-        cargo_code: task['pallet_id'],
-        cargo_type: 'Pallet',
-        cargo_dimension: {
-          length: 1, width: 1, height: 1
-        },
-        cargo_attributes: null,
-        cargo_weight: 1,
-      }];
-      await this.taskRepository.save(newTask);
-    }
 
-    await this.queueService.addPendingBatch(batch.batch_id);
+        // 2. Check for duplicate start_location_ids
+        const startLocationId = task['start_location_location_id'];
+        if (!startLocationId) {
+          validationErrors.push(`Row ${rowNum}: start_location_location_id is required`);
+        } else if (startLocationIds.has(startLocationId)) {
+          validationErrors.push(`Row ${rowNum}: Duplicate start_location_id '${startLocationId}' found`);
+        } else {
+          startLocationIds.add(startLocationId);
+        }
 
-    return tasks;
+        // 3. Validate end_location_type is either PALLET or Zone
+        const endLocationType = task['end_location_location_type'];
+        if (endLocationType !== 'PALLET' && endLocationType !== 'Zone') {
+          validationErrors.push(`Row ${rowNum}: end_location_type must be 'PALLET' or 'Zone', found '${endLocationType}'`);
+        }
+
+        // 4. Check for duplicate pallet end_location_ids
+        const endLocationId = task['end_location_location_id'];
+        if (!endLocationId) {
+          validationErrors.push(`Row ${rowNum}: end_location_location_id is required`);
+        } else if (endLocationType === 'PALLET') {
+          if (palletEndLocationIds.has(endLocationId)) {
+            validationErrors.push(`Row ${rowNum}: Duplicate pallet end_location_id '${endLocationId}' found`);
+          } else {
+            palletEndLocationIds.add(endLocationId);
+          }
+        }
+
+        // 5. Additional validation - check required fields
+        if (!task['pallet_id']) {
+          validationErrors.push(`Row ${rowNum}: pallet_id is required`);
+        }
+      }
+
+      // If there are validation errors, throw them
+      if (validationErrors.length > 0) {
+        throw new Error(`CSV Validation Failed:\n${validationErrors.join('\n')}`);
+      }
+
+      // Remove the temporary row number field before processing
+      tasks.forEach(task => delete task._rowNumber);
+
+      // ===== END VALIDATION SECTION =====
+
+      // Generate a batch
+      const batch_id = await this.orchestratorService.generateBatchId();
+      await this.orchestratorService.createBatch(batch_id, null, null);
+      const batch = await this.batchRepository.findOne({ where: { batch_id: batch_id } });
+      if (!batch) {
+        throw new Error('Failed to create or retrieve the batch');
+      }
+      batch.priority = priority;
+      await this.batchRepository.save(batch);
+      
+      for (const task of tasks) {
+        const newTask = new Task();
+        newTask.batch_id = batch.batch_id;
+        newTask.task_type = TaskType.BASEOPS;
+        newTask.status = TaskStatus.PENDING;
+        newTask.move_type = MOVE_TYPE.ZONE_TO_ZONE;
+        newTask.sequence_order = 1;
+        newTask.task_dependency = null as any;
+        newTask.robot_id = null as any;
+        
+        let end_location_id = null;
+        if (task['end_location_location_type'] === 'PALLET') {
+          end_location_id = task['end_location_location_id'];
+        }
+        
+        newTask.start_location = {
+          location_id: task['start_location_location_id'],
+          location_type: LocationType.PALLET, // Fixed since we validate it's always PALLET
+          location_action: LocationAction.PICK,
+          location_dimension: {
+            length: 1, width: 1, height: 1
+          },
+          location_attribute: {
+            attribute_name: 'Pallet', 
+            attribute_value: task['start_location_location_id']
+          },
+        };
+        
+        newTask.end_location = {
+          location_id: end_location_id !== null ? end_location_id : 'unknown',
+          location_type: task['end_location_location_type'] === 'PALLET' ? LocationType.PALLET : LocationType.ZONE,
+          location_action: LocationAction.DROP,
+          location_dimension: {
+            length: 1, width: 1, height: 1
+          },
+          location_attribute: {
+            attribute_name: end_location_id === null ? 'Zone' : 'Pallet',
+            attribute_value: task['end_location_location_id']
+          }
+        };
+        
+        newTask.wait = null as any;
+        newTask.cargos = [{
+          cargo_code: task['pallet_id'],
+          cargo_type: 'Pallet',
+          cargo_dimension: {
+            length: 1, width: 1, height: 1
+          },
+          cargo_attributes: null,
+          cargo_weight: 1,
+        }];
+        
+        await this.taskRepository.save(newTask);
+      }
+
+      await this.queueService.addPendingBatch(batch.batch_id);
+
+      return tasks;
   }
 }
