@@ -1,14 +1,17 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
+import { Task, TaskStatus } from "src/entities";
 import { LocationEntity, LocationType } from "src/entities/location.entity";
 import { LocationStatus } from "src/entities/station.entity";
-import { Repository } from "typeorm";
+import { In, Repository } from "typeorm";
 
 @Injectable()
 export class BaseOpsLocationManagerService {
     constructor(
         @InjectRepository(LocationEntity)
         private locationRepository: Repository<LocationEntity>,
+        @InjectRepository(Task)
+        private taskRepository: Repository<Task>,
     ) {}
 
     async reserveLocation(display_name: string): Promise<boolean> {
@@ -84,12 +87,38 @@ export class BaseOpsLocationManagerService {
         await this.locationRepository.update({ display_name }, { location_status: LocationStatus.OCCUPIED });
     }
 
-    async isValidLocationId(location_id: string): Promise<boolean> {
-        const location = await this.locationRepository.findOne({ where: { display_name: location_id, location_status: LocationStatus.AVAILABLE, location_type: LocationType.PALLET } });
+    async isValidLocationId(location_id: string, isStart: boolean): Promise<boolean> {
+        const location = await this.locationRepository.findOne({ where: { display_name: location_id, location_status: isStart ? In([LocationStatus.OCCUPIED, LocationStatus.AVAILABLE]) : LocationStatus.AVAILABLE, location_type: LocationType.PALLET } });
         console.log(`Checking location ID: ${location_id}, Found: ${location ? 'Yes' : 'No'}`);
         if (!location) {
             return false;
         }
         return true;
+    }
+
+    async otherTaskWithStartLocation(location_id: string): Promise<string | null> {
+        // fetch all tasks in PENDING and ASSIGNED status
+        const tasks = await this.taskRepository.find({
+            where: { status: In([TaskStatus.PENDING, TaskStatus.ASSIGNED]) }
+        });
+        for (const task of tasks) {
+            if (task.start_location && task.start_location.location_id === location_id) {
+                return task.task_id;
+            }
+        }
+        return null;
+    }
+
+    async otherTaskWithEndLocation(location_id: string): Promise<string | null> {
+        // fetch all tasks in PENDING and ASSIGNED status
+        const tasks = await this.taskRepository.find({
+            where: { status: In([TaskStatus.PENDING, TaskStatus.ASSIGNED]) }
+        });
+        for (const task of tasks) {
+            if (task.end_location && task.end_location.location_id === location_id) {
+                return task.task_id;
+            }
+        }
+        return null;
     }
 }

@@ -4,7 +4,7 @@ import { BaseopsTaskController } from './baseops_task.controller';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Task } from 'src/entities';
+import { Robot, Task } from 'src/entities';
 import { Batch } from 'src/entities/batch.entity';
 import { User } from 'src/entities/user.entity';
 import { HeapPriorityQueueService } from './heap.service';
@@ -13,7 +13,7 @@ import { BaseOpsLocationManagerService } from './location_manager.service';
 import { LocationEntity } from 'src/entities/location.entity';
 
 @Module({
-  imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity]) ,OrchestratorModule,HttpModule],
+  imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity, Robot, Task]) ,OrchestratorModule,HttpModule],
   controllers: [BaseopsTaskController],
   providers: [BaseopsTaskService, HeapPriorityQueueService, BaseOpsLocationManagerService],
 })

@@ -14,6 +14,7 @@ import { WaitingLocationService } from '../waiting_location/waiting_location.ser
 import { Robot } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
 import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
+import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 
 @Injectable()
 export class WebhookService {
@@ -34,6 +35,7 @@ export class WebhookService {
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
+    private readonly BaseOpsTaskService: BaseopsTaskService,
   ) {}
 
   async processWebhook(webhookData: any): Promise<{ message: string }> {
@@ -108,6 +110,7 @@ export class WebhookService {
         await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
       }
       if (mappedStatus === TaskStatus.COMPLETED){
+        this.BaseOpsTaskService.decrementRobotInUse();
         await this.BaseOpsLocationManagerService.occupyLocation(task.end_location.location_id);
           const not_completed_tasks = await this.taskRepository.count({ where: { batch_id: task.batch_id, status: Not(TaskStatus.COMPLETED) } });
         if (not_completed_tasks===0){

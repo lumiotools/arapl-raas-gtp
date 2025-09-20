@@ -1039,12 +1039,12 @@ export class OrchestratorController {
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin','operator')
-  async updateTotalRobots(@Body('total_robots') totalRobots: number) {
+  async updateTotalRobots(@Body('total_robots') totalRobots: number, @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps") {
     if (!totalRobots || totalRobots <= 0) {
       throw new BadRequestException('total_robots must be a positive number');
     }
 
-    await this.orchestratorService.updateTotalRobots(totalRobots);
+    await this.orchestratorService.updateTotalRobots(totalRobots, module);
     
     return {
       success: true,
@@ -1072,9 +1072,9 @@ export class OrchestratorController {
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'operator')
-  async getTotalRobots() {
-    const totalRobots = await this.orchestratorService.getTotalRobots();
-    
+  async getTotalRobots(@Query('module') module: "FlowOps" | "BaseOps" = "FlowOps") {
+    const totalRobots = await this.orchestratorService.getTotalRobots(module);
+
     return {
       success: true,
       message: 'Total robots retrieved successfully',

@@ -23,6 +23,7 @@ import {config} from 'dotenv';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities';
+import { OperationType } from 'src/entities/robot.entity';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -235,7 +236,7 @@ export class OrchestratorService {
   }
 
   async isRobotAvailable(): Promise<boolean> {
-    const robots = await this.robotRepository.find();
+    const robots = await this.robotRepository.find({where:{operation_type: OperationType.FLOWOPS}});
     if (robots.length === 0){
       return false;
     }
@@ -256,6 +257,7 @@ export class OrchestratorService {
             .set({ 
                 robot_in_use: () => "robot_in_use + 1" 
             })
+            .where("operation_type = :opType", { opType: OperationType.FLOWOPS })
             .execute();
 
         if (result.affected === 0) {
@@ -284,12 +286,12 @@ export class OrchestratorService {
             .set({ 
                 robot_in_use: () => "GREATEST(robot_in_use - 1, 0)" 
             })
+            .where("operation_type = :opType", { opType: OperationType.FLOWOPS })
             .execute();
 
         if (result.affected === 0) {
             throw new Error('No Robot Entry Found');
         }
-        
         await queryRunner.commitTransaction();
     } catch (error) {
         await queryRunner.rollbackTransaction();
@@ -301,7 +303,7 @@ export class OrchestratorService {
 
 
   async checkIfSystemIsInWaitingState(): Promise<boolean> {
-    const robots = await this.robotRepository.find();
+    const robots = await this.robotRepository.find({where: {operation_type: OperationType.FLOWOPS}});
     if (robots.length === 0){
       return false;
     }
@@ -319,7 +321,11 @@ export class OrchestratorService {
       if (robots.length === 0) {
       throw new Error('No Robot Entry Found');
       }
-      await queryRunner.manager.update(Robot, robots[0].id, { is_waiting: true });
+      await queryRunner.manager.update(
+        Robot,
+        { id: robots[0].id, operation_type: OperationType.FLOWOPS },
+        { is_waiting: true }
+      );
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -339,7 +345,7 @@ export class OrchestratorService {
       if (robots.length === 0) {
         throw new Error('No Robot Entry Found');
       }
-      await queryRunner.manager.update(Robot, robots[0].id, { is_waiting: false });
+      await queryRunner.manager.update(Robot, { id: robots[0].id, operation_type: OperationType.FLOWOPS }, { is_waiting: false });
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -730,7 +736,7 @@ export class OrchestratorService {
     await this.waitingLocationService.findAll();
     const robots = await this.robotRepository.find();
     if (robots.length === 0){
-      await this.robotRepository.save({id: crypto.randomUUID(), is_waiting: false, total_robots: 1, robot_in_use: 0 });
+      await this.robotRepository.save({id: crypto.randomUUID(), operation_type: OperationType.FLOWOPS, is_waiting: false, total_robots: 1, robot_in_use: 0 });
     }
     // else{
     //   await this.robotRepository.updateAll({ is_waiting: false, total_robots: 4, robot_in_use: 0 });
@@ -2653,16 +2659,18 @@ export class OrchestratorService {
     return res;
   }
 
-  async updateTotalRobots(totalRobots: number) {
+  async updateTotalRobots(totalRobots: number, module: "FlowOps" | "BaseOps") {
     const result = await this.robotRepository
       .createQueryBuilder()
       .select('COUNT(*)', 'count')
+      .where({ operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS })
       .getRawOne();
 
     if (result.count === 0) {
       await this.robotRepository.save({
         id: crypto.randomUUID(),
         is_waiting: false,
+        operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS,
         total_robots: totalRobots,
         robot_in_use: 0
       });
@@ -2677,13 +2685,13 @@ export class OrchestratorService {
     if (inProgressOrders) {
       throw new BadRequestException('Cannot update total robots while orders are in progress');
     }
-    const robotRecord = (await this.robotRepository.find())[0];
+    const robotRecord = (await this.robotRepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}}))[0];
 
-    await this.robotRepository.update({ id: robotRecord.id }, { total_robots: totalRobots });
+    await this.robotRepository.update({ id: robotRecord.id, operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS }, { total_robots: totalRobots });
   }
 
-  async getTotalRobots() {
-    const result = await this.robotRepository.find();
+  async getTotalRobots(module: "FlowOps" | "BaseOps") {
+    const result = await this.robotRepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}});
     if (result.length === 0) {
       return 0;
     }

@@ -14,6 +14,7 @@ import { WaitingLocationService } from '../waiting_location/waiting_location.ser
 import { Robot } from 'src/entities';
 import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 import { LocationEntity } from 'src/entities/location.entity';
+import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { LocationEntity } from 'src/entities/location.entity';
     LoggingModule,
   ],
   controllers: [WebhookController],
-  providers: [WebhookService, WaitingLocationService, BaseOpsLocationManagerService],
+  providers: [WebhookService, WaitingLocationService, BaseOpsLocationManagerService, BaseopsTaskService],
   exports: [WebhookService],
 })
 export class WebhookModule {}

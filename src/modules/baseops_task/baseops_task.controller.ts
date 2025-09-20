@@ -55,4 +55,11 @@ export class BaseopsTaskController {
   remove(@Param('id') id: string) {
     return this.baseopsTaskService.remove(+id);
   }
+
+  @Post('set-configuration')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  setConfiguration() {
+    return this.baseopsTaskService.setInitialConfiguration();
+  }
+
 }

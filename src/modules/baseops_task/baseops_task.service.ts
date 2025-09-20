@@ -12,6 +12,7 @@ import { Cron } from '@nestjs/schedule';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { BaseOpsLocationManagerService } from './location_manager.service';
+import { OperationType, Robot } from 'src/entities/robot.entity';
 
 @Injectable()
 export class BaseopsTaskService {
@@ -23,6 +24,8 @@ export class BaseopsTaskService {
     private readonly taskRepository: Repository<Task>,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
+    @InjectRepository(Robot)
+    private readonly robotRepository: Repository<Robot>,
   ) {}
 
   create(createBaseopsTaskDto: CreateBaseopsTaskDto) {
@@ -81,6 +84,16 @@ export class BaseopsTaskService {
   }
   async processNextTask(): Promise<string | null> {
     // ---> check if there are robots available in the system to dispatch the task.
+    const robotAvailable = await this.isRobotAvailable();
+    if (!robotAvailable){
+      console.log('No robots available to process BaseOps tasks at the moment.');
+      return null;
+    }
+    const isWaiting = await this.checkIfSystemIsInWaitingState();
+    if (isWaiting){
+      console.log('System is in waiting state, not dispatching new BaseOps tasks.');
+      return null;
+    }
 
     // ---> find next to process, task_type=BaseOps, status=PENDING, move_type=ZONE_TO_ZONE, its batch should have lowest priority 
     const nextTask = await this.findNextTask();
@@ -175,7 +188,7 @@ export class BaseopsTaskService {
       console.error(`Error sending batch ${task.batch.batch_id} to WMS Layer:`, error);
       return;
     }
-
+    await this.incrementRobotInUse();
     await this.taskRepository.update(
       {task_id: task.task_id},
       {status: TaskStatus.ASSIGNED}
@@ -251,15 +264,23 @@ export class BaseopsTaskService {
         }
 
         // 7. Check if the start and end location ids exist in the system and they are available
-        const startLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(startLocationId);
+        const startLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(startLocationId, true);
         if (!startLocationValid) {
           validationErrors.push(`Row ${rowNum-1}: start_location_location_id '${startLocationId}' is not available or does not exist in the system`);
         }
+        const OtherTaskWithStartLocation = await this.BaseOpsLocationManagerService.otherTaskWithStartLocation(startLocationId);
+        if (OtherTaskWithStartLocation){
+          validationErrors.push(`Row ${rowNum-1}: start_location_location_id '${startLocationId}' is already assigned to another pending task (${OtherTaskWithStartLocation})`);
+        }
         if (endLocationType == 'PALLET') {
-          const endLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(endLocationId);
+          const endLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(endLocationId, false);
           console.log(`endlocation validation for ${endLocationId}: ${endLocationValid}`);
           if (!endLocationValid) {
             validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is not available or does not exist in the system`);
+          }
+          const otherTaskWithEndLocation = await this.BaseOpsLocationManagerService.otherTaskWithEndLocation(endLocationId);
+          if (otherTaskWithEndLocation){
+            validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is already assigned to another pending task (${otherTaskWithEndLocation})`);
           }
         }
 
@@ -315,7 +336,7 @@ export class BaseopsTaskService {
         };
         
         newTask.end_location = {
-          location_id: end_location_id !== null ? end_location_id : 'unknown',
+          location_id: end_location_id !== null ? end_location_id : 'To be decided',
           location_type: task['end_location_location_type'] === 'PALLET' ? LocationType.PALLET : LocationType.ZONE,
           location_action: LocationAction.DROP,
           location_dimension: {
@@ -342,5 +363,137 @@ export class BaseopsTaskService {
       }
 
       return tasks;
+  }
+
+  async isRobotAvailable(): Promise<boolean> {
+    const robots = await this.robotRepository.find({where:{operation_type: OperationType.BASEOPS}});
+    if (robots.length === 0){
+      return false;
+    }
+    const robot = robots[0];
+    return robot.total_robots - robot.robot_in_use > 0
+  }
+  async incrementRobotInUse(): Promise<void> {
+    console.log('increment robot in use count');
+    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+        // Atomic increment - no race condition possible
+        const result = await queryRunner.manager
+            .createQueryBuilder()
+            .update(Robot)
+            .set({ 
+                robot_in_use: () => "robot_in_use + 1" 
+            })
+            .where("operation_type = :opType", { opType: OperationType.BASEOPS })
+            .execute();
+
+        if (result.affected === 0) {
+            throw new Error('No Robot Entry Found');
+        }
+        
+        await queryRunner.commitTransaction();
+    } catch (error) {
+        await queryRunner.rollbackTransaction();
+        throw error;
+    } finally {
+        await queryRunner.release();
+    }
+  }
+
+  async decrementRobotInUse(): Promise<void> {
+    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+        // Atomic decrement with safety check to prevent negative values
+        const result = await queryRunner.manager
+            .createQueryBuilder()
+            .update(Robot)
+            .set({ 
+                robot_in_use: () => "GREATEST(robot_in_use - 1, 0)" 
+            })
+            .where("operation_type = :opType", { opType: OperationType.BASEOPS })
+            .execute();
+
+        if (result.affected === 0) {
+            throw new Error('No Robot Entry Found');
+        }
+        await queryRunner.commitTransaction();
+    } catch (error) {
+        await queryRunner.rollbackTransaction();
+        throw error;
+    } finally {
+        await queryRunner.release();
+    }
+  }
+
+  async checkIfSystemIsInWaitingState(): Promise<boolean> {
+    const robots = await this.robotRepository.find({where: {operation_type: OperationType.BASEOPS}});
+    if (robots.length === 0){
+      return false;
+    }
+    const isWaiting = robots[0].is_waiting;
+    return isWaiting;
+  }
+
+  async markSystemAsWaiting(): Promise<void> {
+    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    
+    try {
+      const robots = await queryRunner.manager.find(Robot);
+      if (robots.length === 0) {
+      throw new Error('No Robot Entry Found');
+      }
+      await queryRunner.manager.update(
+        Robot,
+        { id: robots[0].id, operation_type: OperationType.BASEOPS },
+        { is_waiting: true }
+      );
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async unmarkSystemAsWaiting(): Promise<void> {
+    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const robots = await queryRunner.manager.find(Robot);
+      if (robots.length === 0) {
+        throw new Error('No Robot Entry Found');
+      }
+      await queryRunner.manager.update(Robot, { id: robots[0].id, operation_type: OperationType.BASEOPS }, { is_waiting: false });
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async setInitialConfiguration(): Promise<void> {
+    const robots = await this.robotRepository.find({where: {operation_type: OperationType.BASEOPS}});
+    console.log(`Current BaseOps robot configurations: ${robots.length}`);
+    if (robots.length === 0){
+      const newRobotConfig = new Robot();
+      newRobotConfig.operation_type = OperationType.BASEOPS;
+      newRobotConfig.total_robots = 1;
+      newRobotConfig.robot_in_use = 0;
+      newRobotConfig.is_waiting = false;
+      await this.robotRepository.save(newRobotConfig);
+    }
   }
 }
