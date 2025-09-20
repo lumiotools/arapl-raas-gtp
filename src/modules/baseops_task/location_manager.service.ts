@@ -84,4 +84,12 @@ export class BaseOpsLocationManagerService {
         await this.locationRepository.update({ display_name }, { location_status: LocationStatus.OCCUPIED });
     }
 
+    async isValidLocationId(location_id: string): Promise<boolean> {
+        const location = await this.locationRepository.findOne({ where: { display_name: location_id, location_status: LocationStatus.AVAILABLE, location_type: LocationType.PALLET } });
+        console.log(`Checking location ID: ${location_id}, Found: ${location ? 'Yes' : 'No'}`);
+        if (!location) {
+            return false;
+        }
+        return true;
+    }
 }

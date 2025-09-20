@@ -676,7 +676,7 @@ export class OrchestratorService {
     try {
       console.log(`Cancelling task ${parking_task.task_id}`);
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-      const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test'; // Fixed typo
+      const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test'; // Fixed typo
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030';
       const fms_batch_id = parking_task.fms_batch_id;
       
@@ -1034,7 +1034,7 @@ export class OrchestratorService {
       };
       console.log(`Sending task ${task.task_id} to WMS with request body: ${JSON.stringify(requestBody)}`);
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
 
       const response = await firstValueFrom(

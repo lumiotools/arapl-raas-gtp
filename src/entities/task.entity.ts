@@ -76,6 +76,9 @@ export class Task {
   @Column({ type: 'int', nullable: true })
   quantity: number;
 
+  @Column({ type: 'int', nullable: true })
+  priority: number;
+
   @Column({
     type: 'enum',
     enum: TaskType,

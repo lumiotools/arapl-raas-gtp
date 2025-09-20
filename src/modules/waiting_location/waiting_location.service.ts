@@ -32,7 +32,7 @@ export class WaitingLocationService {
   async getAllWmsWaiting(){
     try{
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
       console.log(`Fetching WMS locations from ${wms_base_url}`);
       const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=wait&location_type=wait`, {

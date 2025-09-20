@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { CreateBaseopsTaskDto } from './dto/create-baseops_task.dto';
 import { UpdateBaseopsTaskDto } from './dto/update-baseops_task.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
@@ -17,7 +17,6 @@ import { BaseOpsLocationManagerService } from './location_manager.service';
 export class BaseopsTaskService {
   constructor(
     private readonly orchestratorService: OrchestratorService,
-    private readonly queueService: HeapPriorityQueueService,
     private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
     private readonly httpService: HttpService,
     @InjectRepository(Task)
@@ -57,141 +56,130 @@ export class BaseopsTaskService {
   }
 
   @Cron('*/5 * * * * *')
-  async cronProcessNextBatch(): Promise<void> {
+  async cronProcessNextTask(): Promise<void> {
     try {
-      await this.processNextBatch();
+      await this.processNextTask();
     } catch (error) {
-      console.error('Error in cron job processNextBatch:', error);
+      console.error('Error in cron job processNextTask:', error);
     }
   }
-  async processNextBatch(): Promise<string | null> {
-    // check if there is any batch in the BATCH_DISPATCHED status
-    const dispatched_batch = await this.batchRepository.findOne({ where: { status: BatchStatus.DISPATCHED } });
-    if (dispatched_batch) {
-      // console.log('A batch is already being processed:', dispatched_batch.batch_id);
-      return null;
-    }
-    const batchId = this.queueService.dequeue();
-    if (!batchId) {
-      // console.log('No batches in the queue');
+  async findNextTask(): Promise<Task | null> {
+    const nextTask = await this.taskRepository.findOne({
+      where: {
+        task_type: TaskType.BASEOPS,
+        status: TaskStatus.PENDING,
+        move_type: MOVE_TYPE.ZONE_TO_ZONE,
+      },
+      relations: ['batch'],
+      order: {
+        batch: { priority: 'ASC', created_at: 'ASC' },
+        priority: 'ASC',
+        created_at: 'ASC'
+      },
+    });
+    return nextTask;
+  }
+  async processNextTask(): Promise<string | null> {
+    // ---> check if there are robots available in the system to dispatch the task.
+
+    // ---> find next to process, task_type=BaseOps, status=PENDING, move_type=ZONE_TO_ZONE, its batch should have lowest priority 
+    const nextTask = await this.findNextTask();
+
+    if (!nextTask) {
+      console.log('No pending BaseOps tasks found.');
       return null;
     }
 
     try {
       // Your batch processing logic here
-      await this.processBatch(batchId);
-      return batchId;
+      await this.processTask(nextTask);
+      return nextTask.task_id;
 
     } catch (error) {
-      console.error(`Error sending batch ${batchId} to WMS Layer:`, error);
+      console.error(`Error sending batch ${nextTask.batch.batch_id} to WMS Layer:`, error);
       throw error;
     }
   }
 
-  private async processBatch(batchId: string): Promise<void> {
-    // Implement your actual batch processing logic here
-    console.log(`Processing batch: ${batchId}`);
-    const batch = await this.batchRepository.findOne({ where: { batch_id: batchId } });
-    if (!batch) {throw new Error(`Batch with id ${batchId} not found`);}
-    const tasks = await this.taskRepository.find({ where: { batch_id: batchId, move_type: MOVE_TYPE.ZONE_TO_ZONE, status: TaskStatus.PENDING } });
-    if (tasks.length === 0) return;
+  private async processTask(task: Task): Promise<void> {
+    // Implement your actual task processing logic here
+    console.log(`Processing task: ${task.task_id}`);
+    if (!task) return;
     const req_tasks : any[] = [];
-    for (const task of tasks) {
-      // need to put the location valiation system here.
-      // need to check if the destination location is occupied or not.
-      // if the destination location is occupied, break the current task in to two, one to move to a transient location (waiting location),
-      // another take the pallet from that transient location to the destination location.
-      let end_location_id: string | null = null;
-      if (task.end_location.location_attribute?.attribute_name === "Zone"){
-        // write the logic to find the pallet location in that zone
-        end_location_id = await this.BaseOpsLocationManagerService.findOptimalDropLocation(task.end_location.location_attribute?.attribute_value);
-        if (!end_location_id){
-          console.log(`No available drop location in zone ${task.end_location.location_attribute?.attribute_value}, re-queue the batch ${batchId}`);
-          await this.queueService.addPendingBatch(batchId);
-          return;
-        }
-        task.end_location.location_id = end_location_id;
-        await this.taskRepository.update(
-          {task_id: task.task_id},
-          {end_location: task.end_location}
-        );
-      }
-      else{
-        end_location_id = task.end_location.location_id;
-      }
-      const reserveEndLocation = await this.BaseOpsLocationManagerService.reserveLocation(end_location_id);
-      if (!reserveEndLocation){
-        console.log(`Location ${end_location_id} is not available, re-queue the batch ${batchId}`);
-        await this.queueService.addPendingBatch(batchId);
+    let end_location_id: string | null = null;
+    if (task.end_location.location_attribute?.attribute_name === "ZONE"){
+      // write the logic to find the pallet location in that zone
+      end_location_id = await this.BaseOpsLocationManagerService.findOptimalDropLocation(task.end_location.location_attribute?.attribute_value);
+      if (!end_location_id){
+        console.log(`No available drop location in zone ${task.end_location.location_attribute?.attribute_value}, re-queue the task ${task.task_id}`);
         return;
       }
-      const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveLocation(task.start_location.location_id);
-      if (!reserveStartLocation){
-        console.log(`Location ${task.start_location.location_id} is not available, re-queue the batch ${batchId}`);
-        await this.BaseOpsLocationManagerService.freeLocation(end_location_id);
-        await this.queueService.addPendingBatch(batchId);
-        return;
-      }
-      req_tasks.push({
-        task_id: task.task_id,
-        task_type: task.task_type,
-        task_dependency: task.task_dependency,
-        robot_id: task.robot_id,
-        start_location: {
-          location_id: task.start_location.location_id,
-          location_type: task.start_location.location_type,
-          location_action: task.start_location.location_action,
-          location_dimension: task.start_location.location_dimension,
-        },
-        end_location: {
-          location_id: end_location_id,
-          location_type: task.end_location.location_type,
-          location_action: task.end_location.location_action,
-          location_dimension: task.end_location.location_dimension,
-        },
-        wait: task.wait,
-        cargos: task.cargos
-      });
+      task.end_location.location_id = end_location_id;
+      await this.taskRepository.update(
+        {task_id: task.task_id},
+        {end_location: task.end_location}
+      );
     }
-    if (req_tasks.length === 0) return;
-    const req_body = {
-      batch_job_id: batchId,
-      batch_type: "DISCRETE",
-      tasks: req_tasks
-    };
+    else{
+      end_location_id = task.end_location.location_id;
+    }
+    const reserveEndLocation = await this.BaseOpsLocationManagerService.reserveLocation(end_location_id);
+    if (!reserveEndLocation){
+      console.log(`Location ${end_location_id} is not available.`);
+      return;
+    }
+    const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveLocation(task.start_location.location_id);
+    if (!reserveStartLocation){
+      console.log(`Location ${task.start_location.location_id} is not available.`);
+      await this.BaseOpsLocationManagerService.freeLocation(end_location_id);
+      return;
+    }
+    req_tasks.push({
+      task_id: task.task_id,
+      task_type: task.task_type,
+      task_dependency: task.task_dependency,
+      robot_id: task.robot_id,
+      start_location: {
+        location_id: task.start_location.location_id,
+        location_type: task.start_location.location_type,
+        location_action: task.start_location.location_action,
+        location_dimension: task.start_location.location_dimension,
+      },
+      end_location: {
+        location_id: end_location_id,
+        location_type: task.end_location.location_type,
+        location_action: task.end_location.location_action,
+        location_dimension: task.end_location.location_dimension,
+      },
+      wait: task.wait,
+      cargos: task.cargos
+    });
     const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-    const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
-    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
-
-    try{
+    const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
+    const req_body = {
+      batch_type: "DISCRETE",
+      batch_priority: task.batch.priority,
+      tasks: req_tasks
+    }; 
+    try {
       await firstValueFrom(
         this.httpService.post(`${wms_base_url}/robot-job/${warehouse_name}/tasks`, req_body, {
           headers: {
-            'authorization': `${warehosue_key}`,
+            'authorization': `${warehouse_key}`,
             'Content-Type': 'application/json'
           }
         })
       );
     } catch (error) {
-      console.error(`Error sending batch ${batchId} to WMS Layer:`, error);
-      await this.queueService.addPendingBatch(batchId);
+      console.error(`Error sending batch ${task.batch.batch_id} to WMS Layer:`, error);
       return;
     }
-    
-    for (const task of req_tasks){
-      await this.taskRepository.update(
-        {task_id: task.task_id},
-        {status: TaskStatus.ASSIGNED}
-      );
-    }
-    if (req_tasks.length === tasks.length){
-      await this.batchRepository.update(
-        {batch_id: batchId},
-        {status: BatchStatus.DISPATCHED}
-      );
-    }else{
-      await this.queueService.addPendingBatch(batchId);
-    }
+
+    await this.taskRepository.update(
+      {task_id: task.task_id},
+      {status: TaskStatus.ASSIGNED}
+    );
   }
 
     async processCsvTasks(csvData: string, priority: number): Promise<any> {
@@ -220,46 +208,66 @@ export class BaseopsTaskService {
         
         // 1. Validate start_location_type is always PALLET
         if (task['start_location_location_type'] !== 'PALLET') {
-          validationErrors.push(`Row ${rowNum}: start_location_type must be 'PALLET', found '${task['start_location_location_type']}'`);
+          validationErrors.push(`Row ${rowNum-1}: start_location_type must be 'PALLET', found '${task['start_location_location_type']}'`);
         }
 
         // 2. Check for duplicate start_location_ids
         const startLocationId = task['start_location_location_id'];
         if (!startLocationId) {
-          validationErrors.push(`Row ${rowNum}: start_location_location_id is required`);
+          validationErrors.push(`Row ${rowNum-1}: start_location_location_id is required`);
         } else if (startLocationIds.has(startLocationId)) {
-          validationErrors.push(`Row ${rowNum}: Duplicate start_location_id '${startLocationId}' found`);
+          validationErrors.push(`Row ${rowNum-1}: Duplicate start_location_id '${startLocationId}' found`);
         } else {
           startLocationIds.add(startLocationId);
         }
 
-        // 3. Validate end_location_type is either PALLET or Zone
+        // 3. Validate end_location_type is either PALLET or ZONE
         const endLocationType = task['end_location_location_type'];
-        if (endLocationType !== 'PALLET' && endLocationType !== 'Zone') {
-          validationErrors.push(`Row ${rowNum}: end_location_type must be 'PALLET' or 'Zone', found '${endLocationType}'`);
+        if (endLocationType !== 'PALLET' && endLocationType !== 'ZONE') {
+          validationErrors.push(`Row ${rowNum-1}: end_location_type must be 'PALLET' or 'ZONE', found '${endLocationType}'`);
         }
 
         // 4. Check for duplicate pallet end_location_ids
         const endLocationId = task['end_location_location_id'];
         if (!endLocationId) {
-          validationErrors.push(`Row ${rowNum}: end_location_location_id is required`);
+          validationErrors.push(`Row ${rowNum-1}: end_location_location_id is required`);
         } else if (endLocationType === 'PALLET') {
           if (palletEndLocationIds.has(endLocationId)) {
-            validationErrors.push(`Row ${rowNum}: Duplicate pallet end_location_id '${endLocationId}' found`);
+            validationErrors.push(`Row ${rowNum-1}: Duplicate pallet end_location_id '${endLocationId}' found`);
           } else {
             palletEndLocationIds.add(endLocationId);
           }
         }
 
         // 5. Additional validation - check required fields
-        if (!task['pallet_id']) {
-          validationErrors.push(`Row ${rowNum}: pallet_id is required`);
+        // if (!task['barcode_number']) {
+        //   validationErrors.push(`Row ${rowNum-1}: barcode_number is required`);
+        // }
+        
+        // 6. check the priority column for HIGH, MEDIUM and LOW
+        const priorityValue = task['priority'];
+        if (priorityValue !== 'HIGH' && priorityValue !== 'MEDIUM' && priorityValue !== 'LOW') {
+          validationErrors.push(`Row ${rowNum-1}: priority must be 'HIGH', 'MEDIUM', or 'LOW', found '${priorityValue}'`);
         }
-      }
 
+        // 7. Check if the start and end location ids exist in the system and they are available
+        const startLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(startLocationId);
+        if (!startLocationValid) {
+          validationErrors.push(`Row ${rowNum-1}: start_location_location_id '${startLocationId}' is not available or does not exist in the system`);
+        }
+        if (endLocationType == 'PALLET') {
+          const endLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(endLocationId);
+          console.log(`endlocation validation for ${endLocationId}: ${endLocationValid}`);
+          if (!endLocationValid) {
+            validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is not available or does not exist in the system`);
+          }
+        }
+
+      }
+      console.log(`Validation completed with ${validationErrors.length} errors.`);
       // If there are validation errors, throw them
       if (validationErrors.length > 0) {
-        throw new Error(`CSV Validation Failed:\n${validationErrors.join('\n')}`);
+        throw new BadRequestException(`CSV Validation Failed:\n${validationErrors.join('\n')}`);
       }
 
       // Remove the temporary row number field before processing
@@ -286,6 +294,7 @@ export class BaseopsTaskService {
         newTask.sequence_order = 1;
         newTask.task_dependency = null as any;
         newTask.robot_id = null as any;
+        newTask.priority = task['priority'] === 'HIGH' ? 1 : (task['priority'] === 'MEDIUM' ? 2 : 3);
         
         let end_location_id = null;
         if (task['end_location_location_type'] === 'PALLET') {
@@ -313,14 +322,14 @@ export class BaseopsTaskService {
             length: 1, width: 1, height: 1
           },
           location_attribute: {
-            attribute_name: end_location_id === null ? 'Zone' : 'Pallet',
+            attribute_name: end_location_id === null ? 'ZONE' : 'Pallet',
             attribute_value: task['end_location_location_id']
           }
         };
         
         newTask.wait = null as any;
         newTask.cargos = [{
-          cargo_code: task['pallet_id'],
+          cargo_code: task['barcode_number'] || '',
           cargo_type: 'Pallet',
           cargo_dimension: {
             length: 1, width: 1, height: 1
@@ -331,8 +340,6 @@ export class BaseopsTaskService {
         
         await this.taskRepository.save(newTask);
       }
-
-      await this.queueService.addPendingBatch(batch.batch_id);
 
       return tasks;
   }

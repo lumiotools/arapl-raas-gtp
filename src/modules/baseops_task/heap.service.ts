@@ -22,11 +22,11 @@ export class HeapPriorityQueueService implements OnModuleInit {
   }
 
   private async initializeQueue() {
-    const pending_batches = await this.batchRepository.find({ where: {status: In([BatchStatus.PENDING])} });
-    for (const batch of pending_batches) {
-      this.enqueue(batch.batch_id, batch.priority);
-    }
-    this.logger.log(`Priority Queue initialized with ${this.size()} pending batches`);
+    // const pending_batches = await this.batchRepository.find({ where: {status: In([BatchStatus.PENDING])} });
+    // for (const batch of pending_batches) {
+    //   this.enqueue(batch.batch_id, batch.priority);
+    // }
+    // this.logger.log(`Priority Queue initialized with ${this.size()} pending batches`);
   }
 
   enqueue(item: string, priority: number): void {
