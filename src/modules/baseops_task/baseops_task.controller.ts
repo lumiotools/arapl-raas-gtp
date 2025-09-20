@@ -22,7 +22,9 @@ export class BaseopsTaskController {
     try {
       const priorityNum = priority ? +priority : 1; // Default to 1 if not provided
       const csvData = file.buffer.toString('utf-8');
-      const result = await this.baseopsTaskService.processCsvTasks(csvData, priorityNum);
+      // const result = await this.baseopsTaskService.processCsvTasks(csvData, priorityNum);
+      const tasks = await this.baseopsTaskService.parseCsv(csvData);
+      const result = await this.baseopsTaskService.processTasks(tasks, priorityNum);
       return {
         success: true,
         message: 'All tasks processed successfully',
@@ -60,6 +62,25 @@ export class BaseopsTaskController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   setConfiguration() {
     return this.baseopsTaskService.setInitialConfiguration();
+  }
+
+  @Post('tasks/upload')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async scheduleTasks(@Body()body: any){
+    return await this.baseopsTaskService.processTasks(body.tasks, body.priority);
+  }
+
+
+  @Get('manual-task/start-location')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async getManualTaskStartLocation() {
+    return await this.baseopsTaskService.getManualTaskStartLocation();
+  }
+
+  @Get('manual-task/end-location')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async getManualTaskEndLocation() {
+    return this.baseopsTaskService.getManualTaskEndLocation();
   }
 
 }

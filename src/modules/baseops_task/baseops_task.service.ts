@@ -141,12 +141,12 @@ export class BaseopsTaskService {
       console.log(`Location ${end_location_id} is not available.`);
       return;
     }
-    const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveLocation(task.start_location.location_id);
-    if (!reserveStartLocation){
-      console.log(`Location ${task.start_location.location_id} is not available.`);
-      await this.BaseOpsLocationManagerService.freeLocation(end_location_id);
-      return;
-    }
+    // const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveLocation(task.start_location.location_id);
+    // if (!reserveStartLocation){
+    //   console.log(`Location ${task.start_location.location_id} is not available.`);
+    //   await this.BaseOpsLocationManagerService.freeLocation(end_location_id);
+    //   return;
+    // }
     req_tasks.push({
       task_id: task.task_id,
       task_type: task.task_type,
@@ -186,6 +186,7 @@ export class BaseopsTaskService {
       );
     } catch (error) {
       console.error(`Error sending batch ${task.batch.batch_id} to WMS Layer:`, error);
+      await this.BaseOpsLocationManagerService.freeLocation(end_location_id);
       return;
     }
     await this.incrementRobotInUse();
@@ -195,162 +196,167 @@ export class BaseopsTaskService {
     );
   }
 
-    async processCsvTasks(csvData: string, priority: number): Promise<any> {
-      // Parse the CSV data
-      const lines = csvData.split('\n').filter(line => line.trim() !== '');
-      const headers = lines[0].split(',').map(header => header.trim());
+  async parseCsv(csvData: string): Promise<any[]> {
+    const lines = csvData.split('\n').filter(line => line.trim() !== '');
+    const headers = lines[0].split(',').map(header => header.trim());
 
-      // Process each line of the CSV
-      const tasks = lines.slice(1).map((line, index) => {
-        const values = line.split(',').map(value => value.trim());
-        const task: any = {};
-        headers.forEach((header, headerIndex) => {
-          task[header] = values[headerIndex] || '';
-        });
-        task._rowNumber = index + 2; // For error reporting (accounting for header row)
-        return task;
+    // Process each line of the CSV
+    const tasks = lines.slice(1).map((line, index) => {
+      const values = line.split(',').map(value => value.trim());
+      const task: any = {};
+      headers.forEach((header, headerIndex) => {
+        task[header] = values[headerIndex] || '';
       });
+      task._rowNumber = index + 2; // For error reporting (accounting for header row)
+      return task;
+    });
+    return tasks;
+  }
 
-      // ===== VALIDATION SECTION =====
-      const validationErrors: string[] = [];
-      const startLocationIds = new Set<string>();
-      const palletEndLocationIds = new Set<string>();
+  async processTasks(tasks: any[], priority: number): Promise<any> {
+    // ===== VALIDATION SECTION =====
+    const validationErrors: string[] = [];
+    const startLocationIds = new Set<string>();
+    const palletEndLocationIds = new Set<string>();
 
-      for (const task of tasks) {
-        const rowNum = task._rowNumber;
-        
-        // 1. Validate start_location_type is always PALLET
-        if (task['start_location_location_type'] !== 'PALLET') {
-          validationErrors.push(`Row ${rowNum-1}: start_location_type must be 'PALLET', found '${task['start_location_location_type']}'`);
-        }
+    for (const task of tasks) {
+      console.log(`tasks: ${JSON.stringify(task)}`);
+      const rowNum = task._rowNumber;
 
-        // 2. Check for duplicate start_location_ids
-        const startLocationId = task['start_location_location_id'];
-        if (!startLocationId) {
-          validationErrors.push(`Row ${rowNum-1}: start_location_location_id is required`);
-        } else if (startLocationIds.has(startLocationId)) {
-          validationErrors.push(`Row ${rowNum-1}: Duplicate start_location_id '${startLocationId}' found`);
-        } else {
-          startLocationIds.add(startLocationId);
-        }
-
-        // 3. Validate end_location_type is either PALLET or ZONE
-        const endLocationType = task['end_location_location_type'];
-        if (endLocationType !== 'PALLET' && endLocationType !== 'ZONE') {
-          validationErrors.push(`Row ${rowNum-1}: end_location_type must be 'PALLET' or 'ZONE', found '${endLocationType}'`);
-        }
-
-        // 4. Check for duplicate pallet end_location_ids
-        const endLocationId = task['end_location_location_id'];
-        if (!endLocationId) {
-          validationErrors.push(`Row ${rowNum-1}: end_location_location_id is required`);
-        } else if (endLocationType === 'PALLET') {
-          if (palletEndLocationIds.has(endLocationId)) {
-            validationErrors.push(`Row ${rowNum-1}: Duplicate pallet end_location_id '${endLocationId}' found`);
-          } else {
-            palletEndLocationIds.add(endLocationId);
-          }
-        }
-
-        // 5. Additional validation - check required fields
-        // if (!task['barcode_number']) {
-        //   validationErrors.push(`Row ${rowNum-1}: barcode_number is required`);
-        // }
-        
-        // 6. check the priority column for HIGH, MEDIUM and LOW
-        const priorityValue = task['priority'];
-        if (priorityValue !== 'HIGH' && priorityValue !== 'MEDIUM' && priorityValue !== 'LOW') {
-          validationErrors.push(`Row ${rowNum-1}: priority must be 'HIGH', 'MEDIUM', or 'LOW', found '${priorityValue}'`);
-        }
-
-        // 7. Check if the start and end location ids exist in the system and they are available
-        const startLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(startLocationId, true);
-        if (!startLocationValid) {
-          validationErrors.push(`Row ${rowNum-1}: start_location_location_id '${startLocationId}' is not available or does not exist in the system`);
-        }
-        const OtherTaskWithStartLocation = await this.BaseOpsLocationManagerService.otherTaskWithStartLocation(startLocationId);
-        if (OtherTaskWithStartLocation){
-          validationErrors.push(`Row ${rowNum-1}: start_location_location_id '${startLocationId}' is already assigned to another pending task (${OtherTaskWithStartLocation})`);
-        }
-        if (endLocationType == 'PALLET') {
-          const endLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(endLocationId, false);
-          console.log(`endlocation validation for ${endLocationId}: ${endLocationValid}`);
-          if (!endLocationValid) {
-            validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is not available or does not exist in the system`);
-          }
-          const otherTaskWithEndLocation = await this.BaseOpsLocationManagerService.otherTaskWithEndLocation(endLocationId);
-          if (otherTaskWithEndLocation){
-            validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is already assigned to another pending task (${otherTaskWithEndLocation})`);
-          }
-        }
-
-      }
-      console.log(`Validation completed with ${validationErrors.length} errors.`);
-      // If there are validation errors, throw them
-      if (validationErrors.length > 0) {
-        throw new BadRequestException(`CSV Validation Failed:\n${validationErrors.join('\n')}`);
-      }
-
-      // Remove the temporary row number field before processing
-      tasks.forEach(task => delete task._rowNumber);
-
-      // ===== END VALIDATION SECTION =====
-
-      // Generate a batch
-      const batch_id = await this.orchestratorService.generateBatchId();
-      await this.orchestratorService.createBatch(batch_id, null, null);
-      const batch = await this.batchRepository.findOne({ where: { batch_id: batch_id } });
-      if (!batch) {
-        throw new Error('Failed to create or retrieve the batch');
-      }
-      batch.priority = priority;
-      await this.batchRepository.save(batch);
       
-      for (const task of tasks) {
-        const newTask = new Task();
-        newTask.batch_id = batch.batch_id;
-        newTask.task_type = TaskType.BASEOPS;
-        newTask.status = TaskStatus.PENDING;
-        newTask.move_type = MOVE_TYPE.ZONE_TO_ZONE;
-        newTask.sequence_order = 1;
-        newTask.task_dependency = null as any;
-        newTask.robot_id = null as any;
-        newTask.priority = task['priority'] === 'HIGH' ? 1 : (task['priority'] === 'MEDIUM' ? 2 : 3);
-        
-        let end_location_id = null;
-        if (task['end_location_location_type'] === 'PALLET') {
-          end_location_id = task['end_location_location_id'];
+      // 1. Validate start_location_type is always PALLET
+      if (task['start_location_location_type'] !== 'PALLET') {
+        validationErrors.push(`Row ${rowNum-1}: start_location_type must be 'PALLET', found '${task['start_location_location_type']}'`);
+      }
+
+      // 2. Check for duplicate start_location_ids
+      const startLocationId = task['start_location_location_id'];
+      if (!startLocationId) {
+        validationErrors.push(`Row ${rowNum-1}: start_location_location_id is required`);
+      } else if (startLocationIds.has(startLocationId)) {
+        validationErrors.push(`Row ${rowNum-1}: Duplicate start_location_id '${startLocationId}' found`);
+      } else {
+        startLocationIds.add(startLocationId);
+      }
+
+      // 3. Validate end_location_type is either PALLET or ZONE
+      const endLocationType = task['end_location_location_type'];
+      if (endLocationType !== 'PALLET' && endLocationType !== 'ZONE') {
+        validationErrors.push(`Row ${rowNum-1}: end_location_type must be 'PALLET' or 'ZONE', found '${endLocationType}'`);
+      }
+
+      // 4. Check for duplicate pallet end_location_ids
+      const endLocationId = task['end_location_location_id'];
+      if (!endLocationId) {
+        validationErrors.push(`Row ${rowNum-1}: end_location_location_id is required`);
+      } else if (endLocationType === 'PALLET') {
+        if (palletEndLocationIds.has(endLocationId)) {
+          validationErrors.push(`Row ${rowNum-1}: Duplicate pallet end_location_id '${endLocationId}' found`);
+        } else {
+          palletEndLocationIds.add(endLocationId);
         }
-        
-        newTask.start_location = {
-          location_id: task['start_location_location_id'],
-          location_type: LocationType.PALLET, // Fixed since we validate it's always PALLET
-          location_action: LocationAction.PICK,
-          location_dimension: {
-            length: 1, width: 1, height: 1
-          },
-          location_attribute: {
-            attribute_name: 'Pallet', 
-            attribute_value: task['start_location_location_id']
-          },
-        };
-        
-        newTask.end_location = {
-          location_id: end_location_id !== null ? end_location_id : 'To be decided',
-          location_type: task['end_location_location_type'] === 'PALLET' ? LocationType.PALLET : LocationType.ZONE,
-          location_action: LocationAction.DROP,
-          location_dimension: {
-            length: 1, width: 1, height: 1
-          },
-          location_attribute: {
-            attribute_name: end_location_id === null ? 'ZONE' : 'Pallet',
-            attribute_value: task['end_location_location_id']
-          }
-        };
-        
-        newTask.wait = null as any;
-        newTask.cargos = [{
-          cargo_code: task['barcode_number'] || '',
+      }
+
+      // 5. Additional validation - check required fields
+      // if (!task['barcode_number']) {
+      //   validationErrors.push(`Row ${rowNum-1}: barcode_number is required`);
+      // }
+      
+      // 6. check the priority column for HIGH, MEDIUM and LOW
+      const priorityValue = task['priority'];
+      if (priorityValue !== 'HIGH' && priorityValue !== 'MEDIUM' && priorityValue !== 'LOW') {
+        validationErrors.push(`Row ${rowNum-1}: priority must be 'HIGH', 'MEDIUM', or 'LOW', found '${priorityValue}'`);
+      }
+
+      // 7. Check if the start and end location ids exist in the system and they are available
+      const startLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(startLocationId, true);
+      if (!startLocationValid) {
+        validationErrors.push(`Row ${rowNum-1}: start_location_location_id '${startLocationId}' is not available or does not exist in the system`);
+      }
+      const OtherTaskWithStartLocation = await this.BaseOpsLocationManagerService.otherTaskWithStartLocation(startLocationId);
+      if (OtherTaskWithStartLocation){
+        validationErrors.push(`Row ${rowNum-1}: start_location_location_id '${startLocationId}' is already assigned to another pending task (${OtherTaskWithStartLocation})`);
+      }
+      if (endLocationType == 'PALLET') {
+        const endLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(endLocationId, false);
+        console.log(`endlocation validation for ${endLocationId}: ${endLocationValid}`);
+        if (!endLocationValid) {
+          validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is not available or does not exist in the system`);
+        }
+        const otherTaskWithEndLocation = await this.BaseOpsLocationManagerService.otherTaskWithEndLocation(endLocationId);
+        if (otherTaskWithEndLocation){
+          validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is already assigned to another pending task (${otherTaskWithEndLocation})`);
+        }
+      }
+
+    }
+    console.log(`Validation completed with ${validationErrors.length} errors.`);
+    // If there are validation errors, throw them
+    if (validationErrors.length > 0) {
+      throw new BadRequestException(`Data Validation Failed:\n${validationErrors.join('\n')}`);
+    }
+
+    // Remove the temporary row number field before processing
+    tasks.forEach(task => delete task._rowNumber);
+
+    // ===== END VALIDATION SECTION =====
+
+    // Generate a batch
+    const batch_id = await this.orchestratorService.generateBatchId();
+    await this.orchestratorService.createBatch(batch_id, null, null);
+    const batch = await this.batchRepository.findOne({ where: { batch_id: batch_id } });
+    if (!batch) {
+      throw new Error('Failed to create or retrieve the batch');
+    }
+    batch.priority = priority;
+    await this.batchRepository.save(batch);
+    
+    for (const task of tasks) {
+      const newTask = new Task();
+      newTask.batch_id = batch.batch_id;
+      newTask.task_type = TaskType.BASEOPS;
+      newTask.status = TaskStatus.PENDING;
+      newTask.move_type = MOVE_TYPE.ZONE_TO_ZONE;
+      newTask.sequence_order = 1;
+      newTask.task_dependency = null as any;
+      newTask.robot_id = null as any;
+      newTask.priority = task['priority'] === 'HIGH' ? 1 : (task['priority'] === 'MEDIUM' ? 2 : 3);
+      
+      let end_location_id = null;
+      if (task['end_location_location_type'] === 'PALLET') {
+        end_location_id = task['end_location_location_id'];
+      }
+      
+      newTask.start_location = {
+        location_id: task['start_location_location_id'],
+        location_type: LocationType.PALLET, // Fixed since we validate it's always PALLET
+        location_action: LocationAction.PICK,
+        location_dimension: {
+          length: 1, width: 1, height: 1
+        },
+        location_attribute: {
+          attribute_name: 'Pallet', 
+          attribute_value: task['start_location_location_id']
+        },
+      };
+      
+      newTask.end_location = {
+        location_id: end_location_id !== null ? end_location_id : 'To be decided',
+        location_type: task['end_location_location_type'] === 'PALLET' ? LocationType.PALLET : LocationType.ZONE,
+        location_action: LocationAction.DROP,
+        location_dimension: {
+          length: 1, width: 1, height: 1
+        },
+        location_attribute: {
+          attribute_name: end_location_id === null ? 'ZONE' : 'Pallet',
+          attribute_value: task['end_location_location_id']
+        }
+      };
+      
+      newTask.wait = null as any;
+      if (task['barcode_number']){
+          newTask.cargos = [{
+          cargo_code: task['barcode_number'],
           cargo_type: 'Pallet',
           cargo_dimension: {
             length: 1, width: 1, height: 1
@@ -358,11 +364,16 @@ export class BaseopsTaskService {
           cargo_attributes: null,
           cargo_weight: 1,
         }];
-        
-        await this.taskRepository.save(newTask);
       }
+      else{
+        newTask.cargos = null as any;
+      }
+      
+      
+      await this.taskRepository.save(newTask);
+    }
 
-      return tasks;
+    return tasks;
   }
 
   async isRobotAvailable(): Promise<boolean> {
@@ -495,5 +506,13 @@ export class BaseopsTaskService {
       newRobotConfig.is_waiting = false;
       await this.robotRepository.save(newRobotConfig);
     }
+  }
+
+  async getManualTaskStartLocation(){
+    return await this.BaseOpsLocationManagerService.getManualTaskStartLocation();
+  }
+
+  async getManualTaskEndLocation(){
+    return await this.BaseOpsLocationManagerService.getManualTaskEndLocation();
   }
 }

@@ -1,4 +1,4 @@
-import { Column, Entity, PrimaryColumn } from "typeorm";
+import { Column, Entity, ManyToOne, PrimaryColumn, JoinColumn } from "typeorm";
 import { LocationStatus } from "./station.entity";
 
 export enum LocationType {
@@ -43,7 +43,7 @@ export class LocationEntity {
   @Column({ type: 'varchar', length: 100 })
   display_name: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   parent_id: string;
 
   @Column({ type: 'enum', enum: LocationType })
@@ -69,4 +69,8 @@ export class LocationEntity {
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP', onUpdate: 'CURRENT_TIMESTAMP' })
   updated_at: Date;
+
+  @ManyToOne(() => LocationEntity)
+  @JoinColumn({ name: 'parent_id' })
+  parent: LocationEntity;
 }
