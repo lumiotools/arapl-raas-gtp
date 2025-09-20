@@ -67,6 +67,9 @@ export interface TaskDetails{
   end_location_id: string;
   created_at: Date;
   updated_at: Date;
+  pallet_id: string | null;
+  priority: number;
+  batch_priority: number;
 }
 
 @Injectable()
@@ -2545,37 +2548,43 @@ export class OrchestratorService {
     if (statusList.includes('all')) {
       TaskItems.push(...await this.taskRepository.find({
         where: whereCondition,
-        order: { created_at: 'DESC' }
+        order: { created_at: 'DESC' },
+        relations: ['batch']
       }));
     }
     if (statusList.includes('pending')) {
       TaskItems.push(...await this.taskRepository.find({
         where: { ...whereCondition, status: TaskStatus.PENDING },
-        order: { created_at: 'DESC' }
+        order: { created_at: 'DESC' },
+        relations: ['batch']
       }));
     }
     if (statusList.includes('processing')) {
       TaskItems.push(...await this.taskRepository.find({
         where: { ...whereCondition, status: TaskStatus.PROCESSING },
-        order: { created_at: 'DESC' }
+        order: { created_at: 'DESC' },
+        relations: ['batch']
       }));
     }
     if (statusList.includes('completed')) {
       TaskItems.push(...await this.taskRepository.find({
         where: { ...whereCondition, status: TaskStatus.COMPLETED },
-        order: { created_at: 'DESC' }
+        order: { created_at: 'DESC' },
+        relations: ['batch']
       }));
     }
     if (statusList.includes('cancelled')) {
       TaskItems.push(...await this.taskRepository.find({
         where: { ...whereCondition, status: TaskStatus.CANCELLED },
-        order: { created_at: 'DESC' }
+        order: { created_at: 'DESC' },
+        relations: ['batch']
       }));
     }
+    console.log(`first task: ${JSON.stringify(TaskItems[0])}`);
     for (const task of TaskItems) {
       const taskDetails: TaskDetails = {
         task_id: task.task_id,
-        batch_id: task.fms_batch_id,
+        batch_id: task.batch_id,
         product_id: task.product_id,
         quantity: task.quantity,
         move_type: task.move_type,
@@ -2585,6 +2594,9 @@ export class OrchestratorService {
         end_location_id: task.end_location.location_id,
         created_at: task.created_at,
         updated_at: task.updated_at,
+        pallet_id: task.cargos ? task.cargos[0].cargo_code : '',
+        priority: task.priority || 3,
+        batch_priority: task.batch.priority || 3
       }
       results.push(taskDetails);
     }

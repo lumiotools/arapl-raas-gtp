@@ -3,7 +3,7 @@ import { CreateBaseopsTaskDto } from './dto/create-baseops_task.dto';
 import { UpdateBaseopsTaskDto } from './dto/update-baseops_task.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { Task, TaskStatus, TaskType, MOVE_TYPE } from 'src/entities/task.entity';
 import { LocationAction, LocationType } from 'src/entities/location.entity';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
@@ -213,6 +213,33 @@ export class BaseopsTaskService {
     return tasks;
   }
 
+  async generateBatchId(): Promise<string> {
+    // Get current date
+    const now = new Date();
+    
+    // Format date as dd-mm-yyyy
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0'); // getMonth() returns 0-11
+    const year = now.getFullYear();
+    const dateString = `${day}-${month}-${year}`;
+    
+    // Get start and end of today for database query
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    
+    // Count batches created today
+    const todayBatchCount = await this.batchRepository.count({
+      where: {
+        created_at: Between(startOfDay, endOfDay)
+      }
+    });
+  
+  // Generate batch ID with incremented count
+  const batchNumber = todayBatchCount + 1;
+  const batchId = `${dateString}-${batchNumber}`;
+  
+  return batchId;
+}
   async processTasks(tasks: any[], priority: number): Promise<any> {
     // ===== VALIDATION SECTION =====
     const validationErrors: string[] = [];
@@ -302,7 +329,7 @@ export class BaseopsTaskService {
     // ===== END VALIDATION SECTION =====
 
     // Generate a batch
-    const batch_id = await this.orchestratorService.generateBatchId();
+    const batch_id = await this.generateBatchId();
     await this.orchestratorService.createBatch(batch_id, null, null);
     const batch = await this.batchRepository.findOne({ where: { batch_id: batch_id } });
     if (!batch) {
