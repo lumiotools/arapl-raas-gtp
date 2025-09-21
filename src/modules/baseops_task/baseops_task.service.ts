@@ -384,7 +384,7 @@ export class BaseopsTaskService {
     const day = String(now.getDate()).padStart(2, '0');
     const month = String(now.getMonth() + 1).padStart(2, '0'); // getMonth() returns 0-11
     const year = now.getFullYear();
-    const dateString = `${day}-${month}-${year}`;
+    const dateString = `${day}${month}${year}`;
     
     // Get start and end of today for database query
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
@@ -399,7 +399,7 @@ export class BaseopsTaskService {
   
   // Generate batch ID with incremented count
   const batchNumber = todayBatchCount + 1;
-  const batchId = `${dateString}-${batchNumber}`;
+  const batchId = `${dateString}_${batchNumber}`;
   
   return batchId;
 }
@@ -538,7 +538,7 @@ export class BaseopsTaskService {
       
       newTask.end_location = {
         location_id: end_location_id !== null ? end_location_id : 'To be decided',
-        location_type: task['end_location_location_type'] === 'PALLET' ? LocationType.PALLET : LocationType.ZONE,
+        location_type: LocationType.PALLET,
         location_action: LocationAction.DROP,
         location_dimension: {
           length: 1, width: 1, height: 1
@@ -703,6 +703,8 @@ export class BaseopsTaskService {
       newRobotConfig.is_waiting = false;
       await this.robotRepository.save(newRobotConfig);
     }
+
+    await this.BaseOpsLocationManagerService.syncFMSLocations();  
   }
 
   async getManualTaskStartLocation(){

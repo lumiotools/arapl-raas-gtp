@@ -37,7 +37,7 @@ export interface Location {
 
 @Entity('locations')
 export class LocationEntity {
-  @PrimaryColumn('uuid')
+  @PrimaryColumn({ type: 'varchar', length: 36 })
   location_id: string;
 
   @Column({ type: 'varchar', length: 100 })
