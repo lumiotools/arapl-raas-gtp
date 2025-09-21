@@ -113,7 +113,7 @@ export class BaseOpsLocationManagerService {
     }
 
     async getOptimalWaitLocation(){
-        const waitZone = await this.locationRepository.findOne({ where: { location_type: LocationType.ZONE, display_name: 'Wait' } });
+        const waitZone = await this.locationRepository.findOne({ where: { location_type: LocationType.ZONE, display_name: 'wait' } });
         if (!waitZone) {
             console.log(`Wait zone not found.`);
             return null;

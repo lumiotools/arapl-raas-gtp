@@ -9,6 +9,7 @@ import {
   Relation,
   ManyToMany,
   JoinTable,
+  Generated,
 } from 'typeorm';
 import type { Batch } from './batch.entity';
 import { Location } from './location.entity';
@@ -66,6 +67,10 @@ export enum TaskStatus {
 export class Task {
   @PrimaryGeneratedColumn('uuid')
   task_id: string;
+
+  @Generated('increment')
+  @Column({ type: 'bigint', unique: true })
+  display_task_id: number;
 
   @Column({ type: 'varchar', length: 32 })
   batch_id: string;
