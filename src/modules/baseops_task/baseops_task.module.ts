@@ -12,7 +12,7 @@ import { BaseOpsLocationManagerService } from './location_manager.service';
 import { LocationEntity } from 'src/entities/location.entity';
 
 @Module({
-  imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity, Robot, Task]) ,OrchestratorModule,HttpModule],
+  imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity, Robot, Task]),HttpModule],
   controllers: [BaseopsTaskController],
   providers: [BaseopsTaskService, BaseOpsLocationManagerService],
 })

@@ -17,6 +17,10 @@ import { StationsService } from '../stations/stations.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities';
+import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
+import { LocationEntity } from 'src/entities/location.entity';
+import { BaseopsTaskModule } from '../baseops_task/baseops_task.module';
+import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 
 @Module({
   imports: [
@@ -32,13 +36,15 @@ import { Robot } from 'src/entities';
       User,
       Station,
       Robot,
-      ScheduleMapping
+      ScheduleMapping,
+      LocationEntity,
     ]),
     HttpModule,
     InventoryModule,
+    BaseopsTaskModule
   ],
   controllers: [OrchestratorController],
-  providers: [OrchestratorService, StationsService, WaitingLocationService],
+  providers: [OrchestratorService, StationsService, WaitingLocationService, BaseopsTaskService, BaseopsTaskService, BaseOpsLocationManagerService],
   exports: [OrchestratorService],
 })
 export class OrchestratorModule {}

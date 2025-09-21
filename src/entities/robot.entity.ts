@@ -3,6 +3,8 @@ import {
   Column,
   PrimaryColumn,
   PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 
 export enum OperationType{
@@ -26,5 +28,15 @@ export class Robot {
 
     @Column({ type: 'boolean', nullable: false })
     is_waiting: boolean;
+
+    @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+      created_at: Date;
+    
+    @UpdateDateColumn({
+      type: 'timestamp',
+      default: () => 'CURRENT_TIMESTAMP',
+      onUpdate: 'CURRENT_TIMESTAMP',
+    })
+    updated_at: Date;
 
 }

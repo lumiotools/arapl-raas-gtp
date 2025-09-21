@@ -24,6 +24,7 @@ import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities';
 import { OperationType } from 'src/entities/robot.entity';
+import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -103,7 +104,8 @@ export class OrchestratorService {
     private readonly httpService: HttpService,
     private readonly loggingService: LoggingService,
     private readonly stationService: StationsService,
-    private readonly waitingLocationService: WaitingLocationService
+    private readonly waitingLocationService: WaitingLocationService,
+    private readonly baseOpsService: BaseopsTaskService,
   ) {}
 
   async processAssignedOrderItems() {
@@ -1499,6 +1501,7 @@ export class OrchestratorService {
   // Manual trigger method for testing
   @Cron('*/5 * * * * *')
   async orchestratorCronJob() {
+    await this.baseOpsService.baseOpsOrchestrator();
     await this.triggerOrchestrator();
   }
 

@@ -17,7 +17,6 @@ import { OperationType, Robot } from 'src/entities/robot.entity';
 export class BaseopsTaskService {
   private isProcessing = false;
   constructor(
-    private readonly orchestratorService: OrchestratorService,
     private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
     private readonly httpService: HttpService,
     @InjectRepository(Task)
@@ -71,31 +70,15 @@ export class BaseopsTaskService {
     return true;
   }
 
-  // @Cron('*/5 * * * * *')
-  // async cronProcessNextBatch(): Promise<void> {
-  //   try {
-  //     console.log(`--- starting cron job to process next BaseOps task`);
-  //     // await this.processNextTask();
-  //   } catch (error) {
-  //     console.error('Error in cron job processNextBatch:', error);
-  //   }
-  // }
-
-  @Cron('*/5 * * * * *')
-  async orchestratorCronJob() {
-    await this.triggerOrchestrator();
-  }
-
-  public async triggerOrchestrator(): Promise<void> {
+  public async baseOpsOrchestrator(): Promise<void> {
     // Prevent overlapping executions
     if (this.isProcessing) {
       console.log('Previous cron job still running, skipping this execution');
       return;
     }
-
+    console.log('--- start base ops cron job ---');
     try {
-    this.isProcessing = true;
-    console.log('--- starting cron job to process next BaseOps task');
+    
     if (!await this.shouldCreateTask()) { return; }
     await this.processWaitHaultedTasks();
     if (!await this.shouldCreateTask()) { return; }
@@ -103,8 +86,6 @@ export class BaseopsTaskService {
     this.isProcessing = false;
     } catch (error) {
       console.error('Error in cron job processNextTask:', error);
-    } finally {
-      this.isProcessing = false; // Always release the lock
     }
   }
 
@@ -143,6 +124,11 @@ export class BaseopsTaskService {
 
     for (const task of waitTasks) {
       if (!task.end_location) { continue; }
+
+      const sequenceTask = await this.taskRepository.findOne({
+        where: { task_dependency: task.task_id },
+      });
+      if (sequenceTask) { continue; } // already has a next sequence task
       
       let end_location_id: string | null = null;
       if (task.end_location.location_attribute?.attribute_name === "ZONE") {
@@ -290,12 +276,12 @@ export class BaseopsTaskService {
       end_location_id = task.end_location.location_id;
     }
 
-    const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveLocation(task.start_location.location_id);
-    if (!reserveStartLocation){
-      console.log(`Location ${task.start_location.location_id} is not available.`);
-      await this.markTaskHaulted(task.task_id);
-      return;
-    }
+    // const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveLocation(task.start_location.location_id);
+    // if (!reserveStartLocation){
+    //   console.log(`Location ${task.start_location.location_id} is not available.`);
+    //   await this.markTaskHaulted(task.task_id);
+    //   return;
+    // }
 
     const reserveEndLocation = await this.BaseOpsLocationManagerService.reserveLocation(end_location_id);
     if (!reserveEndLocation){
@@ -507,8 +493,14 @@ export class BaseopsTaskService {
 
     // Generate a batch
     const batch_id = await this.generateBatchId();
-    await this.orchestratorService.createBatch(batch_id, null, null);
-    const batch = await this.batchRepository.findOne({ where: { batch_id: batch_id } });
+    const batch = this.batchRepository.create({
+      batch_id: batch_id,
+      description: 'BaseOps Batch',
+      status: BatchStatus.PENDING,
+      total_tasks: 0, // Will be updated as tasks are created
+      completed_tasks: 0
+    });
+    await this.batchRepository.save(batch);
     if (!batch) {
       throw new Error('Failed to create or retrieve the batch');
     }
