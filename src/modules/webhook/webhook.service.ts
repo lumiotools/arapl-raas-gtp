@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
-import { Task, TaskStatus } from 'src/entities/task.entity';
+import { Task, TaskStatus, TaskType } from 'src/entities/task.entity';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Station, LocationStatus } from 'src/entities/station.entity';
 import { WaitingLocation} from 'src/entities/waiting-location.entity';
@@ -105,7 +105,7 @@ export class WebhookService {
     }
     await this.taskRepository.save(task);
 
-    if (task.move_type==MOVE_TYPE.ZONE_TO_ZONE){
+    if (task.task_type === TaskType.BASEOPS){
       if (mappedStatus === TaskStatus.PROCESSING){
         await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
       }

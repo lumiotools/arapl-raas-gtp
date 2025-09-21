@@ -15,37 +15,15 @@ export class BaseOpsLocationManagerService {
     ) {}
 
     async reserveLocation(display_name: string): Promise<boolean> {
-        const queryRunner = this.locationRepository.manager.connection.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction();
-
-        try {
-            // Single atomic operation: Update only if location_status is AVAILABLE
-            const result = await queryRunner.manager
-                .createQueryBuilder()
-                .update(LocationEntity)
-                .set({ location_status: LocationStatus.RESERVED })  // ✅ Fixed: use location_status
-                .where("display_name = :display_name AND location_status = :status", {  // ✅ Fixed: use location_status
-                    display_name: display_name,
-                    status: LocationStatus.AVAILABLE
-                })
-                .execute();
-
-            // If no rows were affected, location was either not found or not available
-            if (result.affected === 0) {
-                await queryRunner.rollbackTransaction();
-                return false;
-            }
-
-            await queryRunner.commitTransaction();
-            return true;
-
-        } catch (error) {
-            await queryRunner.rollbackTransaction();
+        const location = await this.locationRepository.findOne({ where: { display_name: display_name, location_status: LocationStatus.AVAILABLE } });
+        console.log(`location found: ${JSON.stringify(location)}`);
+        if (!location) {
+            console.log(`Location ${display_name} is not available for reservation.`);
             return false;
-        } finally {
-            await queryRunner.release();
         }
+        location.location_status = LocationStatus.RESERVED;
+        await this.locationRepository.save(location);
+        return true;
     }
 
     async findOptimalDropLocation(zone_id: string): Promise<string | null> {
@@ -132,5 +110,15 @@ export class BaseOpsLocationManagerService {
     async getManualTaskEndLocation(){
         const endLocation = await this.locationRepository.find({ where: { location_type: LocationType.PALLET, location_status: LocationStatus.AVAILABLE }, relations: ['parent'] });
         return endLocation;
+    }
+
+    async getOptimalWaitLocation(){
+        const waitZone = await this.locationRepository.findOne({ where: { location_type: LocationType.ZONE, display_name: 'Wait' } });
+        if (!waitZone) {
+            console.log(`Wait zone not found.`);
+            return null;
+        }
+        const waitLocation = await this.locationRepository.findOne({ where: { parent_id: waitZone.location_id, location_type: LocationType.PALLET, location_status: LocationStatus.AVAILABLE }, order: { drop_priority: "ASC" } });
+        return waitLocation?.display_name || null;
     }
 }

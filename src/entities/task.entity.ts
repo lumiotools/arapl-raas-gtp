@@ -35,6 +35,8 @@ export  enum MOVE_TYPE {
   INVENTORY_TO_WAITING_LOCATION = 'InventoryToWaitingLocation',
   WAITING_LOCATION_TO_INVENTORY = 'WaitingLocationToInventory',
   ZONE_TO_ZONE = 'ZoneToZone',
+  ZONE_TO_WAIT='ZoneToWait',
+  WAIT_TO_ZONE='WaitToZone',
 }
 
 
@@ -56,6 +58,7 @@ export enum TaskStatus {
   PICK_REJECTED = 'pick_rejected',
   PICK_FAILED = 'pick_failed',
   DROP_FAILED = 'drop_failed',
+  HAULTED = 'haulted',
 
 }
 

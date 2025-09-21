@@ -7,8 +7,7 @@ import { Between, Repository } from 'typeorm';
 import { Task, TaskStatus, TaskType, MOVE_TYPE } from 'src/entities/task.entity';
 import { LocationAction, LocationType } from 'src/entities/location.entity';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
-import { HeapPriorityQueueService } from './heap.service';
-import { Cron } from '@nestjs/schedule';
+import { Cron, Interval } from '@nestjs/schedule';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { BaseOpsLocationManagerService } from './location_manager.service';
@@ -16,6 +15,7 @@ import { OperationType, Robot } from 'src/entities/robot.entity';
 
 @Injectable()
 export class BaseopsTaskService {
+  private isProcessing = false;
   constructor(
     private readonly orchestratorService: OrchestratorService,
     private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
@@ -39,7 +39,6 @@ export class BaseopsTaskService {
     return this.taskRepository.find({
       where: [
         { task_type: TaskType.BASEOPS },
-        { move_type: MOVE_TYPE.ZONE_TO_ZONE },
       ],
       relations: ['batch'],
       order: { created_at: 'DESC' },
@@ -58,14 +57,57 @@ export class BaseopsTaskService {
     return `This action removes a #${id} baseopsTask`;
   }
 
+  async shouldCreateTask(): Promise<boolean> {
+    const robotAvailable = await this.isRobotAvailable();
+    if (!robotAvailable){
+      console.log('No robots available to process BaseOps tasks at the moment.');
+      return false;
+    }
+    const isWaiting = await this.checkIfSystemIsInWaitingState();
+    if (isWaiting){
+      console.log('System is in waiting state, not dispatching new BaseOps tasks.');
+      return false;
+    }
+    return true;
+  }
+
+  // @Cron('*/5 * * * * *')
+  // async cronProcessNextBatch(): Promise<void> {
+  //   try {
+  //     console.log(`--- starting cron job to process next BaseOps task`);
+  //     // await this.processNextTask();
+  //   } catch (error) {
+  //     console.error('Error in cron job processNextBatch:', error);
+  //   }
+  // }
+
   @Cron('*/5 * * * * *')
-  async cronProcessNextTask(): Promise<void> {
+  async orchestratorCronJob() {
+    await this.triggerOrchestrator();
+  }
+
+  public async triggerOrchestrator(): Promise<void> {
+    // Prevent overlapping executions
+    if (this.isProcessing) {
+      console.log('Previous cron job still running, skipping this execution');
+      return;
+    }
+
     try {
-      await this.processNextTask();
+    this.isProcessing = true;
+    console.log('--- starting cron job to process next BaseOps task');
+    if (!await this.shouldCreateTask()) { return; }
+    await this.processWaitHaultedTasks();
+    if (!await this.shouldCreateTask()) { return; }
+    await this.processNextTask();
+    this.isProcessing = false;
     } catch (error) {
       console.error('Error in cron job processNextTask:', error);
+    } finally {
+      this.isProcessing = false; // Always release the lock
     }
   }
+
   async findNextTask(): Promise<Task | null> {
     const nextTask = await this.taskRepository.findOne({
       where: {
@@ -82,19 +124,124 @@ export class BaseopsTaskService {
     });
     return nextTask;
   }
-  async processNextTask(): Promise<string | null> {
-    // ---> check if there are robots available in the system to dispatch the task.
-    const robotAvailable = await this.isRobotAvailable();
-    if (!robotAvailable){
-      console.log('No robots available to process BaseOps tasks at the moment.');
-      return null;
-    }
-    const isWaiting = await this.checkIfSystemIsInWaitingState();
-    if (isWaiting){
-      console.log('System is in waiting state, not dispatching new BaseOps tasks.');
-      return null;
+
+  async processWaitHaultedTasks(): Promise<void> {
+  // Process wait tasks
+    const waitTasks = await this.taskRepository.find({
+      where: {
+        task_type: TaskType.BASEOPS,
+        status: TaskStatus.COMPLETED,
+        move_type: MOVE_TYPE.ZONE_TO_WAIT,
+      },
+      relations: ['batch'],
+      order: {
+        batch: { priority: 'ASC', created_at: 'ASC' },
+        priority: 'ASC',
+        created_at: 'ASC'
+      }
+    });
+
+    for (const task of waitTasks) {
+      if (!task.end_location) { continue; }
+      
+      let end_location_id: string | null = null;
+      if (task.end_location.location_attribute?.attribute_name === "ZONE") {
+        end_location_id = await this.BaseOpsLocationManagerService.findOptimalDropLocation(task.end_location.location_attribute?.attribute_value);
+        if (!end_location_id) { continue; }
+      } else { 
+        end_location_id = task.end_location.location_attribute.attribute_value; 
+      }
+
+      if (!await this.BaseOpsLocationManagerService.reserveLocation(end_location_id)) { continue; }
+
+      const newTask = await this.createNextSequenceTask(task, end_location_id);
+      if (!newTask) continue;
+
+      // Send to WMS and increment - extracted to helper method
+      const success = await this.sendTaskToWMSAndIncrement(newTask, end_location_id, task.batch.priority);
+      if (success) {
+        await this.taskRepository.update(
+          {task_id: newTask.task_id},
+          {status: TaskStatus.ASSIGNED}
+        );
+      }
     }
 
+    // Process haulted tasks
+    const haultedTasks = await this.taskRepository.find({
+      where: {
+        task_type: TaskType.BASEOPS,
+        status: TaskStatus.HAULTED,
+        move_type: MOVE_TYPE.ZONE_TO_ZONE,
+      },
+      relations: ['batch'],
+      order: {
+        batch: { priority: 'ASC', created_at: 'ASC' },
+        priority: 'ASC',
+        created_at: 'ASC'
+      }
+    });
+
+    for (const task of haultedTasks) {
+      if (!task.end_location) { continue; }
+      await this.processTask(task);
+    }
+  }
+
+  // Helper method to avoid duplication
+  private async sendTaskToWMSAndIncrement(task: Task, end_location_id: string, batchPriority: number): Promise<boolean> {
+    const req_tasks = [{
+      task_id: task.task_id,
+      task_type: task.task_type,
+      task_dependency: task.task_dependency,
+      robot_id: task.robot_id,
+      start_location: {
+        location_id: task.start_location.location_id,
+        location_type: task.start_location.location_type,
+        location_action: task.start_location.location_action,
+        location_dimension: task.start_location.location_dimension,
+      },
+      end_location: {
+        location_id: end_location_id,
+        location_type: task.end_location.location_type,
+        location_action: task.end_location.location_action,
+        location_dimension: task.end_location.location_dimension,
+      },
+      wait: task.wait,
+      cargos: task.cargos
+    }];
+
+    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+    const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
+    
+    const req_body = {
+      batch_type: "DISCRETE",
+      batch_priority: batchPriority,
+      tasks: req_tasks
+    };
+
+    try {
+      await firstValueFrom(
+        this.httpService.post(`${wms_base_url}/robot-job/${warehouse_name}/tasks`, req_body, {
+          headers: {
+            'authorization': `${warehouse_key}`,
+            'Content-Type': 'application/json'
+          }
+        })
+      );
+      
+      await this.incrementRobotInUse(); // ← Single increment point
+      return true;
+    } catch (error) {
+      console.error(`Error sending task ${task.task_id} to WMS Layer:`, error);
+      await this.BaseOpsLocationManagerService.freeLocation(end_location_id);
+      await this.taskRepository.delete({task_id: task.task_id});
+      return false;
+    }
+  }
+
+  async processNextTask(): Promise<string | null> {
     // ---> find next to process, task_type=BaseOps, status=PENDING, move_type=ZONE_TO_ZONE, its batch should have lowest priority 
     const nextTask = await this.findNextTask();
 
@@ -124,29 +271,52 @@ export class BaseopsTaskService {
       // write the logic to find the pallet location in that zone
       end_location_id = await this.BaseOpsLocationManagerService.findOptimalDropLocation(task.end_location.location_attribute?.attribute_value);
       if (!end_location_id){
-        console.log(`No available drop location in zone ${task.end_location.location_attribute?.attribute_value}, re-queue the task ${task.task_id}`);
-        return;
+        // no optimal drop location found in the zone, look for the location in wait zone
+        end_location_id = await this.BaseOpsLocationManagerService.getOptimalWaitLocation();
+        if (!end_location_id){
+          // no wait location was found instead
+          console.log(`No wait location found, re-queue the task ${task.task_id}`);
+          // mark the current task status as Haulted
+          await this.markTaskHaulted(task.task_id);
+          return;
+        }
+        task.end_location.location_id = end_location_id;
+        await this.taskRepository.update({task_id: task.task_id},{end_location: task.end_location, move_type: MOVE_TYPE.ZONE_TO_WAIT});
       }
       task.end_location.location_id = end_location_id;
-      await this.taskRepository.update(
-        {task_id: task.task_id},
-        {end_location: task.end_location}
-      );
+      await this.taskRepository.update({task_id: task.task_id},{end_location: task.end_location});
     }
     else{
       end_location_id = task.end_location.location_id;
     }
+
+    const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveLocation(task.start_location.location_id);
+    if (!reserveStartLocation){
+      console.log(`Location ${task.start_location.location_id} is not available.`);
+      await this.markTaskHaulted(task.task_id);
+      return;
+    }
+
     const reserveEndLocation = await this.BaseOpsLocationManagerService.reserveLocation(end_location_id);
     if (!reserveEndLocation){
       console.log(`Location ${end_location_id} is not available.`);
-      return;
+      if (task.end_location.location_attribute?.attribute_name === "ZONE"){
+        await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
+        return;
+      }
+      end_location_id = await this.BaseOpsLocationManagerService.getOptimalWaitLocation();
+      if (!end_location_id){
+        console.log(`No wait location found, re-queue the task ${task.task_id}`);
+        await this.markTaskHaulted(task.task_id);
+        await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
+        return;
+      }
+      if (!await this.BaseOpsLocationManagerService.reserveLocation(end_location_id)){
+        return;
+      }
+      task.end_location.location_id = end_location_id;
+      await this.taskRepository.update({task_id: task.task_id},{end_location: task.end_location, move_type: MOVE_TYPE.ZONE_TO_WAIT});
     }
-    // const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveLocation(task.start_location.location_id);
-    // if (!reserveStartLocation){
-    //   console.log(`Location ${task.start_location.location_id} is not available.`);
-    //   await this.BaseOpsLocationManagerService.freeLocation(end_location_id);
-    //   return;
-    // }
     req_tasks.push({
       task_id: task.task_id,
       task_type: task.task_type,
@@ -193,6 +363,13 @@ export class BaseopsTaskService {
     await this.taskRepository.update(
       {task_id: task.task_id},
       {status: TaskStatus.ASSIGNED}
+    );
+  }
+
+  private async markTaskHaulted(task_id: string): Promise<void> {
+    await this.taskRepository.update(
+      {task_id: task_id},
+      {status: TaskStatus.HAULTED}
     );
   }
 
@@ -304,17 +481,17 @@ export class BaseopsTaskService {
       if (OtherTaskWithStartLocation){
         validationErrors.push(`Row ${rowNum-1}: start_location_location_id '${startLocationId}' is already assigned to another pending task (${OtherTaskWithStartLocation})`);
       }
-      if (endLocationType == 'PALLET') {
-        const endLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(endLocationId, false);
-        console.log(`endlocation validation for ${endLocationId}: ${endLocationValid}`);
-        if (!endLocationValid) {
-          validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is not available or does not exist in the system`);
-        }
-        const otherTaskWithEndLocation = await this.BaseOpsLocationManagerService.otherTaskWithEndLocation(endLocationId);
-        if (otherTaskWithEndLocation){
-          validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is already assigned to another pending task (${otherTaskWithEndLocation})`);
-        }
-      }
+      // if (endLocationType == 'PALLET') {
+      //   const endLocationValid = await this.BaseOpsLocationManagerService.isValidLocationId(endLocationId, false);
+      //   console.log(`endlocation validation for ${endLocationId}: ${endLocationValid}`);
+      //   if (!endLocationValid) {
+      //     validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is not available or does not exist in the system`);
+      //   }
+      //   const otherTaskWithEndLocation = await this.BaseOpsLocationManagerService.otherTaskWithEndLocation(endLocationId);
+      //   if (otherTaskWithEndLocation){
+      //     validationErrors.push(`Row ${rowNum-1}: end_location_location_id '${endLocationId}' is already assigned to another pending task (${otherTaskWithEndLocation})`);
+      //   }
+      // }
 
     }
     console.log(`Validation completed with ${validationErrors.length} errors.`);
@@ -425,12 +602,13 @@ export class BaseopsTaskService {
             .set({ 
                 robot_in_use: () => "robot_in_use + 1" 
             })
-            .where("operation_type = :opType", { opType: OperationType.BASEOPS })
+            .where("operation_type = :operation_type", { operation_type: OperationType.BASEOPS })
             .execute();
 
         if (result.affected === 0) {
             throw new Error('No Robot Entry Found');
         }
+        console.log(`Robot in use incremented successfully.`);
         
         await queryRunner.commitTransaction();
     } catch (error) {
@@ -541,5 +719,62 @@ export class BaseopsTaskService {
 
   async getManualTaskEndLocation(){
     return await this.BaseOpsLocationManagerService.getManualTaskEndLocation();
+  }
+
+  async createNextSequenceTask(task: Task, end_location_id: string): Promise<Task | null> {
+    const newTask = new Task();
+    newTask.batch_id = task.batch.batch_id;
+    newTask.task_type = TaskType.BASEOPS;
+    newTask.status = TaskStatus.PENDING;
+    newTask.move_type = MOVE_TYPE.WAIT_TO_ZONE;
+    newTask.sequence_order = task.sequence_order + 1;
+    newTask.task_dependency = task.task_id;
+    newTask.robot_id = null as any;
+    newTask.priority = task.priority;
+    
+    newTask.start_location = {
+      location_id: task.end_location.location_id,
+      location_type: LocationType.PALLET, 
+      location_action: LocationAction.PICK,
+      location_dimension: {
+        length: 1, width: 1, height: 1
+      },
+      location_attribute: {
+        attribute_name: task.end_location.location_attribute.attribute_name,
+        attribute_value: task.end_location.location_attribute.attribute_value
+      },
+    };
+    
+    newTask.end_location = {
+      location_id: end_location_id !== null ? end_location_id : 'To be decided',
+      location_type: task.end_location.location_type === 'PALLET' ? LocationType.PALLET : LocationType.ZONE,
+      location_action: LocationAction.DROP,
+      location_dimension: {
+        length: 1, width: 1, height: 1
+      },
+      location_attribute: {
+        attribute_name: task.end_location.location_attribute.attribute_name,
+        attribute_value: task.end_location.location_attribute.attribute_value
+      }
+    };
+    
+    newTask.wait = null as any;
+    if (task.cargos && task.cargos.length > 0){
+        newTask.cargos = [{
+        cargo_code: task.cargos[0].cargo_code,
+        cargo_type: 'Pallet',
+        cargo_dimension: {
+          length: 1, width: 1, height: 1
+        },
+        cargo_attributes: null,
+        cargo_weight: 1,
+      }];
+    }
+    else{
+      newTask.cargos = null as any;
+    }
+    
+    
+    return await this.taskRepository.save(newTask);
   }
 }

@@ -1701,7 +1701,7 @@ export class OrchestratorService {
         where: { 
           status: TaskStatus.PENDING,
           created_at: LessThan(twoMinutesAgo),
-          move_type: Not(MOVE_TYPE.ZONE_TO_ZONE),
+          task_type: Not(TaskType.BASEOPS),
         },
         order: { created_at: 'ASC' } // FIFO order
       });
@@ -2517,7 +2517,7 @@ export class OrchestratorService {
     }
   }  else if (module === "BaseOps"){
     for (const task of allTasks){
-      if (task.move_type === MOVE_TYPE.ZONE_TO_ZONE){
+      if (task.task_type === TaskType.BASEOPS){
         if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res.ZoneToZone.push(travelTime);

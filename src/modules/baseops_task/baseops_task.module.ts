@@ -7,7 +7,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Robot, Task } from 'src/entities';
 import { Batch } from 'src/entities/batch.entity';
 import { User } from 'src/entities/user.entity';
-import { HeapPriorityQueueService } from './heap.service';
 import { HttpModule } from '@nestjs/axios';
 import { BaseOpsLocationManagerService } from './location_manager.service';
 import { LocationEntity } from 'src/entities/location.entity';
@@ -15,6 +14,6 @@ import { LocationEntity } from 'src/entities/location.entity';
 @Module({
   imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity, Robot, Task]) ,OrchestratorModule,HttpModule],
   controllers: [BaseopsTaskController],
-  providers: [BaseopsTaskService, HeapPriorityQueueService, BaseOpsLocationManagerService],
+  providers: [BaseopsTaskService, BaseOpsLocationManagerService],
 })
 export class BaseopsTaskModule {}
