@@ -533,6 +533,8 @@ export class BaseopsTaskService {
       newRobotConfig.is_waiting = false;
       await this.robotRepository.save(newRobotConfig);
     }
+
+    await this.BaseOpsLocationManagerService.syncFMSLocations();  
   }
 
   async getManualTaskStartLocation(){
