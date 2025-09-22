@@ -276,12 +276,12 @@ export class BaseopsTaskService {
       end_location_id = task.end_location.location_id;
     }
 
-    // const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveLocation(task.start_location.location_id);
-    // if (!reserveStartLocation){
-    //   console.log(`Location ${task.start_location.location_id} is not available.`);
-    //   await this.markTaskHaulted(task.task_id);
-    //   return;
-    // }
+    const reserveStartLocation = await this.BaseOpsLocationManagerService.reserveStartLocation(task.start_location.location_id);
+    if (!reserveStartLocation){
+      console.log(`Location ${task.start_location.location_id} is not available.`);
+      await this.markTaskHaulted(task.task_id);
+      return;
+    }
 
     const reserveEndLocation = await this.BaseOpsLocationManagerService.reserveLocation(end_location_id);
     if (!reserveEndLocation){
