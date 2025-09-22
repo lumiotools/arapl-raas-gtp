@@ -34,6 +34,7 @@ import {
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
+import { Role } from 'src/entities/user.entity';
 
 @ApiTags('Inventory')
 @Controller('inventory')
@@ -72,7 +73,7 @@ export class InventoryController {
 
   @Post('upload')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ 
     summary: 'Upload inventory data from CSV file',
@@ -128,7 +129,7 @@ export class InventoryController {
     type: [InventoryResponseDto]
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async findAll() {
     return await this.inventoryService.findAll();
   }
@@ -263,7 +264,7 @@ export class InventoryController {
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async getActiveRobot(@Param('id') id: string) {
     return await this.inventoryService.getActiveRobotAtInventory(id);
   }

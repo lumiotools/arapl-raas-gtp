@@ -4,6 +4,7 @@ import { LoggingService } from '../../services/logging.service';
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
+import { Role } from 'src/entities/user.entity';
 
 @ApiTags('Logs')
 @Controller('logs')
@@ -37,7 +38,7 @@ export class LogsController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async getAllLogs(@Query('limit') limit?: number) {
     return await this.loggingService.getAllLogs(limit);
   }
@@ -63,7 +64,7 @@ export class LogsController {
     description: 'Search results retrieved successfully'
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async searchLogs(
     @Query('q') searchTerm: string,
     @Query('limit') limit?: number
@@ -97,7 +98,7 @@ export class LogsController {
     description: 'Time range logs retrieved successfully'
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async getLogsByTimeRange(
     @Query('startTime') startTime: string,
     @Query('endTime') endTime: string,
@@ -130,7 +131,7 @@ export class LogsController {
     description: 'Failed to delete logs'
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async deleteAllLogs() {
     const result = await this.loggingService.deleteAllLogs();
     return {

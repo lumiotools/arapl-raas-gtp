@@ -11,8 +11,10 @@ import {
 } from 'typeorm';
 
 export enum Role {
-  OPERATOR = 'operator',
   ADMIN = 'admin',
+  FLOWOPS_OPERATOR = 'flowops.operator',
+  FLOWOPS_ADMIN = 'flowops.admin',
+  BASEOPS_ADMIN = 'baseops.admin',
 }
 
 @Entity('users')

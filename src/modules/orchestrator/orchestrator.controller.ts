@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { Roles } from '../auth/guard/roles.decorator';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { BadRequestDto } from '../orders/dto/error-responses.dto';
+import { Role } from 'src/entities/user.entity';
 
 @ApiTags('Orchestrator')
 @Controller('orchestrator')
@@ -28,7 +29,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async triggerOrchestrator() {
     return await this.orchestratorService.writeInDatabase();
   }
@@ -49,7 +50,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async triggerLicensePlate(@Param('licensePlate') licensePlate: string) {
     return await this.orchestratorService.triggerLicensePlateService(licensePlate);
   }
@@ -115,7 +116,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async getAllProductRequirements() {
     return await this.orchestratorService.getAllProductRequirements();
   }
@@ -145,7 +146,7 @@ export class OrchestratorController {
     description: 'Product requirements for the specified station',
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async getProductRequirementsByStationId(@Param('stationId') stationId: string) {
     return await this.orchestratorService.getProductRequirementsByStationId(stationId);
   }
@@ -173,7 +174,7 @@ export class OrchestratorController {
 
   @Get('tasks')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @ApiOperation({
     summary: 'Get all tasks in the system',
     description: 'Retrieve all tasks from the database with their complete details including locations, status, and dependencies.',
@@ -431,7 +432,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async pauseAllProductRequirements() {
     const result = await this.orchestratorService.pauseAllProductRequirements();
     return {
@@ -459,7 +460,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async cancelAllProductRequirements() {
     const result = await this.orchestratorService.cancelAllProductRequirements();
     return {
@@ -487,7 +488,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async ResumeAllProductRequirements() {
     const result = await this.orchestratorService.resumeAllProductRequirements();
     return {
@@ -615,7 +616,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async setInitialConfiguration() {
     return await this.orchestratorService.setInitialConfiguration();
   }
@@ -722,7 +723,7 @@ export class OrchestratorController {
       }
     })
     @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles('admin', 'operator')
+    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN)
     async getRobotReport(
       @Query('start_time') startTime?: string,
       @Query('end_time') endTime?: string
@@ -800,7 +801,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN)
   async getMovementReport(
     @Query('start_time') startTime?: string,
     @Query('end_time') endTime?: string,
@@ -833,7 +834,7 @@ export class OrchestratorController {
   @Get('by-status')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles('admin', 'operator')
+    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN)
     @ApiOperation({
     summary: 'Get orders by status and time range',
     description: 'Retrieve all orders filtered by their status and optionally by time range. Multiple statuses can be provided as comma-separated values.',
@@ -951,7 +952,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async getTravelAnalysisMovements(
     @Query('source_type') sourceType: string,
     @Query('source_location') sourceLocation: string | string[],
@@ -1038,7 +1039,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin','operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async updateTotalRobots(@Body('total_robots') totalRobots: number, @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps") {
     if (!totalRobots || totalRobots <= 0) {
       throw new BadRequestException('total_robots must be a positive number');
@@ -1071,7 +1072,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async getTotalRobots(@Query('module') module: "FlowOps" | "BaseOps" = "FlowOps") {
     const totalRobots = await this.orchestratorService.getTotalRobots(module);
 

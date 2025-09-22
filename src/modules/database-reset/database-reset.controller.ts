@@ -5,6 +5,7 @@ import { ResetResponseDto } from './dto/reset-response.dto';
 import { Roles } from '../auth/guard/roles.decorator';
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
+import { Role } from 'src/entities/user.entity';
 
 @ApiTags('Database Reset')
 @Controller('database-reset')
@@ -14,7 +15,7 @@ export class DatabaseResetController {
   @Post()
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @ApiOperation({
     summary: 'Reset database to clean state',
     description: `

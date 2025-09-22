@@ -22,6 +22,7 @@ import { TriggerService } from './trigger.service';
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
+import { Role } from 'src/entities/user.entity';
 
 export enum MessageCode {
   DEFECTIVE_PRODUCT = 'DEFECTIVE_PRODUCT',
@@ -101,7 +102,7 @@ export class TriggerController {
     },
   })
   @UseGuards (JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async triggerStation(
     @Param('station_id') stationId: string,
     @Body() body: { dropped_quantity: number; message_code: MessageCode }
@@ -214,7 +215,7 @@ export class TriggerController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   getMessageCodes() {
     return { codes: Object.values(MessageCode) };
   }

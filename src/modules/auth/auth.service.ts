@@ -50,7 +50,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid Username or Password');
     }
     // Generate a JWT token
-    const payload = { sub: user.id, username: user.user_name, role: user.role };
+    const payload = { sub: user.id, user_name: user.user_name, role: user.role };
     const token = await this.jwtService.signAsync(payload);
     let res = {
       user_name: user.user_name,

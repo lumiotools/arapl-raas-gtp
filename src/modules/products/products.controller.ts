@@ -15,6 +15,7 @@ import { Roles } from '../auth/guard/roles.decorator';
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Query, HttpCode } from '@nestjs/common';
+import { Role } from 'src/entities/user.entity';
 
 @ApiTags('Products')
 @Controller('products')
@@ -48,7 +49,7 @@ export class ProductsController {
 
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @ApiOperation({ 
     summary: 'Get all products',
     description: 'Retrieve a list of all products in the catalog.'
@@ -64,7 +65,7 @@ export class ProductsController {
 
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @ApiOperation({ 
     summary: 'Get a product by ID',
     description: 'Retrieve a specific product by its unique identifier.'
@@ -107,7 +108,7 @@ export class ProductsController {
     type: ValidationErrorResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto) {
     // Validate that URL parameter ID matches DTO ID if provided
     if (updateProductDto.product_id && updateProductDto.product_id !== id) {
@@ -142,7 +143,7 @@ export class ProductsController {
   @Get('product-order-report/summary')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @ApiOperation({
     summary: 'Get product order report summary',
     description: 'Returns a summary report for product orders within the specified date range.',

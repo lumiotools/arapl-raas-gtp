@@ -31,6 +31,7 @@ import {
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
+import { Role } from 'src/entities/user.entity';
 
 
 @ApiTags('Orders')
@@ -41,7 +42,7 @@ export class OrdersController {
   @Post('schedule-mapping/upload')
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({
     summary: 'Upload schedule mappings from CSV file',
@@ -106,7 +107,7 @@ export class OrdersController {
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({
     summary: 'Upload orders from CSV/Excel file',
@@ -248,7 +249,7 @@ export class OrdersController {
     type: BadRequestDto,
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator') 
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR) 
   async getAvailableLicensePlates() {
     return await this.ordersService.getAvailableLicensePlates();
   }
@@ -306,7 +307,7 @@ export class OrdersController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async mapLicensePlateToGtpLocation(
     @Body() mappingData: { licensePlateId: string; gtpLocationId: string }
   ) {
@@ -318,7 +319,7 @@ export class OrdersController {
 
   @Get('order-items')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all order items',
@@ -417,7 +418,7 @@ export class OrdersController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async removeLicensePlateMapping(
     @Param('licensePlateId') licensePlateId: string
   ) {
@@ -458,7 +459,7 @@ export class OrdersController {
   @Get('license-plates/by-gtp-location/:gtpLocationId')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @ApiOperation({
     summary: 'Get license plates by GTP location',
     description: 'Retrieve all license plates assigned to the specified GTP location.',
@@ -493,7 +494,7 @@ export class OrdersController {
   @Get('gtp-location-status/:gtpLocationId')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @ApiOperation({
     summary: 'Get GTP location status',
     description: 'Returns the status (boolean) for the specified GTP location.',
@@ -522,7 +523,7 @@ export class OrdersController {
   @Get('by-status')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles('admin', 'operator')
+    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
     @ApiOperation({
     summary: 'Get orders by status and time range',
     description: 'Retrieve all orders filtered by their status and optionally by time range. Multiple statuses can be provided as comma-separated values.',
@@ -599,7 +600,7 @@ export class OrdersController {
   @Get('station-report/summary')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   @ApiOperation({
     summary: 'Get station report summary',
     description: 'Returns a summary report for stations within the specified date range.',

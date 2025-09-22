@@ -7,6 +7,7 @@ import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
 import { ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
 import { NotFoundResponseDto } from 'src/common/dto/common-responses.dto';
+import { Role } from 'src/entities/user.entity';
 
 @Controller('waiting-location')
 export class WaitingLocationController {
@@ -14,13 +15,13 @@ export class WaitingLocationController {
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async create(@Body() createWaitingLocationDto: CreateWaitingLocationDto) {
     return await this.waitingLocationService.create(createWaitingLocationDto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   @Get()
   async findAll() {
     return await this.waitingLocationService.findAll();
@@ -28,20 +29,20 @@ export class WaitingLocationController {
 
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async findOne(@Param('id') id: string) {
     return await this.waitingLocationService.findOne(id);
   }
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async update(@Param('id') id: string, @Body() updateWaitingLocationDto: UpdateWaitingLocationDto) {
     return await this.waitingLocationService.update(id, updateWaitingLocationDto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   @Delete(':id')
   async remove(@Param('id') id: string) {
     return await this.waitingLocationService.remove(id);
@@ -71,7 +72,7 @@ export class WaitingLocationController {
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async getActiveRobot(@Param('id') id: string) {
     return await this.waitingLocationService.getActiveRobotAtWaiting(id);
   }

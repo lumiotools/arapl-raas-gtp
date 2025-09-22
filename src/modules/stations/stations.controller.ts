@@ -25,6 +25,7 @@ import {
 import { Roles } from '../auth/guard/roles.decorator';
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
+import { Role } from 'src/entities/user.entity';
 
 @ApiTags('Stations')
 @Controller('stations')
@@ -53,7 +54,7 @@ export class StationsController {
     type: ConflictResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async create(@Body() createStationDto: CreateStationDto) {
     return await this.stationsService.create(createStationDto);
   }
@@ -83,7 +84,7 @@ export class StationsController {
       }
     })
     @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles('admin', 'operator')
+    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
     async getUnloadingTimes(
       @Query('start_time') startTime?: string,
       @Query('end_time') endTime?: string
@@ -121,7 +122,7 @@ export class StationsController {
     type: [StationResponseDto]
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async findAll() {
     return await this.stationsService.findAll();
   }
@@ -143,7 +144,7 @@ export class StationsController {
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async findOne(@Param('id') id: string) {
     const station = await this.stationsService.findOne(id);
     return station;
@@ -172,7 +173,7 @@ export class StationsController {
     type: ValidationErrorResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async update(@Param('id') id: string, @Body() updateStationDto: UpdateStationDto) {
     // Validate that URL parameter ID matches DTO ID if provided
     if (updateStationDto.station_id && updateStationDto.station_id !== id) {
@@ -201,7 +202,7 @@ export class StationsController {
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async remove(@Param('id') id: string) {
     return await this.stationsService.remove(id);
   }
@@ -230,7 +231,7 @@ export class StationsController {
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async getActiveRobot(@Param('id') id: string) {
     return await this.stationsService.getActiveRobotAtStation(id);
   }

@@ -7,6 +7,7 @@ import { Roles } from './guard/roles.decorator';
 import { JwtService } from '@nestjs/jwt';
 import { jwtConfig } from 'src/config/jwt.config';
 import { JwtAuthGuard } from './guard/auth.guard';
+import { Role } from 'src/entities/user.entity';
 
 @Controller('auth')
 export class AuthController {
@@ -66,7 +67,7 @@ export class AuthController {
   // Admin only route
   @Get('/admin/users')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async getAllUsers() {
     return { message: 'Only admins can see this' };
   }
@@ -74,7 +75,7 @@ export class AuthController {
   // Multiple roles allowed
   @Get('/admin/reports')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN)
   async getReports() {
     return { message: 'Admins and operators can see this' };
   }

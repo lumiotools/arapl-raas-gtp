@@ -14,6 +14,7 @@ import {
 import { Roles } from '../auth/guard/roles.decorator';
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
+import { Role } from 'src/entities/user.entity';
 
 @ApiTags('GTP Locations')
 @Controller('gtp')
@@ -42,7 +43,7 @@ export class GtpController {
     type: ConflictResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async create(@Body() createGtpDto: CreateGtpDto) {
     return await this.gtpService.create(createGtpDto as any);
   }
@@ -58,7 +59,7 @@ export class GtpController {
     type: [GtpLocationResponseDto]
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   findAll() {
     return this.gtpService.findAll();
   }
@@ -80,7 +81,7 @@ export class GtpController {
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async findOne(@Param('id') id: string) {
     return await this.gtpService.findOne(id);
   }
@@ -108,7 +109,7 @@ export class GtpController {
     type: ValidationErrorResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async update(@Param('id') id: string, @Body() updateGtpDto: UpdateGtpDto) {
     // Validate that URL parameter ID matches DTO ID if provided
     if (updateGtpDto.gtp_location_id && updateGtpDto.gtp_location_id !== id) {
@@ -137,7 +138,7 @@ export class GtpController {
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin')
+  @Roles(Role.FLOWOPS_ADMIN)
   async remove(@Param('id') id: string) {
     return await this.gtpService.remove(id);
   }
