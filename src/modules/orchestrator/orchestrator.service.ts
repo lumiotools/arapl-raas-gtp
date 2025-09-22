@@ -23,6 +23,8 @@ import {config} from 'dotenv';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities';
+import { EmptyLocation } from 'src/entities/empty-location.entity';
+import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -93,6 +95,7 @@ export class OrchestratorService {
     private readonly scheduleMappingRepository: Repository<ScheduleMapping>,
     @InjectRepository(Robot)
     private readonly robotRepository: Repository<Robot>,
+    private readonly emptyLocationsService: EmptyLocationsService,
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
     private readonly loggingService: LoggingService,
@@ -577,7 +580,7 @@ export class OrchestratorService {
     try {
       console.log(`Cancelling task ${parking_task.task_id}`);
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-      const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test'; // Fixed typo
+      const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test'; // Fixed typo
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030';
       const fms_batch_id = parking_task.fms_batch_id;
       
@@ -629,6 +632,7 @@ export class OrchestratorService {
   async setInitialConfiguration(){
     await this.stationService.findAll();
     await this.waitingLocationService.findAll();
+    await this.emptyLocationsService.findAll();
     const robots = await this.robotRepository.find();
     if (robots.length === 0){
       await this.robotRepository.save({id: crypto.randomUUID(), is_waiting: false, total_robots: 1, robot_in_use: 0 });
@@ -883,7 +887,7 @@ export class OrchestratorService {
       };
       console.log(`Sending task ${task.task_id} to WMS with request body: ${JSON.stringify(requestBody)}`);
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';  
 
       const response = await firstValueFrom(

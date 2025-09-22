@@ -189,7 +189,7 @@ export class InventoryService {
   async getAllInventoryLocations(){
     try{
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_kEY || 'test';
+      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
       const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=inventory&location_type=inventory`, {
         method: 'GET',

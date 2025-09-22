@@ -17,6 +17,9 @@ import { StationsService } from '../stations/stations.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities';
+import { EmptyLocation } from 'src/entities/empty-location.entity';
+import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
+import { EmptyLocationsModule } from '../empty_locations/empty_locations.module';
 
 @Module({
   imports: [
@@ -32,13 +35,15 @@ import { Robot } from 'src/entities';
       User,
       Station,
       Robot,
-      ScheduleMapping
+      ScheduleMapping,
+      EmptyLocation
     ]),
     HttpModule,
     InventoryModule,
+    EmptyLocationsModule
   ],
   controllers: [OrchestratorController],
-  providers: [OrchestratorService, StationsService, WaitingLocationService],
+  providers: [OrchestratorService, StationsService, WaitingLocationService, EmptyLocationsService],
   exports: [OrchestratorService],
 })
 export class OrchestratorModule {}
