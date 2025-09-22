@@ -22,6 +22,7 @@ export enum TaskType {
   PICKING = 'PICKING',
   DROP = 'DROP',
   GOODS_TO_PERSON = 'GoodsToPerson',
+  BaseOps = 'Baseops',
   NOP = "NOP"
 }
 

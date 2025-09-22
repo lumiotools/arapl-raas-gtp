@@ -71,6 +71,7 @@ export class InventoryService {
   }
 
   async findAll() {
+    return await this.inventoryRepository.find();
     try{
       const inventory_object = await this.getAllInventoryLocations();
       const bin_locations = inventory_object.available_location_types || [];
