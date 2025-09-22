@@ -174,7 +174,7 @@ export class OrchestratorController {
 
   @Get('tasks')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN)
   @ApiOperation({
     summary: 'Get all tasks in the system',
     description: 'Retrieve all tasks from the database with their complete details including locations, status, and dependencies.',
@@ -726,7 +726,8 @@ export class OrchestratorController {
     @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN)
     async getRobotReport(
       @Query('start_time') startTime?: string,
-      @Query('end_time') endTime?: string
+      @Query('end_time') endTime?: string,
+      @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
     ) {
       let startDate: Date | undefined;
       let endDate: Date | undefined;
@@ -749,7 +750,7 @@ export class OrchestratorController {
         throw new BadRequestException('start_time must be before end_time');
       }
 
-      return await this.orchestratorService.getRobotReport(startDate, endDate);
+      return await this.orchestratorService.getRobotReport(startDate, endDate, module);
   }
 
   @Get('movement-report')
@@ -870,7 +871,8 @@ export class OrchestratorController {
     async getOrdersByStatus(
     @Query('status') status: string,
     @Query('start_time') startTime?: string,
-    @Query('end_time') endTime?: string
+    @Query('end_time') endTime?: string,
+    @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
     ): Promise<TaskDetails[]> {
     if (!status) {
       throw new BadRequestException('Status query parameter is required');
@@ -905,7 +907,7 @@ export class OrchestratorController {
       throw new BadRequestException('start_time must be before end_time');
     }
     
-    return await this.orchestratorService.getTasksByStatus(statusList, startDate, endDate);
+    return await this.orchestratorService.getTasksByStatus(statusList, startDate, endDate, module);
 
   }
   
@@ -958,7 +960,8 @@ export class OrchestratorController {
     @Query('source_location') sourceLocation: string | string[],
     @Query('destination_type') destinationType: string,
     @Query('start_time') startTime?: string,
-    @Query('end_time') endTime?: string
+    @Query('end_time') endTime?: string,
+    @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
   ) {
     const validTypes = ['station', 'waiting_location', 'inventory'];
 
@@ -1004,7 +1007,8 @@ export class OrchestratorController {
       sourceLocations,
       destinationType,
       startDate,
-      endDate
+      endDate,
+      module
     );
   }
 

@@ -87,7 +87,8 @@ export class StationsController {
     @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
     async getUnloadingTimes(
       @Query('start_time') startTime?: string,
-      @Query('end_time') endTime?: string
+      @Query('end_time') endTime?: string,
+      @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
     ) {
       let startDate: Date | undefined;
     let endDate: Date | undefined;
@@ -109,7 +110,7 @@ export class StationsController {
     if (startDate && endDate && startDate >= endDate) {
       throw new BadRequestException('start_time must be before end_time');
     }
-      return await this.stationsService.getUnloadingTimes(startDate, endDate);
+      return await this.stationsService.getUnloadingTimes(startDate, endDate, module);
     }
   @Get()
   @ApiOperation({ 

@@ -6,7 +6,7 @@ import { Between, In, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { LocationStatus, Station } from 'src/entities/station.entity';
 import { GtpLocation, OrderItem, OrderItemStatus, Task } from 'src/entities';
 import { ProductRequirement as ProductRequirementEntity } from 'src/entities/product-requirement.entity';
-import { MOVE_TYPE, TaskStatus } from 'src/entities/task.entity';
+import { MOVE_TYPE, TaskStatus, TaskType } from 'src/entities/task.entity';
 import { firstValueFrom } from 'rxjs';
 import { ConflictError } from 'groq-sdk';
 
@@ -390,9 +390,11 @@ export class StationsService {
     }
   }
 
-  async getUnloadingTimes(startDate: Date | undefined, endDate: Date | undefined): Promise<any> {
+  async getUnloadingTimes(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps" = "FlowOps"): Promise<any> {
     const allStations = await this.stationRepository.find();
-    const whereCondition: any = {};
+    const whereCondition: any = {
+      task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
+    };
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
     }
