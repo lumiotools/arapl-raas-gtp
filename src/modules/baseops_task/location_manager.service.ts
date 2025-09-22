@@ -26,6 +26,17 @@ export class BaseOpsLocationManagerService {
         return true;
     }
 
+    async reserveStartLocation(display_name: string): Promise<boolean> {
+        const location = await this.locationRepository.findOne({ where: { display_name: display_name, location_status: In([LocationStatus.AVAILABLE, LocationStatus.OCCUPIED]) } });
+        if (!location) {
+            console.log(`Location ${display_name} is not available for reservation.`);
+            return false;
+        }
+        location.location_status = LocationStatus.RESERVED;
+        await this.locationRepository.save(location);
+        return true;
+    }
+
     async findOptimalDropLocation(zone_id: string): Promise<string | null> {
         const zone = await this.locationRepository.findOne({ where: { display_name: zone_id, location_type: LocationType.ZONE } });
         if (!zone) {
