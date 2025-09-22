@@ -25,6 +25,7 @@ import { WaitingLocationService } from '../waiting_location/waiting_location.ser
 import { Robot } from 'src/entities';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
+import { send } from 'process';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -95,6 +96,8 @@ export class OrchestratorService {
     private readonly scheduleMappingRepository: Repository<ScheduleMapping>,
     @InjectRepository(Robot)
     private readonly robotRepository: Repository<Robot>,
+    @InjectRepository(EmptyLocation)
+    private readonly emptyLocationRepository: Repository<EmptyLocation>,
     private readonly emptyLocationsService: EmptyLocationsService,
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
@@ -724,6 +727,7 @@ export class OrchestratorService {
     destinationStationId?: string;
     destinationInventoryId?: string;
     destinationWaitingLocationId?: string;
+    destinationEmptyLocationId?: string;
     taskType: TaskType;
     robotId?: string | null;
     move_type: MOVE_TYPE;
@@ -732,15 +736,15 @@ export class OrchestratorService {
   }): Promise<[string, Task | null]> {
     // Create start location
     const startLocation = this.createLocation(
-      taskData.sourceInventoryId || taskData.sourceStationId || taskData.sourceWaitingLocationId!,
+      taskData.sourceInventoryId || taskData.sourceStationId || taskData.sourceWaitingLocationId || taskData.destinationEmptyLocationId!,
       taskData.sourceInventoryId ? 'inventory' : taskData.sourceStationId ? 'station' : 'waiting_location',
       this.getLocationAction(taskData, 'start')
     );
 
     // Create end location
     const endLocation = this.createLocation(
-      taskData.destinationInventoryId || taskData.destinationStationId || taskData.destinationWaitingLocationId!,
-      taskData.destinationInventoryId ? 'inventory' : taskData.destinationStationId ? 'station' : 'waiting_location',
+      taskData.destinationInventoryId || taskData.destinationStationId || taskData.destinationWaitingLocationId || taskData.destinationEmptyLocationId!,
+      taskData.destinationInventoryId ? 'inventory' : taskData.destinationStationId ? 'station' : taskData.destinationWaitingLocationId ? 'waiting_location' : 'empty_location',
       this.getLocationAction(taskData, 'end')
     );
     console.log(`startLocation: ${JSON.stringify(startLocation)}`);
@@ -773,7 +777,7 @@ export class OrchestratorService {
 
   private createLocation(
     locationId: string,
-    locationType: 'inventory' | 'station' | 'waiting_location',
+    locationType: 'inventory' | 'station' | 'waiting_location' | 'empty_location',
     locationAction: LocationAction
   ): Location {
     return {
@@ -795,6 +799,7 @@ export class OrchestratorService {
     const isStationToWaiting = taskData.sourceStationId && taskData.destinationWaitingLocationId;
     const isWaitingToStation = taskData.sourceWaitingLocationId && taskData.destinationStationId;
     const isWaitingToInventory = taskData.sourceWaitingLocationId && taskData.destinationInventoryId;
+    const isToEmptyLocation = taskData.destinationEmptyLocationId;
 
     if (isInventoryToStation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP_PAUSE;
     if (isInventoryToWaitLocation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP_PAUSE;
@@ -803,6 +808,7 @@ export class OrchestratorService {
     if (isWaitingToStation) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.NOP_PAUSE;
     if (isStationToInventory) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
     if (isWaitingToInventory) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
+    if (isToEmptyLocation) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
 
     // Default fallback
     return LocationAction.NOP_PAUSE;
@@ -930,13 +936,9 @@ export class OrchestratorService {
         }
       });
       if (existingNextTask) {return;}
-      let back_to_inventory : boolean = false;
-
-      if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
-        back_to_inventory = true;
-      }
-      if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
-        back_to_inventory = true;
+      let send_to_empty : boolean = false;
+      if (message_code === MessageCode.SEND_TO_EMPTY_LOCATION){
+        send_to_empty = true;
       }
 
       // Update inventory quantity (reduce by dropped amount)
@@ -956,7 +958,6 @@ export class OrchestratorService {
       // Remove the fulfilled product requirement from database (quantity has been dropped at this station)
       const currentStationId = completedTask.end_location.location_id;
       // await this.removeProductRequirement(completedTask, completedTask.product_id, currentStationId, droppedQuantity, message_code);
-      
       const req = await this.productRequirementRepository.findOne({
         where: {
           source_location_id: completedTask.origin_location,
@@ -966,7 +967,7 @@ export class OrchestratorService {
         where: { station_id: currentStationId }
       });
       for (const gtpLocation of gtpLocations){
-          if (req && message_code != MessageCode.INSUFFICIENT_QUANTITY && message_code != MessageCode.DEFECTIVE_PRODUCT){
+          if (req){
           const orderItem = await this.orderItemRepository.findOne({where: 
             {
               source_location_id: completedTask.origin_location,
@@ -981,10 +982,8 @@ export class OrchestratorService {
           }
         }
       }
-      
 
-      
-      if (!back_to_inventory) {
+      if (!send_to_empty) {
         const remainingRequirements = await this.getRemainingProductRequirements(
           completedTask.origin_location
         );
@@ -994,7 +993,17 @@ export class OrchestratorService {
           await this.createReturnToInventoryTask(completedTask);
         }
       } else {
-        await this.createReturnToInventoryTask(completedTask);
+        const orderItems = await this.orderItemRepository.find({
+          where: {
+            source_location_id: completedTask.origin_location,
+            status: In([OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS, OrderItemStatus.PENDING])
+          }
+        });
+        for (const orderItem of orderItems){
+          await this.orderItemRepository.update({order_item_id: orderItem.order_item_id}, {status: OrderItemStatus.CANCELLED});
+        }
+
+        await this.createSendToEmptyLocationTask(completedTask);
       }
 
       this.logger.log(`Task ${completedTask.task_id} processing completed - TRIGGERED remains as final state`);
@@ -1154,6 +1163,39 @@ export class OrchestratorService {
     }
 
     
+  }
+
+  private async createSendToEmptyLocationTask(completedTask: Task): Promise<void> {
+    const findEmptyLocation = await this.emptyLocationRepository.find(
+      {
+        where: { status: LocationStatus.AVAILABLE },
+        order: {priority: 'ASC'}
+      }
+    )
+    for (const emptyLocation of findEmptyLocation) {
+      if (await this.emptyLocationsService.reserveWaitingLocation(emptyLocation.location_id)) {
+        const [emtpyTaskId, emptyTask] = await this.createTask({
+          batchId: completedTask.batch_id,
+          originLocation: completedTask.origin_location,
+          sourceStationId: completedTask.end_location.location_id,
+          destinationEmptyLocationId: emptyLocation.location_id,
+          move_type: MOVE_TYPE.STATION_TO_EMPTY_LOCATION,
+          taskType: TaskType.GOODS_TO_PERSON,
+          sequenceOrder: completedTask.sequence_order + 1,
+          taskDependency: completedTask.task_id,
+          robotId: completedTask.robot_id
+        });
+        if (emptyTask) {
+          const nextEmptyLocation = await this.emptyLocationRepository.findOne({where: {priority: (emptyLocation.priority + 1)%10!==0 ? (emptyLocation.priority + 1)%10 : 10, status: LocationStatus.AVAILABLE }});
+          if (nextEmptyLocation) {
+            nextEmptyLocation.status = LocationStatus.AVAILABLE;
+            await this.emptyLocationRepository.save(nextEmptyLocation);
+          }
+          await this.sendSingleTaskToWms(emptyTask);
+          return;
+        }
+      }
+    }
   }
 
   private async createReturnToInventoryTask(completedTask: Task): Promise<void> {

@@ -12,10 +12,11 @@ import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { LoggingModule } from '../logging/logging.module';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities';
+import { EmptyLocation } from 'src/entities/empty-location.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation, Robot]),
+    TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation, Robot,EmptyLocation]),
     HttpModule,
     forwardRef(() => OrchestratorModule),
     LoggingModule,

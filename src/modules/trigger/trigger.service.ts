@@ -22,7 +22,7 @@ export class TriggerService {
     private readonly httpService: HttpService,
   ) {}
 
-  async triggerStationAction(stationId: string, dropped_quantity: number, message_code: MessageCode) {
+  async triggerStationAction(stationId: string, message_code: MessageCode) {
     // Find the station from the station ID
     const station = await this.stationRepository.findOne({where: { station_id: stationId },});
     if (!station) {

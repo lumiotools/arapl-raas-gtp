@@ -13,6 +13,7 @@ import { LoggingService } from '../../services/logging.service';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
+import { EmptyLocation } from 'src/entities/empty-location.entity';
 
 @Injectable()
 export class WebhookService {
@@ -29,8 +30,8 @@ export class WebhookService {
     private readonly stationRepository: Repository<Station>,
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
-    @InjectRepository(Robot)
-    private readonly robotRepository: Repository<Robot>,
+    @InjectRepository(EmptyLocation)
+    private readonly emptyLocationRepository: Repository<EmptyLocation>,
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly httpService: HttpService,
@@ -158,6 +159,14 @@ export class WebhookService {
           await this.waitingLocationRepository.update(
             { location_id: task.start_location.location_id, holded_by: task.task_id },
             { status: LocationStatus.AVAILABLE, holded_by: null }
+          );
+        }
+
+        if (task.move_type===MOVE_TYPE.STATION_TO_EMPTY_LOCATION){
+          await this.orchestratorService.decrementRobotInUse();
+          await this.emptyLocationRepository.update(
+            { location_id: task.end_location.location_id },
+            { status: LocationStatus.OCCUPIED }
           );
         }
 
