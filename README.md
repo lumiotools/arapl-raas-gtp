@@ -9,12 +9,17 @@ This project is a **NestJS** backend service that connects to a **PostgreSQL** d
 These environment variables are required by the application:
 
 ```env
-DB_HOST=localhost
+DB_HOST=host.docker.internal
 DB_PORT=5432
 DB_USERNAME=postgres
-DB_PASSWORD=postgres
-DB_DATABASE=wms_gtp
-DB_SSL=true
+DB_PASSWORD=password
+DB_DATABASE=goods_to_person
+DB_SSL=false
+JWT_SECRET=jwtConfig.secret
+WMS_WAREHOUSE_NAME=WH_001
+WMS_WAREHOUSE_AUTH_KEY=test
+WMS_BASE_URL=http://host.docker.internal:9000
+BOT_API_KEY=openai_api_key
 ```
 
 You can either:
@@ -41,18 +46,23 @@ services:
     ports:
       - '8000:8000'
     environment:
-      - DB_HOST=localhost
+      - DB_HOST=host.docker.internal
       - DB_PORT=5432
       - DB_USERNAME=postgres
-      - DB_PASSWORD=postgres
-      - DB_DATABASE=wms_gtp
-      - DB_SSL=true
+      - DB_PASSWORD=password
+      - DB_DATABASE=goods_to_person
+      - DB_SSL=false
+      - JWT_SECRET=jwtConfig.secret
+      - WMS_WAREHOUSE_NAME=WH_001
+      - WMS_WAREHOUSE_AUTH_KEY=test
+      - WMS_BASE_URL=http://host.docker.internal:9000
+      - BOT_API_KEY=openai_api_key
 ```
 
 #### Run the container
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 ---
