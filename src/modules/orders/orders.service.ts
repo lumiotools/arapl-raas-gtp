@@ -55,7 +55,7 @@ export class OrdersService {
     private readonly loggingService: LoggingService
   ) {}
 
-  async processFile(file: Express.Multer.File, body: any): Promise<UploadResponseDto> {
+  async processFile(file: Express.Multer.File, body: any, upload_mode: 'merge' | 'transit'): Promise<UploadResponseDto> {
     console.log(`call process file`);
     const fileExtension = this.getFileExtension(file.originalname);
     let data: UploadOrderItemDto[] = [];
@@ -71,8 +71,7 @@ export class OrdersService {
           'Unsupported file format. Please upload CSV or Excel files.',
         );
       }
-
-      return await this.saveToDatabase(data, batch_order_id);
+      return await this.saveToDatabase(data, batch_order_id, upload_mode);
     } catch (error) {
       throw new BadRequestException(`Error processing file: ${error.message}`);
     }
@@ -116,6 +115,7 @@ export class OrdersService {
   private async saveToDatabase(
     data: UploadOrderItemDto[],
     batch_order_id: string | null,
+    upload_mode: 'merge' | 'transit'
   ): Promise<UploadResponseDto> {
     console.log(`calling save to db`);
     let processedItems = 0;
@@ -125,17 +125,20 @@ export class OrdersService {
     }
 
     const firstItem = data[0];
+    console.log(`calling save to db`);
     const requiredColumns = [
       'source_location',
       'destination_location'
     ];
+    console.log(`calling save to db`);
     const missingColumns = requiredColumns.filter((col) => !(col in firstItem));
-
+    console.log(`calling save to db`);
     if (missingColumns.length > 0) {
       throw new BadRequestException(
         `Missing required columns: ${missingColumns.join(', ')}`,
       );
     }
+    console.log(`calling save to db`);
 
     for (const order of data) {
       try {
@@ -144,8 +147,11 @@ export class OrdersService {
             source_location_id: order['source_location'],
             destination_pallet_slot_id: order['destination_location']
           });
-
-          orderItem.status = OrderItemStatus.ASSIGNED;
+          console.log(`'hi there`);
+          console.log(`upload mode: ${JSON.stringify(upload_mode)}`);
+          if (upload_mode['upload_mode'] === 'merge'){
+            orderItem.status = OrderItemStatus.ASSIGNED;
+          }
 
           await this.orderItemRepository.save(orderItem);
           processedItems++;

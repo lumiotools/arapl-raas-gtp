@@ -1414,6 +1414,23 @@ export class OrchestratorService {
     // await this.calculateProductRequirements(assignedOrderItems);
     return { message: 'License plate started successfully' };
   }
+
+  private async handleTransitOrders() {
+    // check if there is any order item in process state
+    const inProgressItems = await this.orderItemRepository.find({
+      where: { status: In([OrderItemStatus.IN_PROGRESS, OrderItemStatus.ASSIGNED])  },
+    });
+    if (inProgressItems.length > 0) { return ;}
+    // find an order item in PENDING state created first
+    const pendingItem = await this.orderItemRepository.findOne({
+      where: { status: OrderItemStatus.PENDING },
+      order: { created_at: 'ASC' },
+    });
+    if (!pendingItem) { return ;}
+    const orderBatchID = pendingItem.order_batch_id;
+    if (!orderBatchID) { return ;}
+    await this.orderItemRepository.update({ order_batch_id: orderBatchID }, { status: OrderItemStatus.ASSIGNED });
+  }
   
   public async triggerOrchestrator() {
       if (this.orchestratorWorking) {
@@ -1425,6 +1442,8 @@ export class OrchestratorService {
 
         // add a function that sends a task again
         await this.resendPendingTasks();
+
+        await this.handleTransitOrders();
 
         // check if a there is lp plate waiting for a pick location
 
