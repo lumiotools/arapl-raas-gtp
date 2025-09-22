@@ -2379,9 +2379,11 @@ export class OrchestratorService {
     return res;
   }
 
-  async getRobotReport(startDate: Date | undefined, endDate: Date | undefined) {
-    console.log(`Generating robot report from ${startDate} to ${endDate}`);
-    const whereCondition: any = {};
+  async getRobotReport(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps") {
+    console.log(`Generating robot report from ${startDate} to ${endDate} for module ${module}`);
+    const whereCondition: any = {
+      task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
+    };
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
     }
@@ -2531,8 +2533,10 @@ export class OrchestratorService {
     return res;
   }
 
-  async getTasksByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined) {
-    const whereCondition: any = {};
+  async getTasksByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined, module: "FlowOps" | "BaseOps") {
+    const whereCondition: any = {
+      task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
+    };
 
     if (!statusList || statusList.length === 0) {
       throw new BadRequestException('Status is required');
@@ -2611,7 +2615,8 @@ export class OrchestratorService {
     sourceLocations: string[],
     destinationType: string,
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
+    module?: "FlowOps" | "BaseOps"
   ) {
     if (!sourceType || !sourceLocations || !destinationType) {
       throw new BadRequestException('sourceType, sourceLocation, and destinationType are required');
@@ -2635,7 +2640,8 @@ export class OrchestratorService {
       }
 
       const whereCondition: any = {
-        status: In([TaskStatus.COMPLETED])
+        status: In([TaskStatus.COMPLETED]),
+        task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
       };
       if (startDate && endDate) {
         whereCondition.created_at = Between(startDate, endDate);

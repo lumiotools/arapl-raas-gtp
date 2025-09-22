@@ -112,14 +112,14 @@ export class BaseOpsLocationManagerService {
     }
 
     async getManualTaskStartLocation(){
-        const startLocation = await this.locationRepository.find({ where: { location_type: LocationType.PALLET, location_status: In([LocationStatus.AVAILABLE, LocationStatus.OCCUPIED])},
+        const startLocation = await this.locationRepository.find({ where: { location_type: LocationType.PALLET },
             relations: ['parent']
         });
         return startLocation;
     }
 
     async getManualTaskEndLocation(){
-        const endLocation = await this.locationRepository.find({ where: { location_type: LocationType.PALLET, location_status: LocationStatus.AVAILABLE }, relations: ['parent'] });
+        const endLocation = await this.locationRepository.find({ where: { location_type: LocationType.PALLET }, relations: ['parent'] });
         return endLocation;
     }
 
