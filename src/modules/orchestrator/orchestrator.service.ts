@@ -1186,7 +1186,7 @@ export class OrchestratorService {
           robotId: completedTask.robot_id
         });
         if (emptyTask) {
-          const nextEmptyLocation = await this.emptyLocationRepository.findOne({where: {priority: (emptyLocation.priority + 1)%10!==0 ? (emptyLocation.priority + 1)%10 : 10, status: LocationStatus.AVAILABLE }});
+          const nextEmptyLocation = await this.emptyLocationRepository.findOne({where: {priority: MoreThan((emptyLocation.priority + 1)%10!==0 ? (emptyLocation.priority + 1)%10 : 10), status: LocationStatus.OCCUPIED}, order: {priority: 'ASC'}});
           if (nextEmptyLocation) {
             nextEmptyLocation.status = LocationStatus.AVAILABLE;
             await this.emptyLocationRepository.save(nextEmptyLocation);

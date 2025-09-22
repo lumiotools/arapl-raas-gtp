@@ -55,4 +55,11 @@ export class CreateInventoryDto {
   @IsString()
   @IsNotEmpty()
   barcode_number: string;
+
+  @ApiProperty({
+    description: 'Indicates if the inventory item is currently being processed',
+    example: true,
+  })
+  @IsNotEmpty()
+  isProcessing: boolean;
 }

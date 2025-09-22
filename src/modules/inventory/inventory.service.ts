@@ -160,9 +160,9 @@ export class InventoryService {
       throw new NotFoundException(`Inventory with id ${id} not found`);
     }
     
-    if (existingInventory.isProcessing){
-      throw new BadRequestException(`Cannot update inventory ${id} while it is being processed`);
-    }
+    // if (existingInventory.isProcessing){
+    //   throw new BadRequestException(`Cannot update inventory ${id} while it is being processed`);
+    // }
 
     await this.inventoryRepository.update(id, updateInventoryDto);
     if (updateInventoryDto.id) {
@@ -171,7 +171,6 @@ export class InventoryService {
 
     return await this.inventoryRepository.findOne({ 
       where: { id: id },
-      relations: ['product']
     });
   }
 
