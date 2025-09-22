@@ -1039,7 +1039,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN)
   async updateTotalRobots(@Body('total_robots') totalRobots: number, @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps") {
     if (!totalRobots || totalRobots <= 0) {
       throw new BadRequestException('total_robots must be a positive number');
