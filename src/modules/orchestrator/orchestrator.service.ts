@@ -1004,6 +1004,11 @@ export class OrchestratorService {
           }
         });
         for (const orderItem of orderItems){
+          const gtpLocation = await this.gtpLocationRepository.findOne({where: {gtp_location_id: orderItem.destination_pallet_slot_id}});
+          await this.productRequirementRepository.delete({
+            source_location_id: orderItem.source_location_id,
+            station_id: gtpLocation?.station_id
+          });
           await this.orderItemRepository.update({order_item_id: orderItem.order_item_id}, {status: OrderItemStatus.CANCELLED});
         }
 
@@ -1446,7 +1451,7 @@ export class OrchestratorService {
     if (!pendingItem) { return ;}
     const orderBatchID = pendingItem.order_batch_id;
     if (!orderBatchID) { return ;}
-    await this.orderItemRepository.update({ order_batch_id: orderBatchID }, { status: OrderItemStatus.ASSIGNED });
+    await this.orderItemRepository.update({ order_batch_id: orderBatchID, status: OrderItemStatus.PENDING }, { status: OrderItemStatus.ASSIGNED });
   }
   
   public async triggerOrchestrator() {
