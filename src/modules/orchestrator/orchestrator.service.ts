@@ -322,7 +322,9 @@ export class OrchestratorService {
     await queryRunner.startTransaction();
     
     try {
-      const robots = await queryRunner.manager.find(Robot);
+      const robots = await queryRunner.manager.find(Robot, {
+        where: { operation_type: OperationType.FLOWOPS }
+      });
       if (robots.length === 0) {
       throw new Error('No Robot Entry Found');
       }
@@ -340,17 +342,22 @@ export class OrchestratorService {
     }
   }
 
-  async unmarkSystemAsWaiting(): Promise<void> {
+  public async unmarkSystemAsWaiting(): Promise<void> {
     const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const robots = await queryRunner.manager.find(Robot);
+      const robots = await queryRunner.manager.find(Robot, {
+        where: { operation_type: OperationType.FLOWOPS }
+      });
       if (robots.length === 0) {
         throw new Error('No Robot Entry Found');
       }
-      await queryRunner.manager.update(Robot, { id: robots[0].id, operation_type: OperationType.FLOWOPS }, { is_waiting: false });
+      await queryRunner.manager.update(Robot, 
+        { id: robots[0].id, operation_type: OperationType.FLOWOPS }, 
+        { is_waiting: false }
+      );
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();

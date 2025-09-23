@@ -31,7 +31,6 @@ export class WebhookService {
     private readonly stationRepository: Repository<Station>,
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
-    @InjectRepository(Robot)
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
