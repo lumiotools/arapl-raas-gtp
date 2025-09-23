@@ -147,10 +147,18 @@ export class OrdersService {
             source_location_id: order['source_location'],
             destination_pallet_slot_id: order['destination_location']
           });
-          console.log(`'hi there`);
-          console.log(`upload mode: ${JSON.stringify(upload_mode)}`);
           if (upload_mode['upload_mode'] === 'merge'){
             orderItem.status = OrderItemStatus.ASSIGNED;
+            const existingOrderItem = await this.orderItemRepository.findOne({
+              where: {
+                source_location_id: orderItem.source_location_id,
+                destination_pallet_slot_id: orderItem.destination_pallet_slot_id,
+                status: OrderItemStatus.IN_PROGRESS
+              }
+            });
+            if (existingOrderItem){
+              orderItem.status = OrderItemStatus.IN_PROGRESS;
+            }
           }
 
           await this.orderItemRepository.save(orderItem);

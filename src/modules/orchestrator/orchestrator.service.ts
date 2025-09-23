@@ -968,15 +968,19 @@ export class OrchestratorService {
       });
       for (const gtpLocation of gtpLocations){
           if (req){
-          const orderItem = await this.orderItemRepository.findOne({where: 
+          const orderItems = await this.orderItemRepository.find({where: 
             {
               source_location_id: completedTask.origin_location,
               destination_pallet_slot_id: gtpLocation.gtp_location_id,
               status: OrderItemStatus.IN_PROGRESS
             }
           });
-          if (orderItem){
-            await this.orderItemRepository.update({order_item_id: orderItem.order_item_id}, {status: OrderItemStatus.COMPLETED});
+          for (const orderItem of orderItems){
+            if (orderItem){
+              await this.orderItemRepository.update({order_item_id: orderItem.order_item_id}, {status: OrderItemStatus.COMPLETED});
+            }
+          }
+          if (orderItems.length > 0){
             await this.productRequirementRepository.remove(req);
             break;
           }
@@ -1376,9 +1380,22 @@ export class OrchestratorService {
       return { message: 'No assigned order items found' };
     }
     console.log(`Assigned order items for order ${order_id}: ${JSON.stringify(assignedOrderItem)}`);
-    for (const orderItem of assignedOrderItem ? [assignedOrderItem] : []) {
-      orderItem.status = OrderItemStatus.IN_PROGRESS;
-      await this.orderItemRepository.save(orderItem);
+    // for (const orderItem of assignedOrderItem ? [assignedOrderItem] : []) {
+    //   orderItem.status = OrderItemStatus.IN_PROGRESS;
+    //   await this.orderItemRepository.save(orderItem);
+    // }
+    assignedOrderItem.status = OrderItemStatus.IN_PROGRESS;
+    await this.orderItemRepository.save(assignedOrderItem);
+    const existingOrderItem = await this.orderItemRepository.findOne({
+      where: {
+        source_location_id: assignedOrderItem.source_location_id,
+        destination_pallet_slot_id: assignedOrderItem.destination_pallet_slot_id,
+        status: OrderItemStatus.ASSIGNED
+      }
+    });
+    if (existingOrderItem) {
+      existingOrderItem.status = OrderItemStatus.IN_PROGRESS;
+      await this.orderItemRepository.save(existingOrderItem);
     }
     const gtpLocation = await this.gtpLocationRepository.findOne({
       where: { gtp_location_id: gtpLocationId }
