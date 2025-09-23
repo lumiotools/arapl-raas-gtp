@@ -71,7 +71,24 @@ export class InventoryService {
   }
 
   async findAll() {
-    return await this.inventoryRepository.find();
+    const inventories: any[] = await this.inventoryRepository.find();
+    for (let i = 0; i < inventories.length; i++) {
+      const inv = inventories[i];
+      // Initialize is_at_empty_location to false by default
+      inventories[i].is_at_empty_location = false;
+      
+      if (inv.isProcessing) {
+        const recentTask = await this.taskRepository.findOne({
+          where: { origin_location: inv.id },
+          order: { created_at: 'DESC' }
+        });
+        if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
+          inventories[i].is_at_empty_location = true;
+        }
+      }
+    }
+    console.log(`inventories: ${JSON.stringify(inventories)}`);
+    return inventories;
     try{
       const inventory_object = await this.getAllInventoryLocations();
       const bin_locations = inventory_object.available_location_types || [];

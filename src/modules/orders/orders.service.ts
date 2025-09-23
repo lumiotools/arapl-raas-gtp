@@ -147,20 +147,24 @@ export class OrdersService {
             source_location_id: order['source_location'],
             destination_pallet_slot_id: order['destination_location']
           });
+          orderItem.status = OrderItemStatus.ASSIGNED;
           if (upload_mode['upload_mode'] === 'merge'){
-            orderItem.status = OrderItemStatus.ASSIGNED;
             const existingOrderItem = await this.orderItemRepository.findOne({
               where: {
                 source_location_id: orderItem.source_location_id,
                 destination_pallet_slot_id: orderItem.destination_pallet_slot_id,
-                status: OrderItemStatus.IN_PROGRESS
-              }
+                status: In([OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS])
+              },
+              order: { created_at: 'ASC' }
             });
             if (existingOrderItem){
-              orderItem.status = OrderItemStatus.IN_PROGRESS;
+              if (existingOrderItem.status === OrderItemStatus.IN_PROGRESS){
+                orderItem.status = OrderItemStatus.IN_PROGRESS;
+              }
+              orderItem.merged_order_item_id = existingOrderItem.order_item_id;
             }
+            
           }
-
           await this.orderItemRepository.save(orderItem);
           processedItems++;
         }catch (error) {
@@ -399,6 +403,7 @@ export class OrdersService {
       if (!sourceLocationStats[sourceLocationId]['completed']){sourceLocationStats[sourceLocationId]['completed'] = 0;}
       sourceLocationStats[sourceLocationId][orderItem.order_item_id.toString()] = {
         status: orderItem.status,
+        merged_order_item_id: orderItem.merged_order_item_id
       };
       if (orderItem.status == OrderItemStatus.COMPLETED){ sourceLocationStats[sourceLocationId]['completed'] += 1; }
       sourceLocationStats[sourceLocationId]['totalOrder'] += 1;
