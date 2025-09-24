@@ -142,11 +142,22 @@ export class EmptyLocationsService {
     return await this.emptyLocationRepository.findOne({ where: { location_id: id } });
   }
 
-  update(id: number, updateEmptyLocationDto: UpdateEmptyLocationDto) {
-    return `This action updates a #${id} emptyLocation`;
+  async update(id: string, updateEmptyLocationDto: {
+    id: string,
+    location_name: string,
+    status: string,
+    priority: number
+  }) {
+    await this.emptyLocationRepository.update({ location_id: id }, {
+      location_name: updateEmptyLocationDto.location_name,
+      status: updateEmptyLocationDto.status as LocationStatus,
+      priority: updateEmptyLocationDto.priority
+    });
+    return this.findOne(id);
   }
 
-  remove(id: number) {
+  remove(id: string) {
+    this.emptyLocationRepository.delete({ location_id: id });
     return `This action removes a #${id} emptyLocation`;
   }
 }

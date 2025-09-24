@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Product } from 'src/entities/product.entity';
 import { UploadInventoryResponseDto } from './dto/upload-inventory-response.dto';
@@ -12,6 +12,7 @@ import { LocationStatus } from 'src/entities/station.entity';
 import { firstValueFrom } from 'rxjs';
 import { Task, TaskStatus } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
+import { EmptyLocation } from 'src/entities/empty-location.entity';
 
 @Injectable()
 export class InventoryService {
@@ -21,6 +22,8 @@ export class InventoryService {
     private readonly inventoryRepository: Repository<Inventory>,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
+    @InjectRepository(EmptyLocation)
+    private readonly emptyLocationRepository: Repository<EmptyLocation>,
   ) {}
 
   async create(createInventoryDto: Inventory) {
@@ -175,9 +178,30 @@ export class InventoryService {
       throw new NotFoundException(`Inventory with id ${id} not found`);
     }
     
-    // if (existingInventory.isProcessing){
-    //   throw new BadRequestException(`Cannot update inventory ${id} while it is being processed`);
-    // }
+    if (existingInventory.isProcessing){
+      const recentTask = await this.taskRepository.findOne({
+        where: { origin_location: existingInventory.id },
+        order: { created_at: 'DESC' }
+      });
+      
+      if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
+        const otherEmptyLocatonTask = await this.taskRepository.find({
+          where: { move_type: MOVE_TYPE.STATION_TO_EMPTY_LOCATION,
+            created_at: MoreThan(recentTask.created_at)
+          }
+        });
+        const existsOtherTaskTosSameEmptyLocation = otherEmptyLocatonTask.some(task => 
+          task.end_location.location_id === recentTask.end_location.location_id && 
+          task.task_id !== recentTask.task_id
+        );
+        if (!existsOtherTaskTosSameEmptyLocation){
+          await this.emptyLocationRepository.update(
+            { location_id: recentTask.end_location.location_id },
+            { status: LocationStatus.AVAILABLE }
+          );
+        }
+      }
+    }
 
     await this.inventoryRepository.update(id, updateInventoryDto);
     if (updateInventoryDto.id) {

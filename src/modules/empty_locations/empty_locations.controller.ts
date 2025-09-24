@@ -23,12 +23,17 @@ export class EmptyLocationsController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateEmptyLocationDto: UpdateEmptyLocationDto) {
-    return this.emptyLocationsService.update(+id, updateEmptyLocationDto);
+  async update(@Param('id') id: string, @Body() updateEmptyLocationDto: {
+    id: string,
+    location_name: string,
+    status: string,
+    priority: number
+  }) {
+    return await this.emptyLocationsService.update(id, updateEmptyLocationDto);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string) {
-    return this.emptyLocationsService.remove(+id);
+    return this.emptyLocationsService.remove(id);
   }
 }
