@@ -305,7 +305,7 @@ export class BaseopsTaskService {
     }
     req_tasks.push({
       task_id: task.task_id,
-      task_type: task.task_type,
+      task_type: "BASEOPS",
       task_dependency: task.task_dependency,
       robot_id: task.robot_id,
       start_location: {
