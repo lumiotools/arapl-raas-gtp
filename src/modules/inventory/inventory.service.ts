@@ -19,10 +19,6 @@ export class InventoryService {
   constructor(
     @InjectRepository(Inventory)
     private readonly inventoryRepository: Repository<Inventory>,
-    @InjectRepository(Product)
-    private readonly productRepository: Repository<Product>,
-    @InjectRepository(ProductRequirement)
-    private readonly productRequirementRepository: Repository<ProductRequirement>,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
   ) {}
@@ -76,6 +72,7 @@ export class InventoryService {
       const inv = inventories[i];
       // Initialize is_at_empty_location to false by default
       inventories[i].is_at_empty_location = false;
+      inventories[i].empty_location_id = null;
       
       if (inv.isProcessing) {
         const recentTask = await this.taskRepository.findOne({
@@ -84,6 +81,7 @@ export class InventoryService {
         });
         if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
           inventories[i].is_at_empty_location = true;
+          inventories[i].empty_location_id = recentTask.end_location.location_id;
         }
       }
     }

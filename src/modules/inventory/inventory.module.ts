@@ -9,8 +9,8 @@ import { User } from 'src/entities/user.entity';
 import { Task } from 'src/entities';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Inventory, Product, ProductRequirement, User, Task])],
-  controllers: [InventoryController],
+  imports: [TypeOrmModule.forFeature([Inventory , User, Task])],
+  controllers: [InventoryController], 
   providers: [InventoryService],
   exports: [InventoryService],
 })

@@ -6,12 +6,14 @@ import { empty } from 'rxjs';
 import { Repository } from 'typeorm';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationStatus } from 'src/entities/station.entity';
+import { InventoryService } from '../inventory/inventory.service';
 
 @Injectable()
 export class EmptyLocationsService {
   constructor(
     @InjectRepository(EmptyLocation)
     private readonly emptyLocationRepository: Repository<EmptyLocation>,
+    private readonly inventoryService: InventoryService,
   ) {}
   async create(createEmptyLocationDto: {location_id: string, location_name: string, is_active: boolean, priority: number}) {
     // throw new ConflictException('Waiting location creation is not allowed');
@@ -51,7 +53,7 @@ export class EmptyLocationsService {
     const empty_object = (await this.getAllWmsEmtpy());
     const empty_bin_locations = empty_object.available_location_types || [];
     const bin_ids = empty_bin_locations.map(bin => bin.location_id);
-    const allEmptyLocations = await this.emptyLocationRepository.find();
+    const allEmptyLocations: any[] = await this.emptyLocationRepository.find();
 
     // find bin_ids that are not in allEmptyLocations
     const missingBinIds = bin_ids.filter(id => !allEmptyLocations.some(location => location.location_id === id));
@@ -79,17 +81,27 @@ export class EmptyLocationsService {
     }
 
     // find intersecting location IDs
-      const intersectingLocationIds = bin_ids.filter(id => existingEmptyLocationIds.includes(id));
-      for (const id of intersectingLocationIds) {
-        const emptyLocation = allEmptyLocations.filter(location => location.location_id === id)[0];
-        if (emptyLocation.is_active === false) {
-          await this.emptyLocationRepository.update(
-            { location_id: id },
-            { is_active: true }
-          );
-        }
+    const intersectingLocationIds = bin_ids.filter(id => existingEmptyLocationIds.includes(id));
+    for (const id of intersectingLocationIds) {
+      const emptyLocation = allEmptyLocations.filter(location => location.location_id === id)[0];
+      if (emptyLocation.is_active === false) {
+        await this.emptyLocationRepository.update(
+          { location_id: id },
+          { is_active: true }
+        );
       }
-    return await this.emptyLocationRepository.find();
+    }
+    const currentEmptyLocations: any[] = await this.emptyLocationRepository.find();
+    const inventories = await this.inventoryService.findAll();
+    for (let i = 0; i < currentEmptyLocations.length; i++) {
+      currentEmptyLocations[i].current_pallet = null;
+      const invLoc = inventories.filter(inv => inv.empty_location_id === currentEmptyLocations[i].location_id);
+      invLoc.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+      if (invLoc.length > 0) {
+        currentEmptyLocations[i].current_pallet = invLoc[0].barcode_number;
+      }
+    }
+    return await currentEmptyLocations;
   }
 
   async reserveWaitingLocation(location_id: string): Promise<boolean> {
