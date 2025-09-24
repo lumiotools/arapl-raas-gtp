@@ -746,7 +746,9 @@ export class OrchestratorService {
   async setInitialConfiguration(){
     await this.stationService.findAll();
     await this.waitingLocationService.findAll();
-    const robots = await this.robotRepository.find();
+    const robots = await this.robotRepository.find({
+      where:{operation_type: OperationType.FLOWOPS}
+    });
     if (robots.length === 0){
       await this.robotRepository.save({id: crypto.randomUUID(), operation_type: OperationType.FLOWOPS, is_waiting: false, total_robots: 1, robot_in_use: 0 });
     }
