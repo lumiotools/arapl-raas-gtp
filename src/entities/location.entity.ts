@@ -73,4 +73,7 @@ export class LocationEntity {
   @ManyToOne(() => LocationEntity)
   @JoinColumn({ name: 'parent_id' })
   parent: LocationEntity;
+
+  @Column({ type: 'json', nullable: true })
+  attributes?: LocationAttribute[];
 }

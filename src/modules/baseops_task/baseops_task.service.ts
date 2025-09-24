@@ -153,11 +153,11 @@ export class BaseopsTaskService {
       }
     }
 
-    // Process haulted tasks
+    // Process HALTED tasks
     const haultedTasks = await this.taskRepository.find({
       where: {
         task_type: TaskType.BASEOPS,
-        status: TaskStatus.HAULTED,
+        status: TaskStatus.HALTED,
         move_type: MOVE_TYPE.ZONE_TO_ZONE,
       },
       relations: ['batch'],
@@ -355,7 +355,7 @@ export class BaseopsTaskService {
   private async markTaskHaulted(task_id: string): Promise<void> {
     await this.taskRepository.update(
       {task_id: task_id},
-      {status: TaskStatus.HAULTED}
+      {status: TaskStatus.HALTED}
     );
   }
 

@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 import { Repository, Not } from 'typeorm';
 import { LocationEntity, LocationType } from 'src/entities/location.entity';
 import { InjectRepository } from '@nestjs/typeorm';
+import { UpdateZoneDto } from './dto/update-zone.dto';
 
 @Injectable()
 export class LocationsService {
@@ -57,5 +58,42 @@ export class LocationsService {
   async findZones() {
     // Return locations that are defined as zones
     return await this.locationRepository.find({ where: { location_type: LocationType.ZONE }, order: { display_name: 'ASC' } });
+  }
+
+  async updateZone(zoneId: string, dto: UpdateZoneDto) {
+    const zone = await this.locationRepository.findOne({ where: { location_id: zoneId, location_type: LocationType.ZONE } });
+    if (!zone) {
+      throw new NotFoundException(`Zone with id ${zoneId} not found`);
+    }
+
+    let mutated = false;
+
+    if (dto.display_name !== undefined) {
+      zone.display_name = dto.display_name;
+      mutated = true;
+    }
+
+    if (dto.category !== undefined) {
+      // Ensure attributes array exists
+      if (!Array.isArray(zone.attributes)) {
+        zone.attributes = [] as any;
+      }
+      const attrs: any[] = zone.attributes as any[];
+      const catIdx = attrs.findIndex(a => a && a.attribute_name === 'Category');
+      if (catIdx >= 0) {
+        attrs[catIdx].attribute_value = dto.category === '' ? null : dto.category; // treat empty string as clearing
+      } else {
+        attrs.push({ attribute_name: 'Category', attribute_value: dto.category === '' ? null : dto.category });
+      }
+      zone.attributes = attrs as any;
+      mutated = true;
+    }
+
+    if (!mutated) {
+      throw new BadRequestException('No updatable fields provided (display_name or category).');
+    }
+
+    await this.locationRepository.save(zone);
+    return zone;
   }
 }
