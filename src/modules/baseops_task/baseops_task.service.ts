@@ -178,7 +178,7 @@ export class BaseopsTaskService {
   private async sendTaskToWMSAndIncrement(task: Task, end_location_id: string, batchPriority: number): Promise<boolean> {
     const req_tasks = [{
       task_id: task.task_id,
-      task_type: task.task_type,
+      task_type: "BASEOPS",
       task_dependency: task.task_dependency,
       robot_id: task.robot_id,
       start_location: {
