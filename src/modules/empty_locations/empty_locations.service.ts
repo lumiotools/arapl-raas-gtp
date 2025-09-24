@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { CreateEmptyLocationDto } from './dto/create-empty_location.dto';
 import { UpdateEmptyLocationDto } from './dto/update-empty_location.dto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -7,12 +7,16 @@ import { Repository } from 'typeorm';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationStatus } from 'src/entities/station.entity';
 import { InventoryService } from '../inventory/inventory.service';
+import { Task } from 'src/entities';
+import { MOVE_TYPE } from 'src/entities/task.entity';
 
 @Injectable()
 export class EmptyLocationsService {
   constructor(
     @InjectRepository(EmptyLocation)
     private readonly emptyLocationRepository: Repository<EmptyLocation>,
+    @InjectRepository(Task)
+    private readonly taskRepository: Repository<Task>,
     private readonly inventoryService: InventoryService,
   ) {}
   async create(createEmptyLocationDto: {location_id: string, location_name: string, is_active: boolean, priority: number}) {
@@ -91,17 +95,19 @@ export class EmptyLocationsService {
         );
       }
     }
+    const recentTasks = await this.taskRepository.find({
+      where: { move_type: MOVE_TYPE.STATION_TO_EMPTY_LOCATION }, order: {created_at: 'DESC'}
+    });
     const currentEmptyLocations: any[] = await this.emptyLocationRepository.find();
-    const inventories = await this.inventoryService.findAll();
     for (let i = 0; i < currentEmptyLocations.length; i++) {
       currentEmptyLocations[i].current_pallet = null;
-      const invLoc = inventories.filter(inv => inv.empty_location_id === currentEmptyLocations[i].location_id);
-      invLoc.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
-      if (invLoc.length > 0) {
-        currentEmptyLocations[i].current_pallet = invLoc[0].barcode_number;
+      const requiredTask = recentTasks.find(task => task.end_location.location_id === currentEmptyLocations[i].location_id);
+      if (!requiredTask) {
+        continue;
       }
+      currentEmptyLocations[i].current_pallet = requiredTask.cargos ? requiredTask?.cargos[0]?.cargo_code : null;
     }
-    return await currentEmptyLocations;
+    return currentEmptyLocations;
   }
 
   async reserveWaitingLocation(location_id: string): Promise<boolean> {

@@ -76,6 +76,7 @@ export class InventoryService {
       // Initialize is_at_empty_location to false by default
       inventories[i].is_at_empty_location = false;
       inventories[i].empty_location_id = null;
+      inventories[i].pallet_id = null;
       
       if (inv.isProcessing) {
         const recentTask = await this.taskRepository.findOne({
@@ -85,6 +86,7 @@ export class InventoryService {
         if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
           inventories[i].is_at_empty_location = true;
           inventories[i].empty_location_id = recentTask.end_location.location_id;
+          inventories[i].pallet_id = recentTask.cargos ? recentTask?.cargos[0]?.cargo_code : null;
         }
       }
     }
@@ -178,30 +180,30 @@ export class InventoryService {
       throw new NotFoundException(`Inventory with id ${id} not found`);
     }
     
-    if (existingInventory.isProcessing){
-      const recentTask = await this.taskRepository.findOne({
-        where: { origin_location: existingInventory.id },
-        order: { created_at: 'DESC' }
-      });
+    // if (existingInventory.isProcessing){
+    //   const recentTask = await this.taskRepository.findOne({
+    //     where: { origin_location: existingInventory.id },
+    //     order: { created_at: 'DESC' }
+    //   });
       
-      if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
-        const otherEmptyLocatonTask = await this.taskRepository.find({
-          where: { move_type: MOVE_TYPE.STATION_TO_EMPTY_LOCATION,
-            created_at: MoreThan(recentTask.created_at)
-          }
-        });
-        const existsOtherTaskTosSameEmptyLocation = otherEmptyLocatonTask.some(task => 
-          task.end_location.location_id === recentTask.end_location.location_id && 
-          task.task_id !== recentTask.task_id
-        );
-        if (!existsOtherTaskTosSameEmptyLocation){
-          await this.emptyLocationRepository.update(
-            { location_id: recentTask.end_location.location_id },
-            { status: LocationStatus.AVAILABLE }
-          );
-        }
-      }
-    }
+    //   if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
+    //     const otherEmptyLocatonTask = await this.taskRepository.find({
+    //       where: { move_type: MOVE_TYPE.STATION_TO_EMPTY_LOCATION,
+    //         created_at: MoreThan(recentTask.created_at)
+    //       }
+    //     });
+    //     const existsOtherTaskTosSameEmptyLocation = otherEmptyLocatonTask.some(task => 
+    //       task.end_location.location_id === recentTask.end_location.location_id && 
+    //       task.task_id !== recentTask.task_id
+    //     );
+    //     if (!existsOtherTaskTosSameEmptyLocation){
+    //       await this.emptyLocationRepository.update(
+    //         { location_id: recentTask.end_location.location_id },
+    //         { status: LocationStatus.AVAILABLE }
+    //       );
+    //     }
+    //   }
+    // }
 
     await this.inventoryRepository.update(id, updateInventoryDto);
     if (updateInventoryDto.id) {

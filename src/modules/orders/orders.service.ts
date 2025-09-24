@@ -21,22 +21,17 @@ interface LicensePlateStats{
   completion_percentage ?: number;
   status ?: OrderItemStatus;
 }
+
 export interface OrderItemDetails{
-  license_plate_id: string;
-  order_id: string;
-  product_id: string;
-  quantity: number;
-  remaining_quantity: number;
+  order_item_id: number;
+  order_batch_id: string;
+  source_location_id: string;
+  destination_station_id: string;
+  total_unloading_time: number;
+  robot_ids: string[];
   status: OrderItemStatus;
-  assigned_gtp_location: string | null;
-  created_at?: Date;
-  updated_at?: Date;
-  robot_ids?: string[];
-  total_unloading_time?: number;
-  station_id ?: string;
-  start_time?: Date;
-  end_time?: Date;
-  wait_time?: number;
+  start_time: Date | undefined;
+  end_time: Date | undefined;
 }
 
 @Injectable()
@@ -210,146 +205,111 @@ export class OrdersService {
     }
     return { status: false };
   }
-
-  // async getOrdersByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined): Promise<OrderItemDetails[]> {
-  //   console.log(`start_time: ${start_time}`)
-  //   console.log(`Getting orders with status: ${statusList.join(', ')}`);
-  //   if (!statusList || statusList.length === 0) {
-  //     throw new BadRequestException('Status is required');
-  //   }
-  //   const results: OrderItemDetails[] = [];
-  //   const orderItems : OrderItem[] = [];
-  //   const whereCondition: any = {};
-  //   if (start_time && end_time) {
-  //     whereCondition.created_at = Between(start_time, end_time);
-  //   }
-  //   else if (start_time){
-  //     whereCondition.created_at = MoreThanOrEqual(start_time);
-  //   }
-  //   else if (end_time){
-  //     whereCondition.created_at = LessThan(end_time);
-  //   }
-  //   console.log(`wherecondition: ${whereCondition}`)
-  //   if (statusList.includes('all')){
-  //     orderItems.push(...await this.orderItemRepository.find({
-  //       where: whereCondition,
-  //       relations: ['completedTasks'],
-  //     }));
-  //   }
-  //   if (statusList.includes('pending')){
-  //     whereCondition.status = OrderItemStatus.PENDING;
-  //     orderItems.push(...await this.orderItemRepository.find({
-  //       where: whereCondition,
-  //       relations: ['completedTasks'],
-  //     }));
-  //   }
-  //   if (statusList.includes('assigned')){
-  //     whereCondition.status = OrderItemStatus.ASSIGNED;
-  //     orderItems.push(...await this.orderItemRepository.find({
-  //       where: whereCondition,
-  //       relations: ['completedTasks'],
-  //     }));
-  //   }
-  //   if (statusList.includes('in_progress')){
-  //     whereCondition.status = OrderItemStatus.IN_PROGRESS;
-  //     orderItems.push(...await this.orderItemRepository.find({
-  //       where: whereCondition,
-  //       relations: ['completedTasks'],
-  //     }));
-  //   }
-  //   if (statusList.includes('completed')){
-  //     whereCondition.status = OrderItemStatus.COMPLETED;
-  //     orderItems.push(...await this.orderItemRepository.find({
-  //       where: whereCondition,
-  //       relations: ['completedTasks'],
-  //     }));
-  //   }
-  //   if (statusList.includes('cancelled')){
-  //     whereCondition.status = OrderItemStatus.CANCELLED;
-  //     orderItems.push(...await this.orderItemRepository.find({
-  //       where: whereCondition,
-  //       relations: ['completedTasks'],
-  //     }));
-  //   }
-  //   if (orderItems.length === 0) {
-  //     return [] as OrderItemDetails[];
-  //   }
-  //   for (const order of orderItems) {
-  //     const completedTasks = order.completedTasks || 0;
-  //     const robotIds = Array.isArray(completedTasks) 
-  //       ? Array.from(new Set(completedTasks.map(task => task.robot_id).filter(id => id))) 
-  //       : [];
+  async getOrdersByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined): Promise<OrderItemDetails[]> {
+    console.log(`start_time: ${start_time}`)
+    console.log(`Getting orders with status: ${statusList.join(', ')}`);
+    if (!statusList || statusList.length === 0) {
+      throw new BadRequestException('Status is required');
+    }
+    const results: OrderItemDetails[] = [];
+    const orderItems : OrderItem[] = [];
+    const whereCondition: any = {};
+    if (start_time && end_time) {
+      whereCondition.created_at = Between(start_time, end_time);
+    }
+    else if (start_time){
+      whereCondition.created_at = MoreThanOrEqual(start_time);
+    }
+    else if (end_time){
+      whereCondition.created_at = LessThan(end_time);
+    }
+    console.log(`wherecondition: ${whereCondition}`)
+    if (statusList.includes('all')){
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (statusList.includes('pending')){
+      whereCondition.status = OrderItemStatus.PENDING;
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (statusList.includes('assigned')){
+      whereCondition.status = OrderItemStatus.ASSIGNED;
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (statusList.includes('in_progress')){
+      whereCondition.status = OrderItemStatus.IN_PROGRESS;
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (statusList.includes('completed')){
+      whereCondition.status = OrderItemStatus.COMPLETED;
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (statusList.includes('cancelled')){
+      whereCondition.status = OrderItemStatus.CANCELLED;
+      orderItems.push(...await this.orderItemRepository.find({
+        where: whereCondition,
+        relations: ['completedTasks'],
+      }));
+    }
+    if (orderItems.length === 0) {
+      return [] as OrderItemDetails[];
+    }
+    for (const order of orderItems) {
+      const completedTasks = order.completedTasks || 0;
+      const robotIds = Array.isArray(completedTasks) 
+        ? Array.from(new Set(completedTasks.map(task => task.robot_id).filter(id => id))) 
+        : [];
       
-  //     let totalUnloadingTime = 0;
-  //     let wait_time = 0;
-  //     for (const task of completedTasks){
-  //       if (!task.triggered || !task.completed) continue;
-  //       let unloading_time = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
-  //       totalUnloadingTime += unloading_time;
-
-  //       const batch_id = task.batch_id || '-';
-  //       const current_sequence_number = task.sequence_order;
-  //       const previous_task_of_orders = await this.taskRepository.find({
-  //         where: { 
-  //           batch_id: batch_id, 
-  //           sequence_order: LessThan(current_sequence_number)
-  //         }
-  //       });
-  //       for (const previousTask of previous_task_of_orders) {
-  //         if (previousTask.created_at < order.created_at){continue;}
-  //         if (previousTask.end_location.location_attribute.attribute_value=='waiting_location') {
-  //           if (previousTask.completed) {
-  //             // Find the next task in sequence order
-  //             const nextTask = await this.taskRepository.findOne({
-  //               where: { 
-  //                 batch_id: batch_id, 
-  //                 sequence_order: previousTask.sequence_order + 1
-  //               }
-  //             });
-              
-  //             if (nextTask && nextTask.processing) {
-  //               const waitingTime = Math.floor((Number(nextTask.processing) - Number(previousTask.completed)) / 1000);
-  //               wait_time += waitingTime;
-  //             }
-  //           }
-  //         }
-  //       }
-  //     }
-  //     let station_id = '-';
-  //     // find assigned gtp location
-  //     const assigned_gtp_location = order.destination_pallet_slot_id;
-  //     if (assigned_gtp_location){
-  //       const gtp_location = await this.gtpLocationRepository.findOne({
-  //         where: { gtp_location_id: assigned_gtp_location }
-  //       });
-  //       station_id = gtp_location?.station_id || '-';
-  //     }
-  //     // fetch start and end time
-  //     let start_time = order.created_at ? new Date(order.created_at) : undefined;
-  //     let end_time: Date | undefined = undefined;
-  //     if (order.status == OrderItemStatus.COMPLETED || order.status == OrderItemStatus.CANCELLED){
-  //       end_time = order.updated_at ? new Date(order.updated_at) : undefined;
-  //     }
-  //     results.push({
-  //       license_plate_id: order.license_plate_id,
-  //       order_id: order.order_id,
-  //       product_id: order.product_id,
-  //       quantity: order.quantity,
-  //       remaining_quantity: order.remaining_quantity,
-  //       status: order.status,
-  //       assigned_gtp_location: order.destination_pallet_slot_id,
-  //       created_at: order.created_at,
-  //       updated_at: order.updated_at,
-  //       robot_ids: robotIds,
-  //       total_unloading_time: totalUnloadingTime,
-  //       station_id: station_id,
-  //       start_time: start_time,
-  //       end_time: end_time,
-  //       wait_time: wait_time
-  //     });
-  //   }
-  //   return results;
-  // }
+      let totalUnloadingTime = 0;
+      let wait_time = 0;
+      for (const task of completedTasks){
+        if (!task.triggered || !task.completed) continue;
+        let unloading_time = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
+        totalUnloadingTime += unloading_time;
+      }
+      let station_id = '-';
+      // find assigned gtp location
+      const assigned_gtp_location = order.destination_pallet_slot_id;
+      if (assigned_gtp_location){
+        const gtp_location = await this.gtpLocationRepository.findOne({
+          where: { gtp_location_id: assigned_gtp_location }
+        });
+        station_id = gtp_location?.station_id || '-';
+      }
+      // fetch start and end time
+      let start_time = order.created_at ? new Date(order.created_at) : undefined;
+      let end_time: Date | undefined = undefined;
+      if (order.status == OrderItemStatus.COMPLETED || order.status == OrderItemStatus.CANCELLED){
+        end_time = order.updated_at ? new Date(order.updated_at) : undefined;
+      }
+      results.push({
+        order_item_id: order.order_item_id,
+        order_batch_id: order.order_batch_id || '',
+        source_location_id: order.source_location_id,
+        destination_station_id: station_id,
+        status: order.status,
+        robot_ids: robotIds,
+        total_unloading_time: totalUnloadingTime,
+        start_time: start_time,
+        end_time: end_time
+      });
+    }
+    return results;
+  }
 
   async getStationReportSummary(start_time: Date | undefined, end_time: Date | undefined): Promise<any>{
     const whereCondition: any = {};
@@ -364,7 +324,7 @@ export class OrdersService {
     }
     const orderItems = await this.orderItemRepository.find({
       where: whereCondition,
-      relations: ['assignedGtpLocation'],
+      relations: ['destinationPalletSlot'],
     });
     const res: any = {};
     for (const orderItem of orderItems) {

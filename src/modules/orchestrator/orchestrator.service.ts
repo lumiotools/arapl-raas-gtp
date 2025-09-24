@@ -160,7 +160,8 @@ export class OrchestratorService {
               taskType: TaskType.GOODS_TO_PERSON,
               move_type: MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY,
               sequenceOrder: task.sequence_order + 1, // Next sequence order
-              taskDependency: task.task_id // Use last task of batch as dependency
+              taskDependency: task.task_id, // Use last task of batch as dependency
+              cargos: task.cargos
             });
 
             console.log(`returnTask: ${returnTask?.task_id}`);
@@ -202,7 +203,8 @@ export class OrchestratorService {
                   taskType: TaskType.GOODS_TO_PERSON,
                   move_type: MOVE_TYPE.WAITING_LOCATION_TO_STATION,
                   sequenceOrder: task.sequence_order + 1, // Next sequence order
-                  taskDependency: task.task_id // Use last task of batch as dependency
+                  taskDependency: task.task_id, // Use last task of batch as dependency
+                  cargos: task.cargos
                 });
                 if (!returnTask) {
                   await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
@@ -412,7 +414,8 @@ export class OrchestratorService {
                 taskType: TaskType.GOODS_TO_PERSON,
                 move_type: MOVE_TYPE.STATION_TO_STATION,
                 sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
-                taskDependency: taskComingToInventory.task_id // Use last task of batch as dependency
+                taskDependency: taskComingToInventory.task_id, // Use last task of batch as dependency
+                cargos: taskComingToInventory.cargos,
               });
               if (!returnTask) {
                 await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
@@ -455,7 +458,8 @@ export class OrchestratorService {
                 taskType: TaskType.GOODS_TO_PERSON,
                 move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION,
                 sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
-                taskDependency: taskComingToInventory.task_id // Use last task of batch as dependency
+                taskDependency: taskComingToInventory.task_id ,// Use last task of batch as dependency
+                cargos: taskComingToInventory.cargos
               });
               if (returnTask) {
                 await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.RESERVED, holded_by: returnTaskId});
@@ -502,7 +506,8 @@ export class OrchestratorService {
               taskType: TaskType.GOODS_TO_PERSON,
               move_type: MOVE_TYPE.STATION_TO_STATION,
               sequenceOrder: taskToWaitingLocation.sequence_order + 1, // Next sequence order
-              taskDependency: taskToWaitingLocation.task_id // Use last task of batch as dependency
+              taskDependency: taskToWaitingLocation.task_id, // Use last task of batch as dependency
+              cargos: taskToWaitingLocation.cargos,
             });
             if (!returnTask) {
               await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
@@ -556,7 +561,8 @@ export class OrchestratorService {
           taskType: TaskType.GOODS_TO_PERSON,
           move_type: MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
           sequenceOrder: 1, // First task in this batch
-          taskDependency: null // No dependency for first task
+          taskDependency: null, // No dependency for first task
+          cargos: null,
         });
         waitingLocation.holded_by = returnTaskId;
         await this.waitingLocationRepository.save(waitingLocation);
@@ -695,7 +701,8 @@ export class OrchestratorService {
         taskType: TaskType.GOODS_TO_PERSON,
         move_type: MOVE_TYPE.INVENTORY_TO_STATION,
         sequenceOrder: 1, // First (and only) task in this batch
-        taskDependency: null // May depend on previous batch
+        taskDependency: null, // May depend on previous batch
+        cargos: null,
       });
       if(!task){
         await this.stationRepository.update(targetStation.station_id, { status: LocationStatus.AVAILABLE });
@@ -733,6 +740,7 @@ export class OrchestratorService {
     move_type: MOVE_TYPE;
     sequenceOrder: number;
     taskDependency?: string | null;
+    cargos?: Cargo[] | null;
   }): Promise<[string, Task | null]> {
     // Create start location
     const startLocation = this.createLocation(
@@ -750,7 +758,20 @@ export class OrchestratorService {
     console.log(`startLocation: ${JSON.stringify(startLocation)}`);
     console.log(`endLocation: ${JSON.stringify(endLocation)}`);
 
-    const task = this.taskRepository.create({
+    if (!taskData.cargos && startLocation.location_attribute.attribute_value === 'inventory') {
+      const inventory = await this.inventoryRepository.findOne({ where: { id: startLocation.location_id } });
+      taskData.cargos = [
+        {
+          cargo_code: inventory?.barcode_number || '',
+          cargo_type: "PALLET",
+          cargo_dimension: {length: 1, width: 1, height: 1},
+          cargo_weight: 0,
+          cargo_attributes: null,
+        }
+      ]
+    }
+
+    const task: Task = this.taskRepository.create({
       batch_id: taskData.batchId,
       origin_location: taskData.originLocation,
       task_type: taskData.taskType,
@@ -760,7 +781,8 @@ export class OrchestratorService {
       start_location: startLocation,
       end_location: endLocation,
       move_type: taskData.move_type,
-      robot_id: taskData.robotId || undefined
+      robot_id: taskData.robotId || undefined,
+      cargos: taskData.cargos || [],
     });
 
     const savedTask = await this.taskRepository.save(task);
@@ -962,7 +984,7 @@ export class OrchestratorService {
         where: {
           source_location_id: completedTask.origin_location,
           station_id: currentStationId,
-        }});
+      }});
       const gtpLocations = await this.gtpLocationRepository.find({
         where: { station_id: currentStationId }
       });
@@ -977,7 +999,12 @@ export class OrchestratorService {
           });
           for (const orderItem of orderItems){
             if (orderItem){
-              await this.orderItemRepository.update({order_item_id: orderItem.order_item_id}, {status: OrderItemStatus.COMPLETED});
+              if (!orderItem.completedTasks){
+                orderItem.completedTasks = [];
+              }
+              orderItem.status = OrderItemStatus.COMPLETED;
+              orderItem.completedTasks.push(completedTask);
+              await this.orderItemRepository.save(orderItem);
             }
           }
           if (orderItems.length > 0){
@@ -1098,7 +1125,8 @@ export class OrchestratorService {
         move_type: MOVE_TYPE.STATION_TO_STATION,    
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: nextSequenceOrder,
-        taskDependency: completedTask.task_id
+        taskDependency: completedTask.task_id,
+        cargos: completedTask.cargos
       });
       if (newTask) {
         // Update station to be held by this task
@@ -1152,7 +1180,8 @@ export class OrchestratorService {
         robotId: completedTask.robot_id,
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: sequenceOrder,
-        taskDependency: completedTask.task_id
+        taskDependency: completedTask.task_id,
+        cargos: completedTask.cargos
       });
 
       if (waitingTask) {
@@ -1192,7 +1221,8 @@ export class OrchestratorService {
           taskType: TaskType.GOODS_TO_PERSON,
           sequenceOrder: completedTask.sequence_order + 1,
           taskDependency: completedTask.task_id,
-          robotId: completedTask.robot_id
+          robotId: completedTask.robot_id,
+          cargos: completedTask.cargos
         });
         if (emptyTask) {
           const nextEmptyLocation = await this.emptyLocationRepository.findOne({where: {priority: MoreThanOrEqual((emptyLocation.priority + 1)%10!==0 ? (emptyLocation.priority + 1)%10 : 10), status: LocationStatus.OCCUPIED}, order: {priority: 'ASC'}});
@@ -1228,7 +1258,8 @@ export class OrchestratorService {
       taskType: TaskType.GOODS_TO_PERSON, // Always GOODS_TO_PERSON as you specified
       sequenceOrder: nextSequenceOrder,
       taskDependency: completedTask.task_id,
-      robotId: completedTask.robot_id
+      robotId: completedTask.robot_id,
+      cargos: completedTask.cargos
     });
     if (returnTask) {
       await this.sendSingleTaskToWms(returnTask);
@@ -1474,7 +1505,8 @@ export class OrchestratorService {
                   move_type: MOVE_TYPE.STATION_TO_INVENTORY,
                   sequenceOrder: lastTask.sequence_order + 1,
                   taskDependency: lastTask.task_id,
-                  robotId: lastTask.robot_id
+                  robotId: lastTask.robot_id,
+                  cargos: lastTask.cargos
                 });
                 if (!newTask){console.error(`New task ${newTaskID} not found after creation`); break;}
                 await this.sendSingleTaskToWms(newTask);
@@ -1649,7 +1681,8 @@ export class OrchestratorService {
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: nextSequenceOrder,
         taskDependency: completedTask.task_id,
-        robotId: completedTask.robot_id
+        robotId: completedTask.robot_id,
+        cargos: completedTask.cargos
       });
       if (newTask) {
         // Update station to be held by this task
@@ -1824,7 +1857,8 @@ export class OrchestratorService {
             robotId: carrying_task.robot_id,
             move_type: MOVE_TYPE.STATION_TO_STATION,
             sequenceOrder: carrying_task.sequence_order+1, 
-            taskDependency: carrying_task.task_id
+            taskDependency: carrying_task.task_id,
+            cargos: carrying_task.cargos
           });
           if (task && task_id){
             await this.stationRepository.update(
@@ -2196,6 +2230,7 @@ export class OrchestratorService {
       "StationToStation": [],
       "StationToInventory": [],
       "WaitingLocationToInventory": [],
+      "StationToEmpty": []
     };
     for (const task of allTasks){
       if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION){
@@ -2232,6 +2267,11 @@ export class OrchestratorService {
         if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res.WaitingLocationToInventory.push(travelTime);
+        }
+      }else if (task.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.StationToEmpty.push(travelTime);
         }
       }
     }
@@ -2330,9 +2370,14 @@ export class OrchestratorService {
           where: { id: loc },
         });
       }
+      else if (sourceType === 'empty_location'){
+        source_location = await this.emptyLocationRepository.findOne({
+          where: { location_id: loc },
+        });
+      }
 
       const whereCondition: any = {
-        status: In([TaskStatus.COMPLETED])
+        status: In([TaskStatus.COMPLETED, TaskStatus.TRIGERRED])
       };
       if (startDate && endDate) {
         whereCondition.created_at = Between(startDate, endDate);
@@ -2343,10 +2388,11 @@ export class OrchestratorService {
       else if (endDate){
         whereCondition.created_at = LessThanOrEqual(endDate);
       }
-      whereCondition.status = TaskStatus.COMPLETED;
+      // whereCondition.status = TaskStatus.COMPLETED;
       const allTasks = await this.taskRepository.find({
         where: whereCondition,
       });
+      console.log(`start time: ${startDate}, end time: ${endDate}`);
       console.log(`where condition: ${JSON.stringify(whereCondition)}`);
       console.log(`all tasks: ${allTasks.length}`);
       console.log(`source location: ${JSON.stringify(source_location)}`);

@@ -923,7 +923,7 @@ export class OrchestratorController {
     @Query('start_time') startTime?: string,
     @Query('end_time') endTime?: string
   ) {
-    const validTypes = ['station', 'waiting_location', 'inventory'];
+    const validTypes = ['station', 'waiting_location', 'inventory', 'empty_location'];
 
     if (sourceType && !validTypes.includes(sourceType)) {
       throw new BadRequestException('Invalid source_type value');
