@@ -59,7 +59,7 @@ export enum TaskStatus {
   PICK_REJECTED = 'pick_rejected',
   PICK_FAILED = 'pick_failed',
   DROP_FAILED = 'drop_failed',
-  HAULTED = 'haulted',
+  HALTED = 'HALTED',
 
 }
 
