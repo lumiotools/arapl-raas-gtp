@@ -180,10 +180,8 @@ export class BaseOpsLocationManagerService {
                         parent_id: zoneId,
                         display_name: l.display_name ?? id,
                         location_type: LocationType.PALLET,
-                        row: l.row != null ? Number(l.row) : undefined,
-                        column: l.column != null ? Number(l.column) : undefined,
-                        pick_priority: l.pick_priority != null ? Number(l.pick_priority) : undefined,
-                        drop_priority: l.drop_priority != null ? Number(l.drop_priority) : undefined,
+                        row: l.location_row != null ? Number(l.location_row) : undefined,
+                        column: l.location_column != null ? Number(l.location_column) : undefined,
                     });
 
                     // Fallbacks ONLY for newly created records
@@ -199,8 +197,8 @@ export class BaseOpsLocationManagerService {
                 } else {
                     // Update only provided fields; do not overwrite existing when FMS omits
                     const updates: Partial<LocationEntity> = {};
-                    if (l.row != null) updates.row = Number(l.row);
-                    if (l.column != null) updates.column = Number(l.column);
+                    if (l.location_row != null) updates.row = Number(l.location_row);
+                    if (l.location_column != null) updates.column = Number(l.location_column);
 
                     if (Object.keys(updates).length > 0) {
                         await this.locationRepository.update({ location_id: id }, updates);
