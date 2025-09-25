@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateWaitingLocationDto } from './dto/create-waiting_location.dto';
 import { UpdateWaitingLocationDto } from './dto/update-waiting_location.dto';
-import { Task, TaskStatus, WaitingLocation } from 'src/entities';
+import { Task, TaskStatus, TaskType, WaitingLocation } from 'src/entities';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { LocationStatus } from 'src/entities/station.entity';
@@ -200,7 +200,9 @@ export class WaitingLocationService {
   
   async getActiveRobotAtWaiting(waiting_location_id: string){
     const tasks = await this.taskRepository.find({
-      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]) },
+      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE])
+        ,task_type: TaskType.GOODS_TO_PERSON
+       },
       order: { created_at: 'DESC' }
     });
 

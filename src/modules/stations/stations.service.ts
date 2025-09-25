@@ -335,7 +335,7 @@ export class StationsService {
 
   async getActiveRobotAtStation(station_id: string): Promise<any | null> {
     const tasks = await this.taskRepository.find({
-      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]) }
+      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]), task_type: TaskType.GOODS_TO_PERSON },
     });
     let robot_id : string | null = null;
     let robot_task : Task | null = null;
