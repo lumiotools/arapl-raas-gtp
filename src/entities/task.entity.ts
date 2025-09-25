@@ -24,7 +24,6 @@ export enum TaskType {
   BASEOPS = 'Baseops',
   DROP = 'DROP',
   GOODS_TO_PERSON = 'GoodsToPerson',
-  BaseOps = 'Baseops',
   NOP = "NOP"
 }
 
