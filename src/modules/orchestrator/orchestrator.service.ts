@@ -2123,9 +2123,10 @@ export class OrchestratorService {
     });
   }
 
-  async getAllRobots(){
+  async getAllRobots(task_type: TaskType){
+    console.log(`task type: ${JSON.stringify(task_type)}`);
     const moving_tasks = await this.taskRepository.find({
-      where: { status: TaskStatus.PROCESSING }
+      where: { status: TaskStatus.PROCESSING, task_type: task_type['task_type'] }
     });
     const res : any[] = [];
     const robots = moving_tasks.map(task => task.robot_id);
@@ -2142,7 +2143,7 @@ export class OrchestratorService {
         MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
         MOVE_TYPE.STATION_TO_STATION,
         MOVE_TYPE.WAITING_LOCATION_TO_STATION,
-      ])
+      ],), task_type: task_type['task_type']
     }
     })
     for (const task of station_robots){

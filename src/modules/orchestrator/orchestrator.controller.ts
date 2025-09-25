@@ -7,6 +7,7 @@ import { Roles } from '../auth/guard/roles.decorator';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { BadRequestDto } from '../orders/dto/error-responses.dto';
 import { Role } from 'src/entities/user.entity';
+import { TaskType } from 'src/entities';
 
 @ApiTags('Orchestrator')
 @Controller('orchestrator')
@@ -510,8 +511,8 @@ export class OrchestratorController {
       }
     }
   })
-  async getAllRobots() {
-    return await this.orchestratorService.getAllRobots();
+  async getAllRobots(@Query() task_type: TaskType) {
+    return await this.orchestratorService.getAllRobots(task_type);
   }
 
   // @Get('error-check')
