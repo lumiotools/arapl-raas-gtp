@@ -206,6 +206,7 @@ export class WebhookService {
       'cancelled': TaskStatus.CANCELLED,
       'canceled': TaskStatus.CANCELLED,
       'drop_successful': TaskStatus.COMPLETED,
+      'task_completed': TaskStatus.COMPLETED,
       'task_cancelled': TaskStatus.CANCELLED,
       'task_canceled': TaskStatus.CANCELLED,
       'drop_rejected': TaskStatus.CANCELLED,
