@@ -56,13 +56,13 @@ export class GtpService {
     // Check if this GTP location is assigned to any order items in IN_PROGRESS state
     const inProgressOrderItems = await this.orderItemRepository.find({
       where: { 
-        assigned_gtp_location: id,
+        order_batch_id: id,
         status: OrderItemStatus.IN_PROGRESS
       }
     });
     
     if (inProgressOrderItems.length > 0) {
-      const orderIds = inProgressOrderItems.map(item => item.order_id).join(', ');
+      const orderIds = inProgressOrderItems.map(item => item.order_item_id).join(', ');
       throw new ForbiddenException(`Cannot update GTP location ${id}: A license plate number is assigned to this location.`);
     }
     if (updateGtpDto.station_id) {
@@ -87,7 +87,7 @@ export class GtpService {
       throw new NotFoundException(`GTP with id ${id} not found`);
     }
     const exisingOrder = await this.orderItemRepository.findOne({
-      where: { assigned_gtp_location: id }
+      where: { destination_pallet_slot_id: id }
     });
     if (exisingOrder) {
       throw new ForbiddenException(`Cannot delete GTP location ${id}: A license plate number was assigned to this location.`);
@@ -95,13 +95,13 @@ export class GtpService {
     // Check if this GTP location is assigned to any order items in IN_PROGRESS state
     const inProgressOrderItems = await this.orderItemRepository.find({
       where: { 
-        assigned_gtp_location: id,
+        destination_pallet_slot_id: id,
         status: OrderItemStatus.IN_PROGRESS
       }
     });
     
     if (inProgressOrderItems.length > 0) {
-      const orderIds = inProgressOrderItems.map(item => item.order_id).join(', ');
+      const orderIds = inProgressOrderItems.map(item => item.order_item_id).join(', ');
       throw new ForbiddenException(`Cannot delete GTP location ${id}: A license plate number is assigned to this location.`);
     }
     

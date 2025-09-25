@@ -6,7 +6,6 @@ import { getDBConfig } from './config/db.config';
 import { OrdersModule } from './modules/orders/orders.module';
 import { GtpModule } from './modules/gtp/gtp.module';
 import { StationsModule } from './modules/stations/stations.module';
-import { ProductsModule } from './modules/products/products.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrchestratorModule } from './modules/orchestrator/orchestrator.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
@@ -18,6 +17,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { BotModule } from './modules/bot/bot.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { BaseopsTaskModule } from './modules/baseops_task/baseops_task.module';
+import { EmptyLocationsModule } from './modules/empty_locations/empty_locations.module';
 
 @Module({
   imports: [
@@ -32,7 +32,6 @@ import { BaseopsTaskModule } from './modules/baseops_task/baseops_task.module';
     OrdersModule,
     GtpModule,
     StationsModule,
-    ProductsModule,
     InventoryModule,
     OrchestratorModule,
     WebhookModule,
@@ -42,7 +41,8 @@ import { BaseopsTaskModule } from './modules/baseops_task/baseops_task.module';
     AuthModule,
     BotModule,
     LocationsModule,
-    BaseopsTaskModule
+    BaseopsTaskModule,
+    EmptyLocationsModule
   ],
   controllers: [],
   providers: [],

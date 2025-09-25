@@ -26,26 +26,14 @@ export class OrderItem {
   @PrimaryGeneratedColumn()
   order_item_id: number;
 
-  @Column({ type: 'varchar', length: 10 })
-  order_id: string;
-
-  @Column({ type: 'varchar', length: 10 })
-  product_id: string;
-
-  @Column({ type: 'int' })
-  quantity: number;
-
-  @Column({ type: 'int'})
-  remaining_quantity: number;
-
   @Column({ type: 'varchar', length: 255, nullable: true })
   order_batch_id: string | null;
 
-  @Column({ type: 'varchar', length: 10, nullable: true })
-  license_plate_id: string;
+  @Column({type:'varchar', length: 100})
+  source_location_id: string;
 
-  @Column({ type: 'varchar', length: 10, nullable: true })
-  assigned_gtp_location: string | null;
+  @Column({type: 'varchar', length: 100})
+  destination_pallet_slot_id: string;
 
   @Column({
     type: 'enum',
@@ -53,6 +41,9 @@ export class OrderItem {
     default: OrderItemStatus.PENDING,
   })
   status: OrderItemStatus;
+
+  @Column({ type: 'int', default: null, nullable: true })
+  merged_order_item_id: number;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
@@ -64,18 +55,9 @@ export class OrderItem {
   })
   updated_at: Date;
 
-  // Relations - using Relation type with type-only imports
-  // @ManyToOne('Order', 'orderItems')
-  // @JoinColumn({ name: 'order_id' })
-  // order: Relation<Order>;
-
-  @ManyToOne('Product', 'orderItems')
-  @JoinColumn({ name: 'product_id' })
-  product: Relation<Product>;
-
   @ManyToOne('GtpLocation', 'orderItems')
-  @JoinColumn({ name: 'assigned_gtp_location' })
-  assignedGtpLocation: Relation<GtpLocation>;
+  @JoinColumn({ name: 'destination_pallet_slot_id' })
+  destinationPalletSlot: Relation<GtpLocation>;
 
   @ManyToMany(() => Task, (task) => task.orderItems)
   completedTasks: Relation<Task[]>;

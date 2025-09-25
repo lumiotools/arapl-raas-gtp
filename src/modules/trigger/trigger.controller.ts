@@ -25,9 +25,7 @@ import { Roles } from '../auth/guard/roles.decorator';
 import { Role } from 'src/entities/user.entity';
 
 export enum MessageCode {
-  DEFECTIVE_PRODUCT = 'DEFECTIVE_PRODUCT',
-  INSUFFICIENT_QUANTITY = 'INSUFFICIENT_QUANTITY',
-  NOT_REQUIRED = "DON'T WANT ANYMORE",
+  SEND_TO_EMPTY_LOCATION = 'SEND_TO_EMPTY_LOCATION',
 }
 
 @ApiTags('Trigger')
@@ -108,7 +106,7 @@ export class TriggerController {
     @Body() body: { dropped_quantity: number; message_code: MessageCode }
   ) {
     try {
-      const result = await this.triggerService.triggerStationAction(stationId, body.dropped_quantity, body.message_code);
+      const result = await this.triggerService.triggerStationAction(stationId, body.message_code);
       return {
         success: true,
         data: result,

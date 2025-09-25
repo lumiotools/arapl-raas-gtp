@@ -39,71 +39,6 @@ import { Role } from 'src/entities/user.entity';
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
-  @Post('schedule-mapping/upload')
-  @HttpCode(HttpStatus.CREATED)
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({
-    summary: 'Upload schedule mappings from CSV file',
-    description:
-      'Upload a CSV file containing schedule mapping data to create ScheduleMapping records in the system.',
-  })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        file: {
-          type: 'string',
-          format: 'binary',
-          description:
-            'CSV file containing schedule mapping data with columns: GTP Location, License Plate ID',
-        },
-      },
-      required: ['file'],
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'File processed successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Successfully uploaded 3 schedule mappings.' },
-        errors: { type: 'array', items: { type: 'string' }, example: [] },
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid file format, missing file, or processing error',
-    type: BadRequestDto,
-  })
-  @ApiResponse({
-    status: HttpStatus.INTERNAL_SERVER_ERROR,
-    description: 'Internal server error',
-    type: InternalServerErrorDto,
-  })
-  async uploadScheduleMappings(
-    @UploadedFile() file: Express.Multer.File,
-  ): Promise<{ success: boolean; message: string; errors?: string[] }> {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
-
-    const allowedExtensions = ['csv'];
-    const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
-
-    if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
-      throw new BadRequestException(
-        'Invalid file format. Please upload a CSV file (.csv)',
-      );
-    }
-    return await this.ordersService.processScheduleMappingFile(file);
-  }
-
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -146,7 +81,8 @@ export class OrdersController {
   })
   async uploadOrders(
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: any, // Body is not used but can be included for future extensions
+    @Body() body: any,
+    @Query() upload_mode: 'merge' | 'transit', // Body is not used but can be included for future extensions
   ): Promise<UploadResponseDto> {
     if (!file) {
       throw new BadRequestException('No file uploaded');
@@ -160,161 +96,8 @@ export class OrdersController {
         'Invalid file format. Please upload a CSV or Excel file (.csv, .xlsx, .xls)',
       );
     }
-    return await this.ordersService.processFile(file, body);
+    return await this.ordersService.processFile(file, body, upload_mode);
     // return await this.ordersService.processFile(file);
-  }
-
-  @Post('assignments/upload')
-  @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({
-    summary: 'Upload location assignments from CSV file',
-    description:
-      'Upload a CSV file containing location assignment data to assign GTP locations.',
-  })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        file: {
-          type: 'string',
-          format: 'binary',
-          description:
-            'CSV file containing location assignment data with columns: Location ID, GTP ID',
-        },
-      },
-      required: ['file'],
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'File processed successfully',
-    type: UploadResponseDto,
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid file format, missing file, or processing error',
-    type: BadRequestDto,
-  })
-  @ApiResponse({
-    status: HttpStatus.INTERNAL_SERVER_ERROR,
-    description: 'Internal server error',
-    type: InternalServerErrorDto,
-  })
-  async uploadAssignments(
-    @UploadedFile() file: Express.Multer.File,
-  ): Promise<UploadResponseDto> {
-    if (!file) {
-      throw new BadRequestException('No file uploaded');
-    }
-
-    const allowedExtensions = ['csv'];
-    const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
-
-    if (!fileExtension || !allowedExtensions.includes(fileExtension)) {
-      throw new BadRequestException(
-        'Invalid file format. Please upload a CSV file (.csv)',
-      );
-    }
-
-    return await this.ordersService.processAssignmentsFile(file);
-  }
-
-  @Get('available-license-plates')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get available license plates',
-    description: 'Retrieve all license plates that do not have assigned GTP locations.',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Successfully retrieved available license plates',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Found 12 available license plates' },
-        data: { 
-          type: 'array', 
-          items: { type: 'string' },
-          example: ['LP001', 'LP002', 'LP003']
-        }
-      }
-    }
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Bad request',
-    type: BadRequestDto,
-  })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR) 
-  async getAvailableLicensePlates() {
-    return await this.ordersService.getAvailableLicensePlates();
-  }
-
-  @Put('license-plate-mapping')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Map license plate to GTP location',
-    description: 'Assign a license plate to a specific GTP location.',
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        licensePlateId: { type: 'string', example: 'LP001' },
-        gtpLocationId: { type: 'string', example: 'GTP001' }
-      },
-      required: ['licensePlateId', 'gtpLocationId']
-    }
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Successfully mapped license plate to GTP location',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Successfully mapped license plate LP001 to GTP location GTP001 for 3 order items' },
-        data: {
-          type: 'object',
-          properties: {
-            licensePlateId: { type: 'string', example: 'LP001' },
-            gtpLocationId: { type: 'string', example: 'GTP001' },
-            affectedItems: { type: 'number', example: 3 }
-          }
-        }
-      }
-    }
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid data provided',
-    type: BadRequestDto,
-  })
-  @ApiResponse({
-    status: HttpStatus.FORBIDDEN,
-    description: 'GTP location already assigned to another license plate',
-    schema: {
-      type: 'object',
-      properties: {
-        statusCode: { type: 'number', example: 403 },
-        message: { type: 'string', example: 'GTP Location GTP001 is already assigned to license plate LP005' },
-        error: { type: 'string', example: 'Forbidden' }
-      }
-    }
-  })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
-  async mapLicensePlateToGtpLocation(
-    @Body() mappingData: { licensePlateId: string; gtpLocationId: string }
-  ) {
-    return await this.ordersService.mapLicensePlateToGtpLocation(
-      mappingData.licensePlateId,
-      mappingData.gtpLocationId
-    );
   }
 
   @Get('order-items')
@@ -368,128 +151,36 @@ export class OrdersController {
     return await this.ordersService.getAllOrderItems();
   }
 
-  @Delete('license-plate-mapping/:licensePlateId')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Remove license plate to GTP location mapping',
-    description: 'Remove the GTP location assignment from a license plate by setting it to null. Only works if status is ASSIGNED.',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Successfully removed license plate to GTP location mapping',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Successfully removed GTP location mapping for license plate LP001. 3 order items updated.' },
-        data: {
-          type: 'object',
-          properties: {
-            licensePlateId: { type: 'string', example: 'LP001' },
-            previousGtpLocationId: { type: 'string', example: 'GTP001' },
-            affectedItems: { type: 'number', example: 3 }
-          }
-        }
-      }
-    }
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'License plate not found or invalid status',
-    schema: {
-      type: 'object',
-      properties: {
-        statusCode: { type: 'number', example: 400 },
-        message: { type: 'string', example: 'Cannot remove mapping: Order items with license plate LP001 are not in ASSIGNED status' },
-        error: { type: 'string', example: 'Bad Request' }
-      }
-    }
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'License plate not found or no GTP mapping exists',
-    schema: {
-      type: 'object',
-      properties: {
-        statusCode: { type: 'number', example: 404 },
-        message: { type: 'string', example: 'No order items found with license plate LP001 or no GTP mapping exists' },
-        error: { type: 'string', example: 'Not Found' }
-      }
-    }
-  })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
-  async removeLicensePlateMapping(
-    @Param('licensePlateId') licensePlateId: string
-  ) {
-    return await this.ordersService.removeLicensePlateMapping(licensePlateId);
-  }
-
-  @Post('order-completed-tasks')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Get completed tasks for order items',
-    description: 'Retrieve all completed tasks associated with the provided order_item_id list.',
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        order_item_ids: {
-          type: 'array',
-          items: { type: 'number' },
-          description: 'List of order_item_id to fetch completed tasks for',
-          example: [1, 2, 3]
-        }
-      },
-      required: ['order_item_ids']
-    }
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Successfully retrieved completed tasks',
-    type: Array,
-  })
-  async getCompletedTasksForOrderItems(
-    @Body() body: { order_item_ids: number[] }
-  ) {
-    return await this.ordersService.getCompletedTasksForOrderItems(body.order_item_ids);
-  }
-
-  @Get('license-plates/by-gtp-location/:gtpLocationId')
-  @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
-  @ApiOperation({
-    summary: 'Get license plates by GTP location',
-    description: 'Retrieve all license plates assigned to the specified GTP location.',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Successfully retrieved license plates for the given GTP location',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Found 2 license plates for GTP location GTP001' },
-        data: {
-          type: 'array',
-          items: { type: 'string' },
-          example: ['LP001', 'LP002']
-        }
-      }
-    }
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid GTP location ID',
-    type: BadRequestDto,
-  })
-  async getLicensePlatesByGtpLocation(
-    @Param('gtpLocationId') gtpLocationId: string
-  ) {
-    return await this.ordersService.getLicensePlatesByGtpLocation(gtpLocationId);
-  }
+  // @Post('order-completed-tasks')
+  // @HttpCode(HttpStatus.OK)
+  // @ApiOperation({
+  //   summary: 'Get completed tasks for order items',
+  //   description: 'Retrieve all completed tasks associated with the provided order_item_id list.',
+  // })
+  // @ApiBody({
+  //   schema: {
+  //     type: 'object',
+  //     properties: {
+  //       order_item_ids: {
+  //         type: 'array',
+  //         items: { type: 'number' },
+  //         description: 'List of order_item_id to fetch completed tasks for',
+  //         example: [1, 2, 3]
+  //       }
+  //     },
+  //     required: ['order_item_ids']
+  //   }
+  // })
+  // @ApiResponse({
+  //   status: HttpStatus.OK,
+  //   description: 'Successfully retrieved completed tasks',
+  //   type: Array,
+  // })
+  // async getCompletedTasksForOrderItems(
+  //   @Body() body: { order_item_ids: number[] }
+  // ) {
+  //   return await this.ordersService.getCompletedTasksForOrderItems(body.order_item_ids);
+  // }
 
   @Get('gtp-location-status/:gtpLocationId')
   @HttpCode(HttpStatus.OK)
@@ -648,5 +339,51 @@ export class OrdersController {
       throw new BadRequestException('start_time must be before end_time');
     }
     return await this.ordersService.getStationReportSummary(startDate, endDate);
+  }
+
+  @Get('source/gtp-location/:gtp_location_id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  @ApiOperation({
+    summary: 'Get source by GTP location',
+    description: 'Retrieve all source associated with the specified GTP location ID.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved source for the GTP location',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Found 3 sources for GTP location GTP001' },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              source_id: { type: 'string', example: 'SRC001' },
+              order_id: { type: 'string', example: 'ORD001' },
+              status: { type: 'string', example: 'ACTIVE' },
+              created_at: { type: 'string', format: 'date-time' },
+              updated_at: { type: 'string', format: 'date-time' }
+            }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid GTP location ID',
+    type: BadRequestDto,
+  })
+  async getSourceByGtpLocation(
+    @Param('gtp_location_id') gtpLocationId: string
+  ) {
+    if (!gtpLocationId) {
+      throw new BadRequestException('GTP location ID is required');
+    }
+    return await this.ordersService.getSourceByGtpLocation(gtpLocationId);
   }
 }

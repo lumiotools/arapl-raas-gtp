@@ -24,6 +24,7 @@ export enum TaskType {
   BASEOPS = 'Baseops',
   DROP = 'DROP',
   GOODS_TO_PERSON = 'GoodsToPerson',
+  BaseOps = 'Baseops',
   NOP = "NOP"
 }
 
@@ -38,6 +39,7 @@ export  enum MOVE_TYPE {
   ZONE_TO_ZONE = 'ZoneToZone',
   ZONE_TO_WAIT='ZoneToWait',
   WAIT_TO_ZONE='WaitToZone',
+  STATION_TO_EMPTY_LOCATION = 'StationToEmptyLocation',
 }
 
 
@@ -79,10 +81,7 @@ export class Task {
   fms_batch_id: string;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
-  product_id: string;
-
-  @Column({ type: 'int', nullable: true })
-  quantity: number;
+  origin_location: string;
 
   @Column({ type: 'int', nullable: true })
   priority: number;

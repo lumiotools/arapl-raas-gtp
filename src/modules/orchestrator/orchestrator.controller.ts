@@ -33,27 +33,6 @@ export class OrchestratorController {
   async triggerOrchestrator() {
     return await this.orchestratorService.writeInDatabase();
   }
-  @Post('trigger/:licensePlate')
-  @ApiOperation({
-    summary: 'Manually trigger orchestrator process for a specific license plate',
-    description: 'Manually start the orchestrator process for the given license plate to handle assigned order items and create tasks.',
-  })
-  @ApiParam({ name: 'licensePlate', description: 'License plate number', example: 'LP123456' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Orchestrator process triggered successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        message: { type: 'string', example: 'Orchestrator process triggered successfully' }
-      }
-    }
-  })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
-  async triggerLicensePlate(@Param('licensePlate') licensePlate: string) {
-    return await this.orchestratorService.triggerLicensePlateService(licensePlate);
-  }
 
   @Get('batches')
   @ApiOperation({
@@ -119,20 +98,6 @@ export class OrchestratorController {
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async getAllProductRequirements() {
     return await this.orchestratorService.getAllProductRequirements();
-  }
-
-  @Get('product-requirements/product/:productId')
-  @ApiOperation({
-    summary: 'Get product requirements by product ID',
-    description: 'Retrieve all station requirements for a specific product.',
-  })
-  @ApiParam({ name: 'productId', description: 'Product ID', example: 'P001' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Product requirements for the specified product',
-  })
-  async getProductRequirementsByProductId(@Param('productId') productId: string) {
-    return await this.orchestratorService.getProductRequirementsByProductId(productId);
   }
 
   @Get('product-requirements/station/:stationId')
@@ -549,35 +514,35 @@ export class OrchestratorController {
     return await this.orchestratorService.getAllRobots();
   }
 
-  @Get('error-check')
-  @ApiOperation({
-    summary: 'Perform error check',
-    description: 'Perform a system-wide error check to identify any issues or inconsistencies.',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Error check completed successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Error check completed' },
-        errors: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', example: 'WARNING' },
-              message: { type: 'string', example: 'Robot ROBOT_001 has low battery' }
-            }
-          }
-        }
-      }
-    }
-  })
-  async performErrorCheck() {
-    return await this.orchestratorService.performErrorCheck();
-  }
+  // @Get('error-check')
+  // @ApiOperation({
+  //   summary: 'Perform error check',
+  //   description: 'Perform a system-wide error check to identify any issues or inconsistencies.',
+  // })
+  // @ApiResponse({
+  //   status: HttpStatus.OK,
+  //   description: 'Error check completed successfully',
+  //   schema: {
+  //     type: 'object',
+  //     properties: {
+  //       success: { type: 'boolean', example: true },
+  //       message: { type: 'string', example: 'Error check completed' },
+  //       errors: {
+  //         type: 'array',
+  //         items: {
+  //           type: 'object',
+  //           properties: {
+  //             type: { type: 'string', example: 'WARNING' },
+  //             message: { type: 'string', example: 'Robot ROBOT_001 has low battery' }
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
+  // })
+  // async performErrorCheck() {
+  //   return await this.orchestratorService.performErrorCheck();
+  // }
 
   @Post('initial-config')
   @ApiOperation({
@@ -963,7 +928,7 @@ export class OrchestratorController {
     @Query('end_time') endTime?: string,
     @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
   ) {
-    const validTypes = ['station', 'waiting_location', 'inventory'];
+    const validTypes = ['station', 'waiting_location', 'inventory', 'empty_location'];
 
     if (sourceType && !validTypes.includes(sourceType)) {
       throw new BadRequestException('Invalid source_type value');
@@ -1085,6 +1050,32 @@ export class OrchestratorController {
       message: 'Total robots retrieved successfully',
       total_robots: totalRobots
     };
+  }
+
+  @Post('trigger-order/:orderId')
+  @ApiOperation({
+    summary: 'Trigger orchestrator process for a specific order',
+    description: 'Manually start the orchestrator process for the given order ID with provided source and GTP location.',
+  })
+  @ApiParam({ name: 'orderId', description: 'Order ID', example: 'ORD123456' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Orchestrator process triggered for order successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Orchestrator process triggered for order successfully' }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  async triggerOrder(
+    @Param('orderId') orderId: string,
+    @Body('source_location') sourceLocation: string,
+    @Body('gtp_location_id') gtpLocationId: string
+  ) {
+    return await this.orchestratorService.triggerOrderService(orderId, sourceLocation, gtpLocationId);
   }
 
 }

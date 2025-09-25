@@ -15,6 +15,7 @@ import { Robot } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
 import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
+import { EmptyLocation } from 'src/entities/empty-location.entity';
 
 @Injectable()
 export class WebhookService {
@@ -31,6 +32,8 @@ export class WebhookService {
     private readonly stationRepository: Repository<Station>,
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
+    @InjectRepository(EmptyLocation)
+    private readonly emptyLocationRepository: Repository<EmptyLocation>,
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
@@ -136,13 +139,13 @@ export class WebhookService {
         }
       }
       else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY){
-        const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id, product_id: task.product_id } });
+        const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id } });
         if (destinationInventoryLocation){
           await this.inventoryRepository.update({ id: destinationInventoryLocation.id }, { status: LocationStatus.AVAILABLE });
         }
       }
       else if (task.move_type === MOVE_TYPE.STATION_TO_INVENTORY){
-        const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id, product_id: task.product_id } });
+        const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id } });
         if (destinationInventoryLocation){
          await this.inventoryRepository.update({ id: destinationInventoryLocation.id }, { status: LocationStatus.AVAILABLE });
         }
@@ -165,6 +168,14 @@ export class WebhookService {
           await this.waitingLocationRepository.update(
             { location_id: task.start_location.location_id, holded_by: task.task_id },
             { status: LocationStatus.AVAILABLE, holded_by: null }
+          );
+        }
+
+        if (task.move_type===MOVE_TYPE.STATION_TO_EMPTY_LOCATION){
+          await this.orchestratorService.decrementRobotInUse();
+          await this.emptyLocationRepository.update(
+            { location_id: task.end_location.location_id },
+            { status: LocationStatus.OCCUPIED }
           );
         }
 
@@ -212,14 +223,11 @@ export class WebhookService {
     return mapped;
   }
 
-  private async releaseProcessingInventory(inventoryLocationId: any, productId: any): Promise<void> {
-
-    this.logger.log(`Releasing inventory for product ${productId} at location ${inventoryLocationId}`);
+  private async releaseProcessingInventory(inventoryLocationId: any): Promise<void> {
 
     await this.inventoryRepository.update(
       { 
         id: inventoryLocationId,
-        product_id: productId 
       },
       {
         isProcessing: true,
@@ -228,36 +236,11 @@ export class WebhookService {
     );
   }
 
-  private async releaseCompleteInventory(inventoryLocationId: any, productId: any, task_qty: any): Promise<void> {
-    this.logger.log(`Releasing inventory for product ${productId} at location ${inventoryLocationId}`);
-    const inventory = await this.inventoryRepository.findOne({
-      where: { 
-        id: inventoryLocationId,
-        product_id: productId 
-      }
-    });
-    if (!inventory) {
-      this.logger.warn(`Inventory location ${inventoryLocationId} for product ${productId} not found`);
-      return;
-    }
-    await this.inventoryRepository.update(
-      { 
-        id: inventoryLocationId,
-        product_id: productId 
-      },
-      {
-        status: LocationStatus.AVAILABLE,
-        isProcessing: false,
-        quantity_in_system: inventory?.quantity_in_system - task_qty
-      }
-    );
-  }
-
   private async handleInventoryUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus, batchId: string): Promise<void> {
     try {
       // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
       if ((newStatus === TaskStatus.PROCESSING || newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
-        await this.releaseProcessingInventory(task.start_location.location_id, task.product_id);
+        await this.releaseProcessingInventory(task.start_location.location_id);
         if (newStatus === TaskStatus.PROCESSING){
           await this.orchestratorService.unmarkSystemAsWaiting();
         }
@@ -280,36 +263,17 @@ export class WebhookService {
     return task.end_location?.location_attribute?.attribute_value === 'inventory';
   }
 
-  private async isLastTaskInBatch(task: Task, batchId: string): Promise<boolean> {
-    // Find the task with highest sequence_order that has inventory as end_location in this batch
-    const lastTask = await this.taskRepository.findOne({
-      where: { batch_id: batchId },
-      order: { sequence_order: 'DESC' }
-    });
-
-    return !!(lastTask && 
-           lastTask.task_id === task.task_id && 
-           this.isTaskToInventory(lastTask));
-  }
-
   private async updateInventoryWithTaskQuantity(task: Task): Promise<void> {
     const inventoryLocationId = task.end_location.location_id;
-    const productId = task.product_id;
-    const quantity = task.quantity;
     const inventory = await this.inventoryRepository.findOne({
       where: {
         id: inventoryLocationId,
-        product_id: productId 
       }
     });
     if (!inventory) {return;}
-
-    this.logger.log(`Updating inventory for product ${productId} at location ${inventoryLocationId} with quantity ${quantity}`);
-    console.log(`Current inventory quantity: ${inventory.quantity}, quantity in system: ${inventory.quantity_in_system}`);
     await this.inventoryRepository.update(
       { 
         id: inventoryLocationId,
-        product_id: productId 
       },
       {
         status: LocationStatus.AVAILABLE,
@@ -396,17 +360,6 @@ export class WebhookService {
       await this.orchestratorService.handleWaitingLocationTaskCompletion(completedTask);
     } catch (error) {
       this.logger.error(`Error handling waiting location task completion for task ${completedTask.task_id}:`, error.message);
-    }
-  }
-
-  private async handleInventoryReturnCompletion(completedTask: Task): Promise<void> {
-    try {
-      this.logger.log(`Handling completion of return task ${completedTask.task_id} at inventory`);
-      
-      // Call orchestrator to handle inventory return task completion
-      await this.orchestratorService.handleInventoryReturnTaskCompletion(completedTask);
-    } catch (error) {
-      this.logger.error(`Error handling inventory return completion for task ${completedTask.task_id}:`, error.message);
     }
   }
 

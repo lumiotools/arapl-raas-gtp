@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
 import { Inventory } from 'src/entities/inventory.entity';
 import { Product } from 'src/entities/product.entity';
 import { UploadInventoryResponseDto } from './dto/upload-inventory-response.dto';
@@ -12,6 +12,7 @@ import { LocationStatus } from 'src/entities/station.entity';
 import { firstValueFrom } from 'rxjs';
 import { Task, TaskStatus } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
+import { EmptyLocation } from 'src/entities/empty-location.entity';
 
 @Injectable()
 export class InventoryService {
@@ -19,24 +20,13 @@ export class InventoryService {
   constructor(
     @InjectRepository(Inventory)
     private readonly inventoryRepository: Repository<Inventory>,
-    @InjectRepository(Product)
-    private readonly productRepository: Repository<Product>,
-    @InjectRepository(ProductRequirement)
-    private readonly productRequirementRepository: Repository<ProductRequirement>,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
+    @InjectRepository(EmptyLocation)
+    private readonly emptyLocationRepository: Repository<EmptyLocation>,
   ) {}
 
   async create(createInventoryDto: Inventory) {
-    // Check if product_id exists in Product repository
-    const product = await this.productRepository.findOne({ 
-      where: { product_id: createInventoryDto.product_id } 
-    });
-    
-    if (!product) {
-      throw new NotFoundException(`Product with id ${createInventoryDto.product_id} not found`);
-    }
-
     // Check if inventory already exists for this location
     const existingInventory = await this.inventoryRepository.findOne({ 
       where: { id: createInventoryDto.id } 
@@ -80,6 +70,28 @@ export class InventoryService {
   }
 
   async findAll() {
+    const inventories: any[] = await this.inventoryRepository.find();
+    for (let i = 0; i < inventories.length; i++) {
+      const inv = inventories[i];
+      // Initialize is_at_empty_location to false by default
+      inventories[i].is_at_empty_location = false;
+      inventories[i].empty_location_id = null;
+      inventories[i].pallet_id = null;
+      
+      if (inv.isProcessing) {
+        const recentTask = await this.taskRepository.findOne({
+          where: { origin_location: inv.id },
+          order: { created_at: 'DESC' }
+        });
+        if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
+          inventories[i].is_at_empty_location = true;
+          inventories[i].empty_location_id = recentTask.end_location.location_id;
+          inventories[i].pallet_id = recentTask.cargos ? recentTask?.cargos[0]?.cargo_code : null;
+        }
+      }
+    }
+    console.log(`inventories: ${JSON.stringify(inventories)}`);
+    return inventories;
     try{
       const inventory_object = await this.getAllInventoryLocations();
       const bin_locations = inventory_object.available_location_types || [];
@@ -102,33 +114,33 @@ export class InventoryService {
       inventories = inventories.filter(inv => existingBinIds.includes(inv.id));
 
       // Calculate priorities for all inventories
-      const inventoriesWithPriority = await this.addPriorityToInventories(inventories);
-      return inventoriesWithPriority;
+      // const inventoriesWithPriority = await this.addPriorityToInventories(inventories);
+      return inventories;
     }catch(err){
       throw new BadRequestException(`Failed to fetch inventory locations: ${err.message}`);
     }
   }
 
-  private async addPriorityToInventories(inventories: Inventory[]) {
-    // Get all product requirements to calculate total demand per product
-    const productRequirements = await this.productRequirementRepository.find();
+  // private async addPriorityToInventories(inventories: Inventory[]) {
+  //   // Get all product requirements to calculate total demand per product
+  //   const productRequirements = await this.productRequirementRepository.find();
     
-    // Calculate total requirement per product
-    const productDemandMap = new Map<string, number>();
-    for (const req of productRequirements) {
-      const currentDemand = productDemandMap.get(req.product_id) || 0;
-      productDemandMap.set(req.product_id, currentDemand + req.requirement);
-    }
+  //   // Calculate total requirement per product
+  //   const productDemandMap = new Map<string, number>();
+  //   for (const req of productRequirements) {
+  //     const currentDemand = productDemandMap.get(req.product_id) || 0;
+  //     productDemandMap.set(req.product_id, currentDemand + req.requirement);
+  //   }
 
-    // Get max demand to normalize priorities (0-100 scale)
-    const maxDemand = Math.max(...Array.from(productDemandMap.values()), 1);
+  //   // Get max demand to normalize priorities (0-100 scale)
+  //   const maxDemand = Math.max(...Array.from(productDemandMap.values()), 1);
 
-    // Add priority to each inventory item
-    return inventories.map(inventory => ({
-      ...inventory,
-      priority: this.calculatePriority(inventory.product_id, productDemandMap, maxDemand)
-    }));
-  }
+  //   // Add priority to each inventory item
+  //   return inventories.map(inventory => ({
+  //     ...inventory,
+  //     priority: this.calculatePriority(inventory.product_id, productDemandMap, maxDemand)
+  //   }));
+  // }
 
   private calculatePriority(productId: string, demandMap: Map<string, number>, maxDemand: number): number {
     const demand = demandMap.get(productId) || 0;
@@ -161,27 +173,6 @@ export class InventoryService {
     }
   }
 
-  async findByProductId(productId: string) {
-    const inventory = await this.inventoryRepository.findOne({ 
-      where: { product_id: productId },
-      relations: ['product']
-    });
-    
-    if (!inventory) {
-      throw new NotFoundException(`Inventory for product ${productId} not found`);
-    }
-    
-    return inventory;
-  }
-
-  async findAllByProductId(productId: string) {
-    const inventories = await this.inventoryRepository.find({ 
-      where: { product_id: productId },
-      relations: ['product']
-    });
-    return inventories;
-  }
-
   async update(id: string, updateInventoryDto: Inventory) {
     const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
     
@@ -189,20 +180,30 @@ export class InventoryService {
       throw new NotFoundException(`Inventory with id ${id} not found`);
     }
     
-    if (existingInventory.isProcessing){
-      throw new BadRequestException(`Cannot update inventory ${id} while it is being processed`);
-    }
-
-    // If product_id is being updated, check if the new product exists
-    if (updateInventoryDto.product_id && updateInventoryDto.product_id !== existingInventory.product_id) {
-      const product = await this.productRepository.findOne({ 
-        where: { product_id: updateInventoryDto.product_id } 
-      });
+    // if (existingInventory.isProcessing){
+    //   const recentTask = await this.taskRepository.findOne({
+    //     where: { origin_location: existingInventory.id },
+    //     order: { created_at: 'DESC' }
+    //   });
       
-      if (!product) {
-        throw new NotFoundException(`Product with id ${updateInventoryDto.product_id} not found`);
-      }
-    }
+    //   if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
+    //     const otherEmptyLocatonTask = await this.taskRepository.find({
+    //       where: { move_type: MOVE_TYPE.STATION_TO_EMPTY_LOCATION,
+    //         created_at: MoreThan(recentTask.created_at)
+    //       }
+    //     });
+    //     const existsOtherTaskTosSameEmptyLocation = otherEmptyLocatonTask.some(task => 
+    //       task.end_location.location_id === recentTask.end_location.location_id && 
+    //       task.task_id !== recentTask.task_id
+    //     );
+    //     if (!existsOtherTaskTosSameEmptyLocation){
+    //       await this.emptyLocationRepository.update(
+    //         { location_id: recentTask.end_location.location_id },
+    //         { status: LocationStatus.AVAILABLE }
+    //       );
+    //     }
+    //   }
+    // }
 
     await this.inventoryRepository.update(id, updateInventoryDto);
     if (updateInventoryDto.id) {
@@ -211,7 +212,6 @@ export class InventoryService {
 
     return await this.inventoryRepository.findOne({ 
       where: { id: id },
-      relations: ['product']
     });
   }
 
@@ -224,24 +224,6 @@ export class InventoryService {
     
     await this.inventoryRepository.delete(id);
     return { message: `Inventory with id ${id} has been removed` };
-  }
-
-  async updateQuantity(id: string, quantity: number) {
-    const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
-    
-    if (!existingInventory) {
-      throw new NotFoundException(`Inventory with id ${id} not found`);
-    }
-
-    if (quantity < 0) {
-      throw new BadRequestException('Quantity cannot be negative');
-    }
-
-    await this.inventoryRepository.update(id, { quantity });
-    return await this.inventoryRepository.findOne({ 
-      where: { id },
-      relations: ['product']
-    });
   }
 
   async getAllInventoryLocations(){
@@ -263,6 +245,7 @@ export class InventoryService {
     }
   }
 
+
   async processInventoryFile(file: Express.Multer.File): Promise<UploadInventoryResponseDto> {
     try {
       const csvData = file.buffer.toString('utf8');
@@ -274,7 +257,7 @@ export class InventoryService {
 
       // Parse header
       const headers = lines[0].split(',').map(h => h.trim());
-      const expectedHeaders = ['Inv Locations', 'Product ID', 'Qty','barcode_number'];
+      const expectedHeaders = ['Inv Locations','barcode_number'];
       
       // Validate headers
       if (!expectedHeaders.every(header => headers.includes(header))) {
@@ -294,38 +277,24 @@ export class InventoryService {
       for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(',').map(v => v.trim());
         
-        if (values.length < 4) {
+        if (values.length < 2) {
           results.failed++;
           results.errors.push(`Row ${i + 1}: Invalid number of columns`);
           continue;
         }
 
         const invLocation = values[0]; // Inv Locations
-        const productId = values[1];   // Product ID
-        const qty = parseInt(values[2]); // Qty
-        const barcodeNumber = values[3]; // Barcode number
+        const barcodeNumber = values[1]; // Barcode number
 
-        if (!invLocation || !productId || isNaN(qty) || !barcodeNumber) {
+        if (!invLocation || !barcodeNumber) {
           results.failed++;
-          results.errors.push(`Row ${i + 1}: Missing required fields (Inv Locations, Product ID, or Qty)`);
+          results.errors.push(`Row ${i + 1}: Missing required fields (Inv Locations or Barcode Number)`);
           continue;
         }
 
         try {
           if (bin_ids.includes(invLocation) === false) {continue;}
-          // Check if product exists, create if not
-          let product = await this.productRepository.findOne({ 
-            where: { product_id: productId } 
-          });
-          
-          if (!product) {
-            // Create product with sample name if it doesn't exist
-            const newProduct = this.productRepository.create({
-              product_id: productId,
-              product_name: `Product ${productId}` // Sample name format
-            });
-            product = await this.productRepository.save(newProduct);
-          }
+          // Check if inventory exists
           // Try to update existing inventory first
           const existingInventory = await this.inventoryRepository.findOne({ 
             where: { id: invLocation } 
@@ -334,8 +303,7 @@ export class InventoryService {
           if (existingInventory) {
             // Update existing inventory
             const inventoryData = {
-              product_id: productId,
-              quantity: qty,
+              id: invLocation,
               barcode_number: barcodeNumber,
             } as Inventory;
 
@@ -344,9 +312,7 @@ export class InventoryService {
           } else {
             // Create new inventory entry if it doesn't exist
             const inventoryData = {
-              id: invLocation,
-              product_id: productId,
-              quantity: qty,
+              id:  invLocation,
               barcode_number: barcodeNumber,
             } as Inventory;
 
@@ -370,6 +336,7 @@ export class InventoryService {
       throw new BadRequestException(`Failed to process CSV file: ${error.message}`);
     }
   }
+
 
   async reserveInventory(id: string): Promise<boolean> {
     const queryRunner = this.inventoryRepository.manager.connection.createQueryRunner();
@@ -420,8 +387,6 @@ export class InventoryService {
     });
     return {
       robot_id: task?.robot_id || null,
-      product_id: task?.product_id || null,
-      quantity: task?.quantity || null,
       source: task?.start_location.location_id || null,
       status: "HOLDED"
     }

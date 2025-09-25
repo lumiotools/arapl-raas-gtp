@@ -25,6 +25,8 @@ import { WaitingLocationService } from '../waiting_location/waiting_location.ser
 import { Robot } from 'src/entities';
 import { OperationType } from 'src/entities/robot.entity';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
+import { EmptyLocation } from 'src/entities/empty-location.entity';
+import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -51,17 +53,15 @@ import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
  */
 
 interface ProductRequirement {
-  productId: string;
-  totalRequirement: number;
-  stationRequirements: Map<string, number>;
+  originLocation: string;
+  stationId: string;
 }
 
 export interface TaskDetails{
   task_id: string;
   batch_id: string;
-  product_id: string;
+  origin_location: string;
   robot_id: string;
-  quantity: number;
   move_type: MOVE_TYPE;
   status: TaskStatus;
   start_location_id: string;
@@ -100,6 +100,9 @@ export class OrchestratorService {
     private readonly scheduleMappingRepository: Repository<ScheduleMapping>,
     @InjectRepository(Robot)
     private readonly robotRepository: Repository<Robot>,
+    @InjectRepository(EmptyLocation)
+    private readonly emptyLocationRepository: Repository<EmptyLocation>,
+    private readonly emptyLocationsService: EmptyLocationsService,
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
     private readonly loggingService: LoggingService,
@@ -111,8 +114,19 @@ export class OrchestratorService {
   async processAssignedOrderItems() {
     try {
       // Calculate product requirements and sort by descending order
-      let productRequirements: ProductRequirement[];
-      productRequirements = await this.loadProductRequirementsFromDatabase();
+      let productRequirements: ProductRequirement[] = [];
+      // productRequirements = await this.loadProductRequirementsFromDatabase();
+      const dbRequirements = await this.productRequirementRepository.find({
+        where: { isPaused: false , isCancelled: false},
+        order: { source_location_id: 'ASC', station_id: 'ASC' }
+      });
+      for (const dbReq of dbRequirements) {
+        productRequirements.push({
+          originLocation: dbReq.source_location_id,
+          stationId: dbReq.station_id,
+        });
+      }
+      console.log(`Current Product Requirement: ${JSON.stringify(productRequirements)}`);
       // first check waiting locations for this product.
       const waitingLocations = await this.waitingLocationRepository.find({
         where: {
@@ -130,24 +144,13 @@ export class OrchestratorService {
           if (!task){continue;}
 
           // Check if this task's product is in the current requirements
-          const hasRequirement = productRequirements.some(req => req.productId === task.product_id);
-          console.log(`has Requirement : ${hasRequirement ? 'Yes' : 'No'}, product_id: ${task.product_id}`);
+          const hasRequirement = productRequirements.some(req => req.originLocation === task.origin_location);
+          console.log(`has Requirement : ${hasRequirement ? 'Yes' : 'No'}, origin location ID: ${task.origin_location}`);
           // check if the product requirement is paused
-          const productIsPaused = await this.productRequirementRepository.findOne({where: { product_id: task.product_id, isPaused: true }});
+          const originIsPaused = await this.productRequirementRepository.findOne({where: { source_location_id: task.origin_location, isPaused: true }});
           // the product at waiting location has no requirement and it is not paused as well - return to inventory.
-          if (!hasRequirement && !productIsPaused) {
-            // find first task of the batch
-            const firstTaskInBatch = await this.taskRepository.findOne({where: { batch_id: task.batch_id, sequence_order: 1 }});
-            if (!firstTaskInBatch) {continue;} // first task is not present - skip this task
-            // Check if this batch already has a return to inventory task (skip if yes)
-            const existingReturnTask = await this.taskRepository
-              .createQueryBuilder('task')
-              .where('task.batch_id = :batchId', { batchId: task.batch_id })
-              .andWhere(`task.end_location->'location_attribute'->>'attribute_value' = :attrValue`, { attrValue: 'inventory' })
-              .getOne();
-            if (existingReturnTask) {continue;}
-
-            const originalInventoryId = firstTaskInBatch.start_location.location_id;
+          if (!hasRequirement && !originIsPaused) {
+            const originalInventoryId = task.origin_location;
             const reserved = await this.inventoryService.reserveInventory(originalInventoryId);
             if (!reserved) {
               this.logger.error(`Failed to reserve inventory ${originalInventoryId}`);
@@ -155,15 +158,15 @@ export class OrchestratorService {
             }
             const [returnTaskId, returnTask]= await this.createTask({
               batchId: task.batch_id,
-              productId: task.product_id,
+              originLocation: task.origin_location,
               sourceWaitingLocationId: waitingLocation.location_id,
               destinationInventoryId: originalInventoryId,
-              quantity: task.quantity,
               robotId: task.robot_id,
               taskType: TaskType.GOODS_TO_PERSON,
               move_type: MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY,
               sequenceOrder: task.sequence_order + 1, // Next sequence order
-              taskDependency: task.task_id // Use last task of batch as dependency
+              taskDependency: task.task_id, // Use last task of batch as dependency
+              cargos: task.cargos
             });
 
             console.log(`returnTask: ${returnTask?.task_id}`);
@@ -171,16 +174,15 @@ export class OrchestratorService {
             if (returnTask) {
               // send this task to WMS
               await this.sendSingleTaskToWms(returnTask);
-              this.logger.log(`New Task: ${returnTaskId}, Product ID: ${task.product_id}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${originalInventoryId} (inventory)`);
-              await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${task.product_id}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${originalInventoryId} (inventory)`);
+              this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${task.origin_location}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${originalInventoryId} (inventory)`);
+              await this.loggingService.log(`New Task: ${returnTaskId}, Origin Location: ${task.origin_location}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${originalInventoryId} (inventory)`);
             }
             continue;
           }
           else if (hasRequirement) {
-            const productId = task.product_id; // take product ID from the task (which is at waiting location)
             // find all product requirements for this product that is not paused
             const databaseRequirement = await this.productRequirementRepository.find({
-              where : { product_id: productId , isPaused: false},
+              where : { source_location_id: task.origin_location, isPaused: false},
               order: { station_id: 'ASC' }
             });
             const stationIds = databaseRequirement.map(pr => pr.station_id);// get all station IDs from the requirements
@@ -199,23 +201,23 @@ export class OrchestratorService {
                 const batchId = task.batch_id;
                 const [returnTaskId, returnTask] = await this.createTask({
                   batchId,
-                  productId,
+                  originLocation: task.origin_location,
                   sourceWaitingLocationId: waitingLocation.location_id,
                   destinationStationId: station.station_id,
-                  quantity: task.quantity,
                   robotId: task.robot_id,
                   taskType: TaskType.GOODS_TO_PERSON,
                   move_type: MOVE_TYPE.WAITING_LOCATION_TO_STATION,
                   sequenceOrder: task.sequence_order + 1, // Next sequence order
-                  taskDependency: task.task_id // Use last task of batch as dependency
+                  taskDependency: task.task_id, // Use last task of batch as dependency
+                  cargos: task.cargos
                 });
                 if (!returnTask) {
                   await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
                   continue;
                 }
                 await this.reserveStationAndSendTask(returnTask, station); // Reserve the station and send task to WMS
-                this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
-                await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
+                this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${task.origin_location}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
+                await this.loggingService.log(`New Task: ${returnTaskId}, Origin Location: ${task.origin_location}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
                 break; // Exit loop after processing first available station
               }
             }
@@ -229,9 +231,7 @@ export class OrchestratorService {
         // check if the system is in waiting state
         const isWaiting = await this.checkIfSystemIsInWaitingState();
         if (isWaiting){break;}
-        // const isRobotAvailable = await this.isRobotAvailable();
-        // if (!isRobotAvailable){ break; }
-        await this.processProductRequirement(requirement.productId);
+        await this.processInventoryRequirement(requirement.originLocation);
       }
       return { message: 'Orchestrator process completed successfully' };
       
@@ -384,106 +384,22 @@ export class OrchestratorService {
     return assignedItems;
   }
 
-  private async calculateProductRequirements(orderItems: OrderItem[]): Promise<ProductRequirement[]> {
-    const requirementMap = new Map<string, ProductRequirement>();
-
-    for (const item of orderItems) {
-      const productId = item.product_id;
-      const stationId = item.assignedGtpLocation?.station_id;
-      console.log(`product id: ${productId}, station_id: ${stationId}`);
-      if (!stationId) {continue;}
-
-      if (!requirementMap.has(productId)) {
-        requirementMap.set(productId, {
-          productId,
-          totalRequirement: 0,
-          stationRequirements: new Map<string, number>()
-        });
-      }
-
-      const requirement = requirementMap.get(productId)!;
-      requirement.totalRequirement += item.quantity;
-      
-      const currentStationReq = requirement.stationRequirements.get(stationId) || 0;
-      requirement.stationRequirements.set(stationId, currentStationReq + item.quantity);
-    }
-
-    // Save requirements to database
-    console.log(`requirement Map: ${JSON.stringify(Array.from(requirementMap.entries()))}`)
-    await this.saveProductRequirementsToDatabase(requirementMap);
-
-    // Sort by descending total requirement
-    return Array.from(requirementMap.values()).sort(
-      (a, b) => b.totalRequirement - a.totalRequirement
-    );
-  }
-
-  private async saveProductRequirementsToDatabase(requirementMap: Map<string, ProductRequirement>): Promise<void> {
-    this.logger.log('Saving product requirements to database...');
-    
-    for (const [productId, requirement] of requirementMap) {
-      for (const [stationId, requirementQuantity] of requirement.stationRequirements) {
-        // Check if requirement already exists
-        const existingRequirement = await this.productRequirementRepository.findOne({
-          where: { product_id: productId, station_id: stationId }
-        });
-
-        if (existingRequirement) {
-          // Update existing requirement
-          await this.productRequirementRepository.update(
-            { product_id: productId, station_id: stationId },
-            { requirement: requirementQuantity + existingRequirement.requirement }
-          );
-          this.logger.log(`Updated requirement: Product ${productId} at Station ${stationId} = ${requirementQuantity}`);
-        } else {
-          // Create new requirement
-          const newRequirement = this.productRequirementRepository.create({
-            product_id: productId,
-            station_id: stationId,
-            requirement: requirementQuantity
-          });
-          console.log(`Created requirement: Product ${productId} at Station ${stationId} = ${requirementQuantity}`);
-          await this.productRequirementRepository.save(newRequirement);
-          this.logger.log(`Created requirement: Product ${productId} at Station ${stationId} = ${requirementQuantity}`);
-        }
-      }
-    }
-    console.log(`Finished saving product requirements: ${JSON.stringify(Array.from(requirementMap.entries()))}`);
-  }
-
-  private async processProductRequirement(productId: string): Promise<void> {
-
-    const allInventories = await this.inventoryService.findAllByProductId(productId);
-    if (!allInventories || allInventories.length === 0) {return;}
+  private async processInventoryRequirement(inventoryID: string): Promise<void> {
 
     // read the requirement of the product from the database
     const databaseRequirement = await this.productRequirementRepository.find({
-      where : { product_id: productId , isPaused: false, isCancelled: false },
+      where : { source_location_id: inventoryID , isPaused: false, isCancelled: false },
       order: { station_id: 'ASC' }
     });
-    let effectiveSystemRequirement = databaseRequirement.reduce((sum, req) => sum + req.requirement, 0);
-    let db_req = effectiveSystemRequirement;
-    for (const inventory of allInventories) {
-      if (inventory.isProcessing){
-        effectiveSystemRequirement -= (inventory.quantity - inventory.defective_quantity - inventory.missing_quantity);
-      }
-    }
-
-    // filter inventories - status - available and quantity-def-missing > 0 and isProcessing = false
-    const filteredInventories = allInventories.filter(inv => 
-      inv.status === LocationStatus.AVAILABLE && inv.quantity - inv.defective_quantity - inv.missing_quantity > 0 && !inv.isProcessing
-    );
-
-    const selectedInventories = this.selectOptimalInventories(filteredInventories, effectiveSystemRequirement);
 
     // Get stations sorted by priority (ascending order) 
     const stationIds = databaseRequirement.map(pr => pr.station_id);
     let sortedStations = await this.getStationsSortedByPriority(stationIds);
-    if (db_req > 0) {
+    if (databaseRequirement.length > 0) {
       console.log(`db req > 0 - check if any task is coming to inventory for this product`);
-      console.log(`product_id: ${productId}`);
+      console.log(`product_id: ${inventoryID}`);
       const taskComingToInventory = await this.taskRepository.findOne({
-        where:{product_id: productId, move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY]), status: In([TaskStatus.PROCESSING])}
+        where:{origin_location: inventoryID, move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY]), status: In([TaskStatus.PROCESSING])}
       })
       console.log(`task coming to inventory: ${JSON.stringify(taskComingToInventory)}`)
       if (taskComingToInventory && taskComingToInventory.robot_id) {
@@ -491,7 +407,7 @@ export class OrchestratorService {
         try{
           const inventory_id = taskComingToInventory.end_location.location_id;
           const inventory = await this.inventoryRepository.findOne({ where: { id: inventory_id } });
-          if (inventory && inventory?.quantity - inventory?.missing_quantity - inventory?.defective_quantity > 0){
+          if (inventory){
             let is_station_task_created = false;
             const robotIdToUse = taskComingToInventory.robot_id;
             for (const station of sortedStations) {
@@ -508,15 +424,15 @@ export class OrchestratorService {
               console.log(`cancelling at db_req > 0`)
               const [returnTaskId, returnTask] = await this.createTask({
                 batchId,
-                productId: taskComingToInventory.product_id,
+                originLocation: taskComingToInventory.origin_location,
                 sourceStationId: station.station_id,
                 destinationStationId: station.station_id,
-                quantity: taskComingToInventory.quantity,
                 robotId: robotIdToUse,
                 taskType: TaskType.GOODS_TO_PERSON,
                 move_type: MOVE_TYPE.STATION_TO_STATION,
                 sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
-                taskDependency: taskComingToInventory.task_id // Use last task of batch as dependency
+                taskDependency: taskComingToInventory.task_id, // Use last task of batch as dependency
+                cargos: taskComingToInventory.cargos,
               });
               if (!returnTask) {
                 await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
@@ -527,8 +443,8 @@ export class OrchestratorService {
               console.log(`sent cancellation task followup`)
               // Remove this station from sortedStations to prevent creating another task for the same station
               sortedStations = sortedStations.filter(st => st.station_id !== station.station_id);
-              this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${station.station_id} (station)`);
-              await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${station.station_id} (station)`);
+              this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${returnTask.origin_location}, Start Location: ${taskComingToInventory.start_location.location_id} (inventory), Destination Location: ${station.station_id} (station)`);
+              await this.loggingService.log(`New Task: ${returnTaskId}, Origin Location: ${returnTask.origin_location}, Start Location: ${taskComingToInventory.start_location.location_id} (inventory), Destination Location: ${station.station_id} (station)`);
               is_station_task_created = true;
               break;
             }
@@ -552,22 +468,22 @@ export class OrchestratorService {
               console.log(`cancelling at db_req > 0 - waiting location`)
               const [returnTaskId, returnTask] = await this.createTask({
                 batchId: batchId,
-                productId: taskComingToInventory.product_id,
+                originLocation: taskComingToInventory.origin_location,
                 sourceStationId: taskComingToInventory.start_location.location_id,
                 destinationWaitingLocationId: waitLocation.location_id,
-                quantity: taskComingToInventory.quantity,
                 robotId: robotIdToUse,
                 taskType: TaskType.GOODS_TO_PERSON,
                 move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION,
                 sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
-                taskDependency: taskComingToInventory.task_id // Use last task of batch as dependency
+                taskDependency: taskComingToInventory.task_id ,// Use last task of batch as dependency
+                cargos: taskComingToInventory.cargos
               });
               if (returnTask) {
                 await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.RESERVED, holded_by: returnTaskId});
                 await this.stationRepository.update(taskComingToInventory.start_location.location_id, { status: LocationStatus.RESERVED, holded_by: returnTaskId });
                 await this.sendSingleTaskToWms(returnTask);
-                this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${waitLocation.location_id} (waiting location)`);
-                await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskComingToInventory.quantity}, start location: ${taskComingToInventory.start_location.location_id} (inventory), destination location: ${waitLocation.location_id} (waiting location)`);
+                this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${returnTask.origin_location}, Start Location: ${taskComingToInventory.start_location.location_id} (inventory), Destination Location: ${waitLocation.location_id} (waiting location)`);
+                await this.loggingService.log(`New Task: ${returnTaskId}, Origin Location: ${returnTask.origin_location}, Start Location: ${taskComingToInventory.start_location.location_id} (inventory), Destination Location: ${waitLocation.location_id} (waiting location)`);
                 break;
               }
               if (!returnTask){
@@ -584,13 +500,13 @@ export class OrchestratorService {
       
     }
 
-    if (db_req > 0){
+    if (databaseRequirement.length > 0){
       const taskToWaitingLocation = await this.taskRepository.findOne({
-        where: { product_id: productId, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION]) }
+        where: { origin_location: inventoryID, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION]) }
       });
       if (taskToWaitingLocation && taskToWaitingLocation.robot_id) {
         // If a task is found, we can use it
-        this.logger.log(`Found existing task for product ${productId}: ${taskToWaitingLocation.task_id}`);
+        this.logger.log(`Found existing task for product ${inventoryID}: ${taskToWaitingLocation.task_id}`);
         for (const station of sortedStations){
           if (station.status === LocationStatus.AVAILABLE) {
             const reserved = await this.stationService.reserveStation(station.station_id);
@@ -600,15 +516,15 @@ export class OrchestratorService {
             await this.CancelTask(taskToWaitingLocation);
             const [returnTaskId, returnTask] = await this.createTask({
               batchId: taskToWaitingLocation.batch_id,
-              productId,
+              originLocation: inventoryID,
               sourceStationId: station.station_id,
               destinationStationId: station.station_id,
-              quantity: taskToWaitingLocation.quantity,
               robotId: taskToWaitingLocation.robot_id,
               taskType: TaskType.GOODS_TO_PERSON,
               move_type: MOVE_TYPE.STATION_TO_STATION,
               sequenceOrder: taskToWaitingLocation.sequence_order + 1, // Next sequence order
-              taskDependency: taskToWaitingLocation.task_id // Use last task of batch as dependency
+              taskDependency: taskToWaitingLocation.task_id, // Use last task of batch as dependency
+              cargos: taskToWaitingLocation.cargos,
             });
             if (!returnTask) {
               await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
@@ -616,76 +532,72 @@ export class OrchestratorService {
             }
             await this.reserveStationAndSendTask(returnTask, station); // Reserve the station and send task to WMS
             // remove the robotIdToUse from idleRobot list
-            this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskToWaitingLocation.quantity}, start location: ${taskToWaitingLocation.end_location.location_id} (waiting location), destination location: ${station.station_id} (station)`);
-            await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${taskToWaitingLocation.quantity}, start location: ${taskToWaitingLocation.end_location.location_id} (waiting location), destination location: ${station.station_id} (station)`);
+            this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${taskToWaitingLocation.origin_location}, start location: ${taskToWaitingLocation.end_location.location_id} (waiting location), destination location: ${station.station_id} (station)`);
+            await this.loggingService.log(`New Task: ${returnTaskId}, Origin Location: ${taskToWaitingLocation.origin_location}, start location: ${taskToWaitingLocation.end_location.location_id} (waiting location), destination location: ${station.station_id} (station)`);
             sortedStations = sortedStations.filter(s => s.station_id !== station.station_id);
             break;
           }
         }
       }
     }
-    console.log(`effectiveSystemRequirement: ${effectiveSystemRequirement}`);
-    if (effectiveSystemRequirement <= 0){
-      return ;
-    }
-
-    if (selectedInventories.length === 0) {return ;}
 
     console.log(`sorted Stations: ${JSON.stringify(sortedStations)}`);
 
-    for (const inventory of selectedInventories) {
-      const isWaiting = await this.checkIfSystemIsInWaitingState();
-      if (isWaiting){break;}
-      const isRobotAvailable = await this.isRobotAvailable();
-      if (!isRobotAvailable){break;}
-      const taskID = await this.createSingleTaskToFirstAvailableStation(
-        inventory,
-        sortedStations,
-      );
-      if (!taskID){
-        const inventory_to_station_waiting_location = await this.waitingLocationRepository.find({
-          where: { type: WaitingLocationType.INVENTORY_TO_STATION, status: LocationStatus.AVAILABLE}
-        });
-        for (const waitingLocation of inventory_to_station_waiting_location) {
-          if (waitingLocation.status !== LocationStatus.AVAILABLE || waitingLocation.holded_by !== null) {continue;} // a task is already holded by this waiting location
-          let reserved = await this.waitingLocationService.reserveWaitingLocation(waitingLocation.location_id);
-          if (!reserved) {
-            continue;
-          }
-          const robotIdToUse = null;
-          console.log(`robotIdToUse: ${robotIdToUse}`);
-          const batchId = await this.generateBatchId();
-          await this.createBatch(batchId, inventory, inventory.product_id);
-          const [returnTaskId, returnTask] = await this.createTask({
-            batchId,
-            productId: inventory.product_id,
-            sourceInventoryId: inventory.id,
-            destinationWaitingLocationId: waitingLocation.location_id,
-            quantity: inventory.quantity,
-            robotId: robotIdToUse,
-            taskType: TaskType.GOODS_TO_PERSON,
-            move_type: MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
-            sequenceOrder: 1, // First task in this batch
-            taskDependency: null // No dependency for first task
-          });
-          waitingLocation.holded_by = returnTaskId;
-          await this.waitingLocationRepository.save(waitingLocation);
-          if (!returnTask) {
-            await this.waitingLocationRepository.update({ location_id: waitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
-            continue;
-          }
-          inventory.isProcessing = true;
-          await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED, holded_by: returnTaskId });
+    const isWaiting = await this.checkIfSystemIsInWaitingState();
+    if (isWaiting){return;}
+    const isRobotAvailable = await this.isRobotAvailable();
+    if (!isRobotAvailable){return;}
 
-          await this.markSystemAsWaiting();
-          await this.incrementRobotInUse();
-          // Send task to WMS
-          await this.sendSingleTaskToWms(returnTask);
-          // remove the robotIdToUse from idleRobot list
-          this.logger.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
-          await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
-          break;
+    const inventory = await this.inventoryRepository.findOne({ where: { id: inventoryID, isProcessing: false, status: LocationStatus.AVAILABLE } });
+    if (!inventory) {return;}
+
+    const taskID = await this.createSingleTaskToFirstAvailableStation(
+      inventory,
+      sortedStations,
+    );
+    if (!taskID){
+      const inventory_to_station_waiting_location = await this.waitingLocationRepository.find({
+        where: { type: WaitingLocationType.INVENTORY_TO_STATION, status: LocationStatus.AVAILABLE}
+      });
+      for (const waitingLocation of inventory_to_station_waiting_location) {
+        if (waitingLocation.status !== LocationStatus.AVAILABLE || waitingLocation.holded_by !== null) {continue;} // a task is already holded by this waiting location
+        let reserved = await this.waitingLocationService.reserveWaitingLocation(waitingLocation.location_id);
+        if (!reserved) {
+          continue;
         }
+        const robotIdToUse = null;
+        console.log(`robotIdToUse: ${robotIdToUse}`);
+        const batchId = await this.generateBatchId();
+        await this.createBatch(batchId, inventory);
+        const [returnTaskId, returnTask] = await this.createTask({
+          batchId,
+          originLocation: inventory.id,
+          sourceInventoryId: inventory.id,
+          destinationWaitingLocationId: waitingLocation.location_id,
+          robotId: robotIdToUse,
+          taskType: TaskType.GOODS_TO_PERSON,
+          move_type: MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
+          sequenceOrder: 1, // First task in this batch
+          taskDependency: null, // No dependency for first task
+          cargos: null,
+        });
+        waitingLocation.holded_by = returnTaskId;
+        await this.waitingLocationRepository.save(waitingLocation);
+        if (!returnTask) {
+          await this.waitingLocationRepository.update({ location_id: waitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
+          continue;
+        }
+        inventory.isProcessing = true;
+        await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED, holded_by: returnTaskId });
+
+        await this.markSystemAsWaiting();
+        await this.incrementRobotInUse();
+        // Send task to WMS
+        await this.sendSingleTaskToWms(returnTask);
+        // remove the robotIdToUse from idleRobot list
+        this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${returnTask.origin_location}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
+        await this.loggingService.log(`New Task: ${returnTaskId}, Origin Location: ${returnTask.origin_location}, start location: ${inventory.id} (inventory), destination location: ${waitingLocation.location_id} (waiting location)`);
+        break;
       }
     }
   }
@@ -746,6 +658,7 @@ export class OrchestratorService {
   async setInitialConfiguration(){
     await this.stationService.findAll();
     await this.waitingLocationService.findAll();
+    await this.emptyLocationsService.findAll();
     const robots = await this.robotRepository.find({
       where:{operation_type: OperationType.FLOWOPS}
     });
@@ -755,47 +668,6 @@ export class OrchestratorService {
     // else{
     //   await this.robotRepository.updateAll({ is_waiting: false, total_robots: 4, robot_in_use: 0 });
     // }
-  }
-
-  /**
-   * Select the minimum combination of inventories to satisfy the total requirement.
-   * Prefers single inventory if possible, otherwise finds optimal combination.
-   * If insufficient inventory exists, processes ALL available inventories.
-   */
-  private selectOptimalInventories(inventories: Inventory[], totalRequired: number): Inventory[] {
-    // Sort inventories by quantity descending (prefer larger inventories first)
-    const sortedInventories = [...inventories].sort((a, b) => (b.quantity-b.defective_quantity-b.missing_quantity) - (a.quantity-a.defective_quantity-a.missing_quantity));
-    
-    // Calculate total available inventory quantity
-    const totalAvailable = sortedInventories.reduce((sum, inv) => sum + inv.quantity - inv.defective_quantity - inv.missing_quantity, 0);
-
-    // First, check if any single inventory can satisfy the entire requirement
-    const singleInventory = sortedInventories.find(inv => inv.quantity - inv.defective_quantity - inv.missing_quantity >= totalRequired);
-    if (singleInventory) {return [singleInventory];}
-
-    // Check if we have sufficient total inventory
-    if (totalAvailable < totalRequired) {
-      this.logger.warn(`Insufficient inventory for product: need ${totalRequired}, have ${totalAvailable} - processing ALL available inventories`);
-      // Return ALL inventories to fulfill as much as possible
-      const allValidInventories = sortedInventories.filter(inv => inv.quantity - inv.defective_quantity - inv.missing_quantity > 0 && !inv.isProcessing);
-      this.logger.log(`Processing all ${allValidInventories.length} available inventories to fulfill partial requirement`);
-      return allValidInventories;
-    }
-
-    // Sufficient inventory exists - find minimum combination using greedy approach
-    const selected: Inventory[] = [];
-    let remainingRequired = totalRequired;
-    
-    for (const inventory of sortedInventories) {
-      if (remainingRequired <= 0) break;
-      
-      if (inventory.quantity - inventory.defective_quantity - inventory.missing_quantity > 0) {
-        selected.push(inventory);
-        remainingRequired -= (inventory.quantity - inventory.defective_quantity - inventory.missing_quantity);
-      }
-    }
-
-    return selected;
   }
 
   private async getStationsSortedByPriority(stationIds: string[]): Promise<Station[]> {
@@ -836,20 +708,20 @@ export class OrchestratorService {
     if (targetStation) {
       // Station is available - create task immediately
       const batchId = await this.generateBatchId();
-      await this.createBatch(batchId, inventory, inventory.product_id);
+      await this.createBatch(batchId, inventory);
       console.log(`checking robot id to use`);
       const robotIdToUse = null;
       const [taskId,task] = await this.createTask({
         batchId,
-        productId: inventory.product_id,
+        originLocation: inventory.id,
         sourceInventoryId: inventory.id,
         destinationStationId: targetStation.station_id,
         robotId: robotIdToUse,
-        quantity: inventory.quantity, // Move entire available quantity
         taskType: TaskType.GOODS_TO_PERSON,
         move_type: MOVE_TYPE.INVENTORY_TO_STATION,
         sequenceOrder: 1, // First (and only) task in this batch
-        taskDependency: null // May depend on previous batch
+        taskDependency: null, // May depend on previous batch
+        cargos: null,
       });
       if(!task){
         await this.stationRepository.update(targetStation.station_id, { status: LocationStatus.AVAILABLE });
@@ -862,8 +734,8 @@ export class OrchestratorService {
       await this.markSystemAsWaiting();
       await this.incrementRobotInUse();
       await this.reserveStationAndSendTask(task, targetStation);
-      this.logger.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${inventory.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
-      await this.loggingService.log(`New Task: ${taskId}, Product ID: ${inventory.product_id}, quantity: ${task?.quantity}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
+      this.logger.log(`New Task: ${taskId}, Origin Location: ${inventory.id}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
+      await this.loggingService.log(`New Task: ${taskId}, Origin Location: ${inventory.id}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
       return taskId;
     } else {
       // No station is available - create task without station and add station request for first required station only
@@ -874,40 +746,53 @@ export class OrchestratorService {
 
   private async createTask(taskData: {
     batchId: string;
-    productId?: string;
+    originLocation?: string;
     sourceInventoryId?: string;
     sourceStationId?: string;
     sourceWaitingLocationId?: string;
     destinationStationId?: string;
     destinationInventoryId?: string;
     destinationWaitingLocationId?: string;
-    quantity?: number;
+    destinationEmptyLocationId?: string;
     taskType: TaskType;
     robotId?: string | null;
     move_type: MOVE_TYPE;
     sequenceOrder: number;
     taskDependency?: string | null;
+    cargos?: Cargo[] | null;
   }): Promise<[string, Task | null]> {
     // Create start location
     const startLocation = this.createLocation(
-      taskData.sourceInventoryId || taskData.sourceStationId || taskData.sourceWaitingLocationId!,
+      taskData.sourceInventoryId || taskData.sourceStationId || taskData.sourceWaitingLocationId || taskData.destinationEmptyLocationId!,
       taskData.sourceInventoryId ? 'inventory' : taskData.sourceStationId ? 'station' : 'waiting_location',
       this.getLocationAction(taskData, 'start')
     );
 
     // Create end location
     const endLocation = this.createLocation(
-      taskData.destinationInventoryId || taskData.destinationStationId || taskData.destinationWaitingLocationId!,
-      taskData.destinationInventoryId ? 'inventory' : taskData.destinationStationId ? 'station' : 'waiting_location',
+      taskData.destinationInventoryId || taskData.destinationStationId || taskData.destinationWaitingLocationId || taskData.destinationEmptyLocationId!,
+      taskData.destinationInventoryId ? 'inventory' : taskData.destinationStationId ? 'station' : taskData.destinationWaitingLocationId ? 'waiting_location' : 'empty_location',
       this.getLocationAction(taskData, 'end')
     );
     console.log(`startLocation: ${JSON.stringify(startLocation)}`);
     console.log(`endLocation: ${JSON.stringify(endLocation)}`);
 
-    const task = this.taskRepository.create({
+    if (!taskData.cargos && startLocation.location_attribute.attribute_value === 'inventory') {
+      const inventory = await this.inventoryRepository.findOne({ where: { id: startLocation.location_id } });
+      taskData.cargos = [
+        {
+          cargo_code: inventory?.barcode_number || '',
+          cargo_type: "PALLET",
+          cargo_dimension: {length: 1, width: 1, height: 1},
+          cargo_weight: 0,
+          cargo_attributes: null,
+        }
+      ]
+    }
+
+    const task: Task = this.taskRepository.create({
       batch_id: taskData.batchId,
-      product_id: taskData.productId,
-      quantity: taskData.quantity,
+      origin_location: taskData.originLocation,
       task_type: taskData.taskType,
       sequence_order: taskData.sequenceOrder,
       task_dependency: taskData.taskDependency || undefined,
@@ -915,11 +800,12 @@ export class OrchestratorService {
       start_location: startLocation,
       end_location: endLocation,
       move_type: taskData.move_type,
-      robot_id: taskData.robotId || undefined
+      robot_id: taskData.robotId || undefined,
+      cargos: taskData.cargos || [],
     });
 
     const savedTask = await this.taskRepository.save(task);
-    this.logger.log(`Created task ${savedTask.task_id}: ${taskData.taskType} - ${taskData.quantity} units of ${taskData.productId}${taskData.taskDependency ? ` (depends on task ${taskData.taskDependency})` : ''}`);
+    this.logger.log(`Created task ${savedTask.task_id}: ${taskData.taskType} - ${taskData.originLocation}`);
 
     await this.batchRepository.increment(
       { batch_id: taskData.batchId },
@@ -932,7 +818,7 @@ export class OrchestratorService {
 
   private createLocation(
     locationId: string,
-    locationType: 'inventory' | 'station' | 'waiting_location',
+    locationType: 'inventory' | 'station' | 'waiting_location' | 'empty_location',
     locationAction: LocationAction
   ): Location {
     return {
@@ -946,14 +832,6 @@ export class OrchestratorService {
     };
   }
 
-  private createWaitObject(): Wait | null {
-    return null;
-  }
-
-  private createCargoArray(productId: string): Cargo[] | null {
-    return null;
-  }
-
   private getLocationAction(taskData: any, position: 'start' | 'end'): LocationAction {
     const isInventoryToStation = taskData.sourceInventoryId && taskData.destinationStationId;
     const isInventoryToWaitLocation = taskData.sourceInventoryId && taskData.destinationWaitingLocationId;
@@ -962,6 +840,7 @@ export class OrchestratorService {
     const isStationToWaiting = taskData.sourceStationId && taskData.destinationWaitingLocationId;
     const isWaitingToStation = taskData.sourceWaitingLocationId && taskData.destinationStationId;
     const isWaitingToInventory = taskData.sourceWaitingLocationId && taskData.destinationInventoryId;
+    const isToEmptyLocation = taskData.destinationEmptyLocationId;
 
     if (isInventoryToStation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP_PAUSE;
     if (isInventoryToWaitLocation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP_PAUSE;
@@ -970,6 +849,7 @@ export class OrchestratorService {
     if (isWaitingToStation) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.NOP_PAUSE;
     if (isStationToInventory) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
     if (isWaitingToInventory) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
+    if (isToEmptyLocation) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
 
     // Default fallback
     return LocationAction.NOP_PAUSE;
@@ -980,8 +860,8 @@ export class OrchestratorService {
     return `B${timestamp.toString().slice(-10)}`;
   }
 
-  async createBatch(batchId: string, inventory: Inventory | null, productId: string | null) {
-    const description = `Batch for inventory ${inventory?.id} - Product ${productId} (Qty: ${inventory?.quantity})`;
+  async createBatch(batchId: string, inventory: Inventory | null) {
+    const description = `Batch for inventory ${inventory?.id}`;
 
     const batch = this.batchRepository.create({
       batch_id: batchId,
@@ -1084,7 +964,7 @@ export class OrchestratorService {
   }
 
   // Method to be called from trigger when a task completes at a station
-  async handleTaskCompletion(completedTask: Task, dropped_quantity: number, message_code: MessageCode): Promise<void> {
+  async handleTaskCompletion(completedTask: Task, message_code: MessageCode): Promise<void> {
     if (completedTask.status !== TaskStatus.TRIGERRED) {return;}
     // this.logger.log(`Handling task ${operationType} for task ${completedTask.task_id} at station - TRIGGERED is the final state`);
     
@@ -1097,20 +977,10 @@ export class OrchestratorService {
         }
       });
       if (existingNextTask) {return;}
-      let back_to_inventory : boolean = false;
-      let remainingQuantity: number;
-      let droppedQuantity: number;
-
-      // For normal completion: calculate dropped quantity and update requirements
-      
-      remainingQuantity = completedTask.quantity - dropped_quantity;
-      if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
-        back_to_inventory = true;
+      let send_to_empty : boolean = false;
+      if (message_code === MessageCode.SEND_TO_EMPTY_LOCATION){
+        send_to_empty = true;
       }
-      if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
-        back_to_inventory = true;
-      }
-      droppedQuantity = dropped_quantity
 
       // Update inventory quantity (reduce by dropped amount)
       const firstTask = await this.taskRepository.findOne({
@@ -1124,35 +994,71 @@ export class OrchestratorService {
         where: { id: inventoryId }
       });
       if (!inventory) {return;}
-      inventory.quantity -= droppedQuantity;
-      if (message_code == MessageCode.DEFECTIVE_PRODUCT) {
-        inventory.defective_quantity = remainingQuantity;
-      }
-      if (message_code == MessageCode.INSUFFICIENT_QUANTITY) {
-        inventory.missing_quantity = remainingQuantity;
-      }
       await this.inventoryRepository.save(inventory);
 
       // Remove the fulfilled product requirement from database (quantity has been dropped at this station)
       const currentStationId = completedTask.end_location.location_id;
-      await this.removeProductRequirement(completedTask, completedTask.product_id, currentStationId, droppedQuantity, message_code);
-      
-      this.logger.log(`📦 Normal completion: dropped ${droppedQuantity} units, remaining ${remainingQuantity} units`);
-      
-      if (remainingQuantity > 0 && !back_to_inventory) {
+      // await this.removeProductRequirement(completedTask, completedTask.product_id, currentStationId, droppedQuantity, message_code);
+      const req = await this.productRequirementRepository.findOne({
+        where: {
+          source_location_id: completedTask.origin_location,
+          station_id: currentStationId,
+      }});
+      const gtpLocations = await this.gtpLocationRepository.find({
+        where: { station_id: currentStationId }
+      });
+      for (const gtpLocation of gtpLocations){
+          if (req){
+          const orderItems = await this.orderItemRepository.find({where: 
+            {
+              source_location_id: completedTask.origin_location,
+              destination_pallet_slot_id: gtpLocation.gtp_location_id,
+              status: OrderItemStatus.IN_PROGRESS
+            }
+          });
+          for (const orderItem of orderItems){
+            if (orderItem){
+              if (!orderItem.completedTasks){
+                orderItem.completedTasks = [];
+              }
+              orderItem.status = OrderItemStatus.COMPLETED;
+              orderItem.completedTasks.push(completedTask);
+              await this.orderItemRepository.save(orderItem);
+            }
+          }
+          if (orderItems.length > 0){
+            await this.productRequirementRepository.remove(req);
+            break;
+          }
+        }
+      }
+
+      if (!send_to_empty) {
         const remainingRequirements = await this.getRemainingProductRequirements(
-          completedTask.product_id,
-          completedTask.batch_id
+          completedTask.origin_location
         );
         if (remainingRequirements.length > 0) {
-          await this.createNextStationTask(completedTask, remainingRequirements, remainingQuantity);
+          await this.createNextStationTask(completedTask, remainingRequirements);
         } else {
-          await this.createReturnToInventoryTask(completedTask, remainingQuantity);
+          await this.createReturnToInventoryTask(completedTask);
         }
-      } else if (remainingQuantity > 0 && back_to_inventory) {
-        await this.createReturnToInventoryTask(completedTask, remainingQuantity);
       } else {
-        await this.createReturnToInventoryTask(completedTask, 0);
+        const orderItems = await this.orderItemRepository.find({
+          where: {
+            source_location_id: completedTask.origin_location,
+            status: In([OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS, OrderItemStatus.PENDING])
+          }
+        });
+        for (const orderItem of orderItems){
+          const gtpLocation = await this.gtpLocationRepository.findOne({where: {gtp_location_id: orderItem.destination_pallet_slot_id}});
+          await this.productRequirementRepository.delete({
+            source_location_id: orderItem.source_location_id,
+            station_id: gtpLocation?.station_id
+          });
+          await this.orderItemRepository.update({order_item_id: orderItem.order_item_id}, {status: OrderItemStatus.CANCELLED});
+        }
+
+        await this.createSendToEmptyLocationTask(completedTask);
       }
 
       this.logger.log(`Task ${completedTask.task_id} processing completed - TRIGGERED remains as final state`);
@@ -1165,43 +1071,10 @@ export class OrchestratorService {
     }
   }
 
-  /**
-   * Calculate remaining quantity after dropping required amount at current station
-   */
-  private async calculateRemainingQuantityAfterDrop(completedTask: Task): Promise<number> {
-    const currentStationId = completedTask.end_location.location_id;
-    
-    this.logger.log(`🔍 Calculating remaining quantity for task ${completedTask.task_id} at station ${currentStationId}`);
-    this.logger.log(`📦 Task originally carried: ${completedTask.quantity} units of product ${completedTask.product_id}`);
-    
-    // Get the product requirement for this station
-    const stationRequirement = await this.productRequirementRepository.findOne({
-      where: { 
-        product_id: completedTask.product_id,
-        station_id: currentStationId
-      }
-    });
-
-    if (!stationRequirement) {
-      // No specific requirement for this station - return all quantity (no drop)
-      this.logger.warn(`⚠️  No product requirement found for product ${completedTask.product_id} at station ${currentStationId} - returning full quantity`);
-      return completedTask.quantity;
-    }
-
-    // Calculate remaining quantity after dropping required amount
-    const requiredDrop = stationRequirement.requirement;
-    const remainingQuantity = Math.max(0, completedTask.quantity - requiredDrop);
-    
-    this.logger.log(`📋 Station ${currentStationId} requires ${requiredDrop} units of product ${completedTask.product_id}`);
-    this.logger.log(`📦 Task had ${completedTask.quantity} units → dropping ${requiredDrop} units → remaining: ${remainingQuantity} units`);
-    
-    return remainingQuantity;
-  }
-
-  private async getRemainingProductRequirements(productId: string, batchId: string): Promise<ProductRequirementEntity[]> {
+  private async getRemainingProductRequirements(source_location_id: string): Promise<ProductRequirementEntity[]> {
     // Get all product requirements for this product
     const allRequirements = await this.productRequirementRepository.find({
-      where: { product_id: productId , isPaused: false}
+      where: { source_location_id: source_location_id , isPaused: false}
     });
 
     // Get stations with their priority info
@@ -1220,7 +1093,7 @@ export class OrchestratorService {
     return sortedRequirements;
   }
 
-  private async createNextStationTask(completedTask: Task, remainingRequirements: ProductRequirementEntity[], remainingQuantity: number): Promise<void> {
+  private async createNextStationTask(completedTask: Task, remainingRequirements: ProductRequirementEntity[]): Promise<void> {
     // Find next available station in priority order
     let nextAvailableStation: Station | null = null;
     const currentStationId = completedTask.end_location.location_id;
@@ -1264,15 +1137,15 @@ export class OrchestratorService {
       // Station available - create direct task to station with remaining quantity
       const [taskId,newTask] = await this.createTask({
         batchId: completedTask.batch_id,
-        productId: completedTask.product_id,
+        originLocation: completedTask.origin_location,
         sourceStationId: completedTask.end_location.location_id,
         destinationStationId: nextAvailableStation.station_id,
         robotId: completedTask.robot_id,
-        quantity: remainingQuantity, // Use remaining quantity after previous drop
         move_type: MOVE_TYPE.STATION_TO_STATION,    
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: nextSequenceOrder,
-        taskDependency: completedTask.task_id
+        taskDependency: completedTask.task_id,
+        cargos: completedTask.cargos
       });
       if (newTask) {
         // Update station to be held by this task
@@ -1287,9 +1160,9 @@ export class OrchestratorService {
 
       // Note: Product requirement will be removed when task completes at station
 
-      this.logger.log(`Created next station task ${taskId}: station ${completedTask.end_location.location_id} → station ${nextAvailableStation.station_id} with ${remainingQuantity} units (station reserved and task sent to WMS)`);
+      this.logger.log(`Created next station task ${taskId}: station ${completedTask.end_location.location_id} → station ${nextAvailableStation.station_id} (station reserved and task sent to WMS)`);
     } else {
-      await this.createWaitingLocationTask(completedTask, remainingRequirements, nextSequenceOrder, remainingQuantity);
+      await this.createWaitingLocationTask(completedTask, remainingRequirements, nextSequenceOrder);
     }
   }
 
@@ -1297,7 +1170,6 @@ export class OrchestratorService {
     completedTask: Task, 
     remainingRequirements: ProductRequirementEntity[], 
     sequenceOrder: number,
-    remainingQuantity: number
   ): Promise<void> {
     // Find an available waiting location
     const availableWaitingLocations = await this.waitingLocationRepository.find({
@@ -1320,15 +1192,15 @@ export class OrchestratorService {
       // Create task to waiting location
       const [waitingTaskId, waitingTask] = await this.createTask({
         batchId: completedTask.batch_id,
-        productId: completedTask.product_id,
+        originLocation: completedTask.origin_location,
         sourceStationId: completedTask.end_location.location_id,
         destinationWaitingLocationId: availableWaitingLocation.location_id,
-        quantity: remainingQuantity, // Use remaining quantity
         move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION,
         robotId: completedTask.robot_id,
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: sequenceOrder,
-        taskDependency: completedTask.task_id
+        taskDependency: completedTask.task_id,
+        cargos: completedTask.cargos
       });
 
       if (waitingTask) {
@@ -1350,15 +1222,43 @@ export class OrchestratorService {
     
   }
 
-  private async createReturnToInventoryTask(completedTask: Task, remainingQuantity: number): Promise<void> {
-    // Get the original inventory location from the first task in this batch
-    const firstTask = await this.taskRepository.findOne({
-      where: { batch_id: completedTask.batch_id, sequence_order: 1 }
-    });
+  private async createSendToEmptyLocationTask(completedTask: Task): Promise<void> {
+    const findEmptyLocation = await this.emptyLocationRepository.find(
+      {
+        where: { status: LocationStatus.AVAILABLE },
+        order: {priority: 'ASC'}
+      }
+    )
+    for (const emptyLocation of findEmptyLocation) {
+      if (await this.emptyLocationsService.reserveWaitingLocation(emptyLocation.location_id)) {
+        const [emtpyTaskId, emptyTask] = await this.createTask({
+          batchId: completedTask.batch_id,
+          originLocation: completedTask.origin_location,
+          sourceStationId: completedTask.end_location.location_id,
+          destinationEmptyLocationId: emptyLocation.location_id,
+          move_type: MOVE_TYPE.STATION_TO_EMPTY_LOCATION,
+          taskType: TaskType.GOODS_TO_PERSON,
+          sequenceOrder: completedTask.sequence_order + 1,
+          taskDependency: completedTask.task_id,
+          robotId: completedTask.robot_id,
+          cargos: completedTask.cargos
+        });
+        if (emptyTask) {
+          const nextEmptyLocation = await this.emptyLocationRepository.findOne({where: {priority: MoreThanOrEqual((emptyLocation.priority + 1)%10!==0 ? (emptyLocation.priority + 1)%10 : 10), status: LocationStatus.OCCUPIED}, order: {priority: 'ASC'}});
+          if (nextEmptyLocation) {
+            nextEmptyLocation.status = LocationStatus.AVAILABLE;
+            await this.emptyLocationRepository.save(nextEmptyLocation);
+          }
+          await this.sendSingleTaskToWms(emptyTask);
+          return;
+        }
+      }
+    }
+  }
 
-    if (!firstTask) {return;}
+  private async createReturnToInventoryTask(completedTask: Task): Promise<void> {
 
-    const originalInventoryId = firstTask.start_location.location_id;
+    const originalInventoryId = completedTask.origin_location;
     const nextSequenceOrder = completedTask.sequence_order + 1;
 
     const reserved = await this.inventoryService.reserveInventory(originalInventoryId);
@@ -1370,130 +1270,131 @@ export class OrchestratorService {
     // Create return task only if there's quantity to return or to complete the batch workflow
     const [returnTaskId, returnTask] = await this.createTask({
       batchId: completedTask.batch_id,
-      productId: completedTask.product_id,
+      originLocation: completedTask.origin_location,
       sourceStationId: completedTask.end_location.location_id,
       destinationInventoryId: originalInventoryId,
-      quantity: remainingQuantity, // Return remaining quantity
       move_type: MOVE_TYPE.STATION_TO_INVENTORY,
       taskType: TaskType.GOODS_TO_PERSON, // Always GOODS_TO_PERSON as you specified
       sequenceOrder: nextSequenceOrder,
       taskDependency: completedTask.task_id,
-      robotId: completedTask.robot_id
+      robotId: completedTask.robot_id,
+      cargos: completedTask.cargos
     });
     if (returnTask) {
       await this.sendSingleTaskToWms(returnTask);
     }  
   }
 
-  private async removeProductRequirement(task: Task, productId: string, stationId: string, droppedQuantity: number, message_code: MessageCode): Promise<void> {
-    try {
-      this.logger.log(`Removing product requirement for Product ${productId} at Station ${stationId} - dropped quantity: ${droppedQuantity}`);
-      const existingRequirement = await this.productRequirementRepository.findOne({
-        where: { product_id: productId, station_id: stationId }
-      });
-      if (!existingRequirement) {
-        this.logger.warn(`No product requirement found for Product ${productId} at Station ${stationId} - nothing to remove`);
-        return;
-      }
-      // if (message_code == MessageCode.NOT_REQUIRED) {
-      //   this.productRequirementRepository.delete({
-      //     product_id: productId,
-      //     station_id: stationId
-      //   });
-      //   return;
-      // }
-      existingRequirement.requirement -= droppedQuantity;
-      const gtpLocations = await this.gtpLocationRepository.find({
-        where: { station_id: stationId }
-      });
-      console.log(`GTP Locations for Station ${stationId}:`, JSON.stringify(gtpLocations, null, 2));
-      for (const gtpLocation of gtpLocations) {
-        const order_item = await this.orderItemRepository.findOne({
-          where: { assigned_gtp_location: gtpLocation.gtp_location_id, product_id: productId, status: OrderItemStatus.IN_PROGRESS }
-        });
-        if (order_item && message_code == MessageCode.NOT_REQUIRED) {
-          order_item.status = OrderItemStatus.COMPLETED;
-          order_item.remaining_quantity = 0;
-          await this.orderItemRepository.save(order_item);
-        }
-        console.log(`Order Item for GTP Location ${gtpLocation.gtp_location_id}:`, JSON.stringify(order_item, null, 2));
-        console.log(`Order Item Product ID: ${order_item ? order_item.product_id : 'None'}`);
-        if (order_item && order_item.product_id == productId) {
-          console.log(`Processing Order Item ${order_item.order_item_id} for Product ${productId} at GTP Location ${gtpLocation.gtp_location_id}`);
-          if (droppedQuantity >= order_item.remaining_quantity) {
-            droppedQuantity -= order_item.remaining_quantity;
-            order_item.status = OrderItemStatus.COMPLETED;
-            // order_item.assigned_gtp_location = null;
-            order_item.remaining_quantity = 0;
-            if (!order_item.completedTasks) {
-              order_item.completedTasks = [];
-            }
-            order_item.completedTasks.push(task);
-            await this.orderItemRepository.save(order_item);
-            // await this.orderItemRepository.update({ order_item_id: order_item.order_item_id, product_id: productId }, { remaining_quantity: order_item.remaining_quantity, completedTasks: order_item.completedTasks, status: order_item.status });
-            console.log(`Order Item ${order_item.order_item_id} completed - remaining quantity: 0`);
-            await this.loggingService.log(`Order ${order_item.order_id}: Product ${productId} at GTP Location ${gtpLocation.gtp_location_id} completed.`);
-          }
-          else{
-            order_item.remaining_quantity -= droppedQuantity;
-            droppedQuantity = 0;
-            if(!order_item.completedTasks) {
-              order_item.completedTasks = [];
-            }
-            order_item.completedTasks.push(task);
-            await this.orderItemRepository.save(order_item);
-            // await this.orderItemRepository.update({ order_item_id: order_item.order_item_id, product_id: productId }, { remaining_quantity: order_item.remaining_quantity, completedTasks: order_item.completedTasks, status: order_item.status });
-            break;
-          }
-          console.log(`Updated Order Item ${order_item.order_item_id} - new quantity: ${order_item.quantity}`);
-        }
-      }
-      if (existingRequirement.requirement == 0 || message_code == MessageCode.NOT_REQUIRED) {
-        const result = await this.productRequirementRepository.delete({
-          product_id: productId,
-          station_id: stationId
-        });
+  // private async removeProductRequirement(task: Task, productId: string, stationId: string, droppedQuantity: number, message_code: MessageCode): Promise<void> {
+  //   try {
+  //     this.logger.log(`Removing product requirement for Product ${productId} at Station ${stationId} - dropped quantity: ${droppedQuantity}`);
+  //     const existingRequirement = await this.productRequirementRepository.findOne({
+  //       where: { product_id: productId, station_id: stationId }
+  //     });
+  //     if (!existingRequirement) {
+  //       this.logger.warn(`No product requirement found for Product ${productId} at Station ${stationId} - nothing to remove`);
+  //       return;
+  //     }
+  //     // if (message_code == MessageCode.NOT_REQUIRED) {
+  //     //   this.productRequirementRepository.delete({
+  //     //     product_id: productId,
+  //     //     station_id: stationId
+  //     //   });
+  //     //   return;
+  //     // }
+  //     existingRequirement.requirement -= droppedQuantity;
+  //     const gtpLocations = await this.gtpLocationRepository.find({
+  //       where: { station_id: stationId }
+  //     });
+  //     console.log(`GTP Locations for Station ${stationId}:`, JSON.stringify(gtpLocations, null, 2));
+  //     for (const gtpLocation of gtpLocations) {
+  //       const order_item = await this.orderItemRepository.findOne({
+  //         where: { assigned_gtp_location: gtpLocation.gtp_location_id, product_id: productId, status: OrderItemStatus.IN_PROGRESS }
+  //       });
+  //       if (order_item && message_code == MessageCode.NOT_REQUIRED) {
+  //         order_item.status = OrderItemStatus.COMPLETED;
+  //         order_item.remaining_quantity = 0;
+  //         await this.orderItemRepository.save(order_item);
+  //       }
+  //       console.log(`Order Item for GTP Location ${gtpLocation.gtp_location_id}:`, JSON.stringify(order_item, null, 2));
+  //       console.log(`Order Item Product ID: ${order_item ? order_item.product_id : 'None'}`);
+  //       if (order_item && order_item.product_id == productId) {
+  //         console.log(`Processing Order Item ${order_item.order_item_id} for Product ${productId} at GTP Location ${gtpLocation.gtp_location_id}`);
+  //         if (droppedQuantity >= order_item.remaining_quantity) {
+  //           droppedQuantity -= order_item.remaining_quantity;
+  //           order_item.status = OrderItemStatus.COMPLETED;
+  //           // order_item.assigned_gtp_location = null;
+  //           order_item.remaining_quantity = 0;
+  //           if (!order_item.completedTasks) {
+  //             order_item.completedTasks = [];
+  //           }
+  //           order_item.completedTasks.push(task);
+  //           await this.orderItemRepository.save(order_item);
+  //           // await this.orderItemRepository.update({ order_item_id: order_item.order_item_id, product_id: productId }, { remaining_quantity: order_item.remaining_quantity, completedTasks: order_item.completedTasks, status: order_item.status });
+  //           console.log(`Order Item ${order_item.order_item_id} completed - remaining quantity: 0`);
+  //           await this.loggingService.log(`Order ${order_item.order_id}: Product ${productId} at GTP Location ${gtpLocation.gtp_location_id} completed.`);
+  //         }
+  //         else{
+  //           order_item.remaining_quantity -= droppedQuantity;
+  //           droppedQuantity = 0;
+  //           if(!order_item.completedTasks) {
+  //             order_item.completedTasks = [];
+  //           }
+  //           order_item.completedTasks.push(task);
+  //           await this.orderItemRepository.save(order_item);
+  //           // await this.orderItemRepository.update({ order_item_id: order_item.order_item_id, product_id: productId }, { remaining_quantity: order_item.remaining_quantity, completedTasks: order_item.completedTasks, status: order_item.status });
+  //           break;
+  //         }
+  //         console.log(`Updated Order Item ${order_item.order_item_id} - new quantity: ${order_item.quantity}`);
+  //       }
+  //     }
+  //     if (existingRequirement.requirement == 0 || message_code == MessageCode.NOT_REQUIRED) {
+  //       const result = await this.productRequirementRepository.delete({
+  //         product_id: productId,
+  //         station_id: stationId
+  //       });
 
-        if (result.affected && result.affected > 0) {
-          this.logger.log(`Removed fulfilled product requirement: Product ${productId} at Station ${stationId}`);
-        } else {
-          this.logger.warn(`No product requirement found to remove for Product ${productId} at Station ${stationId}`);
-        }
-      }
-      else if (existingRequirement.requirement > 0) {
-        // If requirement is still greater than 0, just update it
-        await this.productRequirementRepository.save(existingRequirement);
-        this.logger.log(`Updated product requirement: Product ${productId} at Station ${stationId} - remaining requirement: ${existingRequirement.requirement}`);
-      }
-      // const gtpLocations = await this.gtpLocationRepository.find({
-      //   where: { station_id: stationId}
-      // });
-      // for (const gtpLocation of gtpLocations) {
-      //   const order_item = await this.orderItemRepository.findOne({
-      //     where: { assigned_gtp_location: gtpLocation.gtp_location_id }
-      //   });
-      //   if (order_item) {
-      //     if (droppedQuantity >= order_item.quantity) {
-      //       droppedQuantity -= order_item.quantity;
-      //       order_item.status = OrderItemStatus.COMPLETED;
-      //       order_item.assigned_gtp_location = null;
-      //       order_item.quantity = 0;
-      //       await this.orderItemRepository.save(order_item);
-      //     }
-      //     else{
-      //       droppedQuantity = 0;
-      //       order_item.quantity -= droppedQuantity;
-      //       await this.orderItemRepository.save(order_item);
-      //       break;
-      //     }
-      //   }
-      // }
-    } catch (error) {
-      this.logger.error(`Failed to remove product requirement for Product ${productId} at Station ${stationId}:`, error);
-    }
-  }
+  //       if (result.affected && result.affected > 0) {
+  //         this.logger.log(`Removed fulfilled product requirement: Product ${productId} at Station ${stationId}`);
+  //       } else {
+  //         this.logger.warn(`No product requirement found to remove for Product ${productId} at Station ${stationId}`);
+  //       }
+  //     }
+  //     else if (existingRequirement.requirement > 0) {
+  //       // If requirement is still greater than 0, just update it
+  //       await this.productRequirementRepository.save(existingRequirement);
+  //       this.logger.log(`Updated product requirement: Product ${productId} at Station ${stationId} - remaining requirement: ${existingRequirement.requirement}`);
+  //     }
+  //     // const gtpLocations = await this.gtpLocationRepository.find({
+  //     //   where: { station_id: stationId}
+  //     // });
+  //     // for (const gtpLocation of gtpLocations) {
+  //     //   const order_item = await this.orderItemRepository.findOne({
+  //     //     where: { assigned_gtp_location: gtpLocation.gtp_location_id }
+  //     //   });
+  //     //   if (order_item) {
+  //     //     if (droppedQuantity >= order_item.quantity) {
+  //     //       droppedQuantity -= order_item.quantity;
+  //     //       order_item.status = OrderItemStatus.COMPLETED;
+  //     //       order_item.assigned_gtp_location = null;
+  //     //       order_item.quantity = 0;
+  //     //       await this.orderItemRepository.save(order_item);
+  //     //     }
+  //     //     else{
+  //     //       droppedQuantity = 0;
+  //     //       order_item.quantity -= droppedQuantity;
+  //     //       await this.orderItemRepository.save(order_item);
+  //     //       break;
+  //     //     }
+  //     //   }
+  //     // }
+  //   } catch (error) {
+  //     this.logger.error(`Failed to remove product requirement for Product ${productId} at Station ${stationId}:`, error);
+  //   }
+  // }
 
   // Get all waiting locations
+  
   async getAllWaitingLocations() {
     return await this.waitingLocationRepository.find({
       order: { location_id: 'ASC' }
@@ -1520,32 +1421,48 @@ export class OrchestratorService {
     if (assignedItems.length === 0) {
       return { message: 'No assigned order items found' };
     }
-    await this.calculateProductRequirements(assignedItems);
+    // await this.calculateProductRequirements(assignedItems);
     return { message: 'Assigned order items processed successfully'};
   }
 
-  public async triggerLicensePlateService(license_plate_id: string){
-    // get all the orderItems in assigned state and license plate = license_plate_id
-    const assignedOrderItems = await this.orderItemRepository.find({
+  public async triggerOrderService(order_id: string, sourceLocation: string, gtpLocationId:string){
+    const assignedOrderItem = await this.orderItemRepository.findOne({
       where:{
+        order_item_id: Number(order_id),
         status: OrderItemStatus.ASSIGNED,
-        license_plate_id: license_plate_id,
-      },
-      relations: ['assignedGtpLocation', 'assignedGtpLocation.station']
-    });
-    if (assignedOrderItems.length === 0) {
-      console.log(`No assigned order items found for license plate ${license_plate_id}`);
+      }});
+    if (!assignedOrderItem) {
+      console.log(`No assigned order items found for order ${order_id}`);
       return { message: 'No assigned order items found' };
     }
-    console.log(`Assigned order items for license plate ${license_plate_id}: ${JSON.stringify(assignedOrderItems)}`);
-    // update the status to in_progress
-    for (const orderItem of assignedOrderItems) {
-      orderItem.status = OrderItemStatus.IN_PROGRESS;
-      await this.orderItemRepository.save(orderItem);
+    console.log(`Assigned order items for order ${order_id}: ${JSON.stringify(assignedOrderItem)}`);
+    // for (const orderItem of assignedOrderItem ? [assignedOrderItem] : []) {
+    //   orderItem.status = OrderItemStatus.IN_PROGRESS;
+    //   await this.orderItemRepository.save(orderItem);
+    // }
+    assignedOrderItem.status = OrderItemStatus.IN_PROGRESS;
+    await this.orderItemRepository.save(assignedOrderItem);
+    const existingOrderItems = await this.orderItemRepository.find({
+      where: {
+        source_location_id: assignedOrderItem.source_location_id,
+        destination_pallet_slot_id: assignedOrderItem.destination_pallet_slot_id,
+        status: OrderItemStatus.ASSIGNED,
+        merged_order_item_id: assignedOrderItem.merged_order_item_id === null ? assignedOrderItem.order_item_id : assignedOrderItem.merged_order_item_id,
+      }
+    });
+    for (const existingOrderItem of existingOrderItems) {
+      existingOrderItem.status = OrderItemStatus.IN_PROGRESS;
+      await this.orderItemRepository.save(existingOrderItem);
     }
-    console.log(`License plate ${license_plate_id} started successfully`);
-    await this.calculateProductRequirements(assignedOrderItems);
-    return { message: 'License plate started successfully' };
+    const gtpLocation = await this.gtpLocationRepository.findOne({
+      where: { gtp_location_id: gtpLocationId }
+    });
+    await this.productRequirementRepository.save({
+      source_location_id: sourceLocation, 
+      station_id: gtpLocation?.station_id || '',
+    })
+    console.log(`Order ${order_id} started successfully`);
+    return { message: 'Order started successfully' };
   }
   
   public async triggerOrchestrator() {
@@ -1559,7 +1476,6 @@ export class OrchestratorService {
         // add a function that sends a task again
         await this.resendPendingTasks();
 
-        await this.scheduleLPtoPickLocation();
         // check if a there is lp plate waiting for a pick location
 
         const stations = await this.stationRepository.find();
@@ -1602,15 +1518,15 @@ export class OrchestratorService {
                 }
                 const [newTaskID, newTask] = await this.createTask({
                   batchId: lastTask.batch_id,
-                  productId: lastTask.product_id,
+                  originLocation: lastTask.origin_location,
                   sourceStationId: station.station_id,
                   destinationInventoryId: firstTask.start_location.location_id,
-                  quantity: lastTask.quantity,
                   taskType: TaskType.GOODS_TO_PERSON,
                   move_type: MOVE_TYPE.STATION_TO_INVENTORY,
                   sequenceOrder: lastTask.sequence_order + 1,
                   taskDependency: lastTask.task_id,
-                  robotId: lastTask.robot_id
+                  robotId: lastTask.robot_id,
+                  cargos: lastTask.cargos
                 });
                 if (!newTask){console.error(`New task ${newTaskID} not found after creation`); break;}
                 await this.sendSingleTaskToWms(newTask);
@@ -1638,73 +1554,6 @@ export class OrchestratorService {
       }
       
     }
-
-
-  async scheduleLPtoPickLocation() {
-    try {
-
-        // 1. Get all GTP locations
-        const gtpLocations = await this.gtpLocationRepository.find();
-        
-        // Process each GTP location
-        for (const gtpLocation of gtpLocations) {
-            const gtpLocationId = gtpLocation.gtp_location_id;
-            // 2. Check if this GTP location is already assigned to any order item 
-            // in pending, assigned, or in_progress state
-            const existingAssignment = await this.orderItemRepository.findOne({
-                where: { 
-                    assigned_gtp_location: gtpLocationId,
-                    status: In([OrderItemStatus.PENDING, OrderItemStatus.IN_PROGRESS, OrderItemStatus.ASSIGNED])
-                }
-            });
-            // If GTP location is already assigned, skip it
-            if (existingAssignment) {continue;}
-            
-            // 3. Find all mappings for this available GTP location
-            const scheduleMappings = await this.scheduleMappingRepository.find({
-                where: {
-                    gtp_location_id: gtpLocationId
-                }
-            });
-            // take out all the license plate ID for schedule mappings
-            const allLicensePlates = scheduleMappings.map(mapping => mapping.license_plate_id);
-            const orderItemsWithLP = await this.orderItemRepository.findOne({
-              where: { license_plate_id: In(allLicensePlates) },
-              order: { order_item_id: 'ASC' }
-            });
-
-            // most recently included license plate ID
-            const mostRecentLP = orderItemsWithLP ? orderItemsWithLP.license_plate_id : null;
-            if (mostRecentLP){
-              // fetch all the order_items with this license plate ID
-              const orderItemsWithMostRecentLP = await this.orderItemRepository.find({
-                where: { license_plate_id: mostRecentLP, assigned_gtp_location: IsNull(), status: OrderItemStatus.PENDING },
-              });
-              for (const orderItem of orderItemsWithMostRecentLP) {
-                // 5. Assign current GTP location to ALL order items with this LP
-                // and set their status to assigned
-                orderItem.assigned_gtp_location = gtpLocationId;
-                orderItem.status = OrderItemStatus.ASSIGNED;
-                await this.orderItemRepository.save(orderItem);
-              }
-              // 6. Write in database
-              await this.writeInDatabase();
-              // Remove the schedule mapping since it's been used
-              const scheduleToRemove = scheduleMappings.find(mapping => mapping.license_plate_id === mostRecentLP);
-              if (scheduleToRemove) {
-                console.log(`Removing schedule mapping for LP ${mostRecentLP} and GTP ${gtpLocationId}`);
-                await this.scheduleMappingRepository.remove(scheduleToRemove);
-              }
-            }
-        }
-        
-        
-        
-    } catch (error) {
-        console.error('Error in scheduleLPtoPickLocation:', error);
-        throw error;
-    }
-  }
 
   async resendPendingTasks() {
     try {
@@ -1744,15 +1593,7 @@ export class OrchestratorService {
   // Get all product requirements
   public async getAllProductRequirements() {
     return await this.productRequirementRepository.find({
-      order: { product_id: 'ASC', station_id: 'ASC' }
-    });
-  }
-
-  // Get product requirements by product ID
-  public async getProductRequirementsByProductId(productId: string) {
-    return await this.productRequirementRepository.find({
-      where: { product_id: productId },
-      order: { station_id: 'ASC' }
+      order: { source_location_id: 'ASC', station_id: 'ASC' }
     });
   }
 
@@ -1760,7 +1601,7 @@ export class OrchestratorService {
   public async getProductRequirementsByStationId(stationId: string) {
     return await this.productRequirementRepository.find({
       where: { station_id: stationId },
-      order: { product_id: 'ASC' }
+      order: { source_location_id: 'ASC' }
     });
   }
 
@@ -1811,8 +1652,7 @@ export class OrchestratorService {
 
       // Get remaining product requirements for this product
       const remainingRequirements = await this.getRemainingProductRequirements(
-        completedTask.product_id,
-        completedTask.batch_id
+        completedTask.origin_location
       );
 
       // if (remainingRequirements.length === 0) {
@@ -1851,21 +1691,18 @@ export class OrchestratorService {
         }
       );
 
-      // Calculate remaining quantity for next task (all quantity since waiting location doesn't consume any)
-      const remainingQuantity = completedTask.quantity;
-
       // Create task from waiting location to station
       const [taskId,newTask] = await this.createTask({
         batchId: completedTask.batch_id,
-        productId: completedTask.product_id,
+        originLocation: completedTask.origin_location,
         sourceWaitingLocationId: completedTask.end_location.location_id,
         destinationStationId: availableStation.station_id,
-        quantity: remainingQuantity, // Waiting location doesn't consume quantity
         move_type: MOVE_TYPE.WAITING_LOCATION_TO_STATION, 
         taskType: TaskType.GOODS_TO_PERSON,
         sequenceOrder: nextSequenceOrder,
         taskDependency: completedTask.task_id,
-        robotId: completedTask.robot_id
+        robotId: completedTask.robot_id,
+        cargos: completedTask.cargos
       });
       if (newTask) {
         // Update station to be held by this task
@@ -1917,43 +1754,6 @@ export class OrchestratorService {
     await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
     } catch (error) {
       this.logger.error(`Error processing waiting location task completion for ${completedTask.task_id}:`, error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Handle task completion when returning to inventory - update inventory quantities
-   */
-  async handleInventoryReturnTaskCompletion(completedTask: Task): Promise<void> {
-    // Safety check: Only process completion for tasks that are actually COMPLETED
-    if (completedTask.status !== TaskStatus.COMPLETED) {
-      this.logger.warn(`Inventory return task ${completedTask.task_id} completion handler called but task status is ${completedTask.status} - skipping`);
-      return;
-    }
-
-    this.logger.log(`Handling inventory return task completion for task ${completedTask.task_id} - updating inventory quantities`);
-    
-    try {
-      const inventoryId = completedTask.end_location.location_id;
-      const returnedQuantity = completedTask.quantity;
-
-      if (returnedQuantity > 0) {
-        // Update inventory quantity by adding back the returned quantity
-        await this.inventoryRepository.increment(
-          { id: inventoryId },
-          'quantity',
-          returnedQuantity
-        );
-
-        this.logger.log(`✅ Updated inventory ${inventoryId}: added back ${returnedQuantity} units of product ${completedTask.product_id}`);
-      } else {
-        this.logger.log(`📋 Task ${completedTask.task_id} returned to inventory ${inventoryId} with 0 quantity (all items were distributed to stations)`);
-      }
-
-      // Check if batch is completed
-      await this.checkAndUpdateBatchCompletion(completedTask.batch_id);
-    } catch (error) {
-      this.logger.error(`Error handling inventory return for task ${completedTask.task_id}:`, error.message);
       throw error;
     }
   }
@@ -2053,16 +1853,16 @@ export class OrchestratorService {
       if (!reservationStatus) return;
     }
     for (const requirement of prdReqForStation) {
-      const product_id = requirement.product_id;
+      const origin_location = requirement.source_location_id;
       const carrying_task = await this.taskRepository.findOne({
-        where: { product_id: product_id, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION, MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION]) }
+        where: { origin_location: origin_location, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION, MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION]) }
       });
       try{
         if (carrying_task && carrying_task.robot_id) {
           const firstTask = await this.taskRepository.findOne({where: { batch_id: carrying_task.batch_id, sequence_order: 1 }});
           const inventoryId = firstTask?.start_location?.location_id;
           const inventory = await this.inventoryRepository.findOne({where: { id: inventoryId }});
-          if (inventory && inventory.quantity - inventory.defective_quantity - inventory.missing_quantity <= 0){continue;}
+          if (!inventory){continue;}
           console.log(`cancel at release station.`)
           // reserve the current station
           const response = await this.CancelTask(carrying_task);
@@ -2070,15 +1870,15 @@ export class OrchestratorService {
           await this.waitingLocationRepository.update({ location_id: carrying_task.end_location.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
           const [task_id, task] = await this.createTask({
             batchId: carrying_task.batch_id,
-            productId: product_id,
+            originLocation: carrying_task.origin_location,
             sourceStationId: stationId,
             destinationStationId: stationId,
-            quantity: carrying_task.quantity,
             taskType: TaskType.GOODS_TO_PERSON,
             robotId: carrying_task.robot_id,
             move_type: MOVE_TYPE.STATION_TO_STATION,
             sequenceOrder: carrying_task.sequence_order+1, 
-            taskDependency: carrying_task.task_id
+            taskDependency: carrying_task.task_id,
+            cargos: carrying_task.cargos
           });
           if (task && task_id){
             await this.stationRepository.update(
@@ -2111,43 +1911,6 @@ export class OrchestratorService {
         holded_by: null
       }
     );
-  }
-
-  private async loadProductRequirementsFromDatabase(): Promise<ProductRequirement[]> {
-    this.logger.log('Loading product requirements from database...');
-    
-    // Load all product requirements from database
-    const dbRequirements = await this.productRequirementRepository.find({
-      where: { isPaused: false , isCancelled: false},
-      order: { product_id: 'ASC', station_id: 'ASC' }
-    });
-    // Group by product_id and format to match ProductRequirement interface
-    const requirementMap = new Map<string, ProductRequirement>();
-
-    for (const dbReq of dbRequirements) {
-      const productId = dbReq.product_id;
-      
-      if (!requirementMap.has(productId)) {
-        requirementMap.set(productId, {
-          productId,
-          totalRequirement: 0,
-          stationRequirements: new Map<string, number>()
-        });
-      }
-
-      const requirement = requirementMap.get(productId)!;
-      requirement.totalRequirement += dbReq.requirement;
-      requirement.stationRequirements.set(dbReq.station_id, dbReq.requirement);
-      requirementMap.set(productId, requirement);
-    }
-
-    // Convert to array and sort by descending total requirement
-    const productRequirements = Array.from(requirementMap.values()).sort(
-      (a, b) => b.totalRequirement - a.totalRequirement
-    );
-
-    this.logger.log(`Loaded ${productRequirements.length} product requirements from database`);
-    return productRequirements;
   }
 
   async getTaskbyID(taskId: string): Promise<Task> {
@@ -2202,152 +1965,155 @@ export class OrchestratorService {
   }
 
   async getPredictedRobots(){
-    const orderItems = await this.orderItemRepository.find({
-      where: { status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS]) },
-    });
-    const uniqueProducts = new Set(orderItems.map(item => item.product_id)); // unique product IDS
-    const setOfUniqueGTP = new Set(orderItems.map(item => item.assigned_gtp_location));
-    const inventory_to_waiting_locations = await this.waitingLocationRepository.find({
-        where: { type: WaitingLocationType.INVENTORY_TO_STATION }
-    });
-    const uniqueStations = new Set();
-    for (const gtpLocationId of setOfUniqueGTP) {
-      if (!gtpLocationId) continue;
-      const gtpLocation = await this.gtpLocationRepository.findOne({
-        where: { gtp_location_id: gtpLocationId }
-      });
-      if (gtpLocation && gtpLocation.station_id) {
-        uniqueStations.add(gtpLocation.station_id);
-      }
-    }
-    const numberOfUniqueStations = uniqueStations.size;
-    let x = uniqueProducts.size;
-    let y = numberOfUniqueStations;
-    let z = inventory_to_waiting_locations.length;
-    let l = Math.min(x, y+z);
-    let h = 2*y;
-    let predicted = Math.ceil((l + h) / 2);
-
-    console.log(`Predicted Robots: ${predicted} (Unique Products: ${x}, Unique Stations: ${y}, Inventory to Waiting Locations: ${z})`);
-
     return {
-      "predicted": predicted,
+      "predicted": 1
     }
+    // const orderItems = await this.orderItemRepository.find({
+    //   where: { status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS]) },
+    // });
+    // const uniqueProducts = new Set(orderItems.map(item => item.product_id)); // unique product IDS
+    // const setOfUniqueGTP = new Set(orderItems.map(item => item.assigned_gtp_location));
+    // const inventory_to_waiting_locations = await this.waitingLocationRepository.find({
+    //     where: { type: WaitingLocationType.INVENTORY_TO_STATION }
+    // });
+    // const uniqueStations = new Set();
+    // for (const gtpLocationId of setOfUniqueGTP) {
+    //   if (!gtpLocationId) continue;
+    //   const gtpLocation = await this.gtpLocationRepository.findOne({
+    //     where: { gtp_location_id: gtpLocationId }
+    //   });
+    //   if (gtpLocation && gtpLocation.station_id) {
+    //     uniqueStations.add(gtpLocation.station_id);
+    //   }
+    // }
+    // const numberOfUniqueStations = uniqueStations.size;
+    // let x = uniqueProducts.size;
+    // let y = numberOfUniqueStations;
+    // let z = inventory_to_waiting_locations.length;
+    // let l = Math.min(x, y+z);
+    // let h = 2*y;
+    // let predicted = Math.ceil((l + h) / 2);
+
+    // console.log(`Predicted Robots: ${predicted} (Unique Products: ${x}, Unique Stations: ${y}, Inventory to Waiting Locations: ${z})`);
+
+    // return {
+    //   "predicted": predicted,
+    // }
 
   }
 
-  async performErrorCheck(){
-    const currentTime = new Date();
+  // async performErrorCheck(){
+  //   const currentTime = new Date();
 
-    const longOccupiedWaitingLocations = await this.waitingLocationRepository.find({
-      where: {
-        status: In([LocationStatus.RESERVED, LocationStatus.OCCUPIED]),
-      }
-    });
+  //   const longOccupiedWaitingLocations = await this.waitingLocationRepository.find({
+  //     where: {
+  //       status: In([LocationStatus.RESERVED, LocationStatus.OCCUPIED]),
+  //     }
+  //   });
 
-    const messages: string[] = [];
-    for (const waitingLocation of longOccupiedWaitingLocations) {
-      const timeDiff = Math.floor((currentTime.getTime() - waitingLocation.updated_at.getTime()) / (1000 * 60));
-      if (timeDiff >= 5) {
-        messages.push(`Waiting location ${waitingLocation.location_id} has been ${waitingLocation.status.toLowerCase()} for ${timeDiff} minutes (since last status update)`);
-      }
-    }
+  //   const messages: string[] = [];
+  //   for (const waitingLocation of longOccupiedWaitingLocations) {
+  //     const timeDiff = Math.floor((currentTime.getTime() - waitingLocation.updated_at.getTime()) / (1000 * 60));
+  //     if (timeDiff >= 5) {
+  //       messages.push(`Waiting location ${waitingLocation.location_id} has been ${waitingLocation.status.toLowerCase()} for ${timeDiff} minutes (since last status update)`);
+  //     }
+  //   }
 
-    const longOccupiedStations = await this.stationRepository.find({
-      where: {
-        status: In([LocationStatus.RESERVED, LocationStatus.OCCUPIED]),
-      }
-    });
+  //   const longOccupiedStations = await this.stationRepository.find({
+  //     where: {
+  //       status: In([LocationStatus.RESERVED, LocationStatus.OCCUPIED]),
+  //     }
+  //   });
 
-    const stationMessages: string[] = [];
-    for (const station of longOccupiedStations) {
-      const timeDiff = Math.floor((currentTime.getTime() - station.updated_at.getTime()) / (1000 * 60));
-      if (timeDiff >= 5) {
-        stationMessages.push(`Station ${station.station_id} has been ${station.status.toLowerCase()} for ${timeDiff} minutes (since last status update)`);
-      }
-    }
+  //   const stationMessages: string[] = [];
+  //   for (const station of longOccupiedStations) {
+  //     const timeDiff = Math.floor((currentTime.getTime() - station.updated_at.getTime()) / (1000 * 60));
+  //     if (timeDiff >= 5) {
+  //       stationMessages.push(`Station ${station.station_id} has been ${station.status.toLowerCase()} for ${timeDiff} minutes (since last status update)`);
+  //     }
+  //   }
 
-    messages.push(...stationMessages);
+  //   messages.push(...stationMessages);
 
-    const longPendingTasks = await this.taskRepository.find({
-      where: {
-        status: TaskStatus.PENDING,
-      }
-    });
+  //   const longPendingTasks = await this.taskRepository.find({
+  //     where: {
+  //       status: TaskStatus.PENDING,
+  //     }
+  //   });
 
-    const taskMessages: string[] = [];
-    for (const task of longPendingTasks) {
-      const timeDiff = Math.floor((currentTime.getTime() - task.created_at.getTime()) / (1000 * 60));
-      if (timeDiff >= 3) {
-        taskMessages.push(`Task ${task.task_id} has been PENDING for ${timeDiff} minutes (since creation)`);
-      }
-    }
+  //   const taskMessages: string[] = [];
+  //   for (const task of longPendingTasks) {
+  //     const timeDiff = Math.floor((currentTime.getTime() - task.created_at.getTime()) / (1000 * 60));
+  //     if (timeDiff >= 3) {
+  //       taskMessages.push(`Task ${task.task_id} has been PENDING for ${timeDiff} minutes (since creation)`);
+  //     }
+  //   }
 
-    messages.push(...taskMessages);
+  //   messages.push(...taskMessages);
 
-    const longIncompleteOrderItems = await this.orderItemRepository.find({
-      where: {
-      status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS]),
-      },
-    });
+  //   const longIncompleteOrderItems = await this.orderItemRepository.find({
+  //     where: {
+  //     status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS]),
+  //     },
+  //   });
 
-    // Group by order_id to get unique orders
-    const orderGroups = new Map<string, any[]>();
-    for (const orderItem of longIncompleteOrderItems) {
-      if (!orderGroups.has(orderItem.order_id)) {
-      orderGroups.set(orderItem.order_id, []);
-      }
-      orderGroups.get(orderItem.order_id)!.push(orderItem);
-    }
+  //   // Group by order_item_id to get unique orders
+  //   const orderGroups = new Map<string, any[]>();
+  //   for (const orderItem of longIncompleteOrderItems) {
+  //     if (!orderGroups.has(orderItem.order_item_id)) {
+  //     orderGroups.set(orderItem.order_item_id, []);
+  //     }
+  //     orderGroups.get(orderItem.order_item_id)!.push(orderItem);
+  //   }
 
-    const longIncompleteOrders = Array.from(orderGroups.entries()).map(([orderId, items]) => ({
-      order_id: orderId,
-      oldest_item: items[0], // First item (oldest due to ASC sort)
-      product_ids: [...new Set(items.map(item => item.product_id))], // Unique product IDs
-      item_count: items.length
-    }));
+  //   const longIncompleteOrders = Array.from(orderGroups.entries()).map(([orderId, items]) => ({
+  //     order_id: orderId,
+  //     oldest_item: items[0], // First item (oldest due to ASC sort)
+  //     product_ids: [...new Set(items.map(item => item.product_id))], // Unique product IDs
+  //     item_count: items.length
+  //   }));
 
-    const orderMessages: string[] = [];
-    for (const order of longIncompleteOrders) {
-      const oldestOrderItem = await this.orderItemRepository.findOne({
-        where: { 
-          order_id: order.order_id,
-          status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS])
-        },
-        order: { created_at: 'ASC' }
-      });
+  //   const orderMessages: string[] = [];
+  //   for (const order of longIncompleteOrders) {
+  //     const oldestOrderItem = await this.orderItemRepository.findOne({
+  //       where: { 
+  //         order_id: order.order_id,
+  //         status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS])
+  //       },
+  //       order: { created_at: 'ASC' }
+  //     });
       
-      if (oldestOrderItem) {
-        const timeDiff = Math.floor((currentTime.getTime() - oldestOrderItem.created_at.getTime()) / (1000 * 60));
-        if (timeDiff >= 15) {
-          orderMessages.push(`Order ${order.order_id} has been incomplete for ${timeDiff} minutes (since creation)`);
-        }
-      }
-    }
+  //     if (oldestOrderItem) {
+  //       const timeDiff = Math.floor((currentTime.getTime() - oldestOrderItem.created_at.getTime()) / (1000 * 60));
+  //       if (timeDiff >= 15) {
+  //         orderMessages.push(`Order ${order.order_id} has been incomplete for ${timeDiff} minutes (since creation)`);
+  //       }
+  //     }
+  //   }
 
-    messages.push(...orderMessages);
+  //   messages.push(...orderMessages);
 
-    const longProcessingTasks = await this.taskRepository.find({
-      where: {
-        status: TaskStatus.PROCESSING,
-      }
-    });
+  //   const longProcessingTasks = await this.taskRepository.find({
+  //     where: {
+  //       status: TaskStatus.PROCESSING,
+  //     }
+  //   });
 
-    const processingTaskMessages: string[] = [];
-    for (const task of longProcessingTasks) {
-      const timeDiff = Math.floor((currentTime.getTime() - task.updated_at.getTime()) / (1000 * 60));
-      if (timeDiff >= 10) {
-        processingTaskMessages.push(`Robot ${task.robot_id} has been PROCESSING for ${timeDiff} minutes (since last status update)`);
-      }
-    }
+  //   const processingTaskMessages: string[] = [];
+  //   for (const task of longProcessingTasks) {
+  //     const timeDiff = Math.floor((currentTime.getTime() - task.updated_at.getTime()) / (1000 * 60));
+  //     if (timeDiff >= 10) {
+  //       processingTaskMessages.push(`Robot ${task.robot_id} has been PROCESSING for ${timeDiff} minutes (since last status update)`);
+  //     }
+  //   }
 
-    messages.push(...processingTaskMessages);
+  //   messages.push(...processingTaskMessages);
 
-    return {
-      messages: messages,
-      count: messages.length
-    };
-  }
+  //   return {
+  //     messages: messages,
+  //     count: messages.length
+  //   };
+  // }
 
   async getTasksByRobotId(robotId: string){
     return await this.taskRepository.find({
@@ -2486,6 +2252,7 @@ export class OrchestratorService {
       "StationToStation": [],
       "StationToInventory": [],
       "WaitingLocationToInventory": [],
+      "StationToEmpty": [],
     }: module === "BaseOps" ? {
       "ZoneToZone": [],
     }:{};
@@ -2526,6 +2293,11 @@ export class OrchestratorService {
         if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res.WaitingLocationToInventory.push(travelTime);
+        }
+      }else if (task.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.StationToEmpty.push(travelTime);
         }
       }
     }
@@ -2601,8 +2373,7 @@ export class OrchestratorService {
       const taskDetails: TaskDetails = {
         task_id: task.task_id,
         batch_id: task.batch_id,
-        product_id: task.product_id,
-        quantity: task.quantity,
+        origin_location: task.origin_location,
         move_type: task.move_type,
         status: task.status,
         robot_id: task.robot_id,
@@ -2647,9 +2418,14 @@ export class OrchestratorService {
           where: { id: loc },
         });
       }
+      else if (sourceType === 'empty_location'){
+        source_location = await this.emptyLocationRepository.findOne({
+          where: { location_id: loc },
+        });
+      }
 
       const whereCondition: any = {
-        status: In([TaskStatus.COMPLETED]),
+        status: In([TaskStatus.COMPLETED, TaskStatus.TRIGERRED]),
         task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
       };
       if (startDate && endDate) {
@@ -2661,10 +2437,11 @@ export class OrchestratorService {
       else if (endDate){
         whereCondition.created_at = LessThanOrEqual(endDate);
       }
-      whereCondition.status = TaskStatus.COMPLETED;
+      // whereCondition.status = TaskStatus.COMPLETED;
       const allTasks = await this.taskRepository.find({
         where: whereCondition,
       });
+      console.log(`start time: ${startDate}, end time: ${endDate}`);
       console.log(`where condition: ${JSON.stringify(whereCondition)}`);
       console.log(`all tasks: ${allTasks.length}`);
       console.log(`source location: ${JSON.stringify(source_location)}`);

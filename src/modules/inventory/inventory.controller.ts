@@ -71,6 +71,76 @@ export class InventoryController {
     return await this.inventoryService.create(createInventoryDto as any);
   }
 
+  @Get()
+  @ApiOperation({ 
+    summary: 'Get all inventory entries',
+    description: 'Retrieve a list of all inventory entries in the system.'
+  })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'List of all inventory entries',
+    type: [InventoryResponseDto]
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operator')
+  async findAll() {
+    return await this.inventoryService.findAll();
+  }
+
+  @Get(':id')
+  @ApiOperation({ 
+    summary: 'Get an inventory entry by ID',
+    description: 'Retrieve a specific inventory entry by its unique identifier.'
+  })
+  @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Inventory entry found',
+    type: InventoryResponseDto
+  })
+  @ApiResponse({ 
+    status: HttpStatus.NOT_FOUND, 
+    description: 'Inventory entry not found',
+    type: NotFoundResponseDto
+  })
+  async findOne(@Param('id') id: string) {
+    return await this.inventoryService.findOne(id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ 
+    summary: 'Update an inventory entry',
+    description: 'Update an existing inventory entry with new details. Only provided fields will be updated.'
+  })
+  @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })
+  @ApiBody({ type: UpdateInventoryDto })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'Inventory updated successfully',
+    type: InventoryResponseDto
+  })
+  @ApiResponse({ 
+    status: HttpStatus.NOT_FOUND, 
+    description: 'Inventory entry not found',
+    type: NotFoundResponseDto
+  })
+  @ApiResponse({ 
+    status: HttpStatus.BAD_REQUEST, 
+    description: 'Invalid input data or validation errors',
+    type: ValidationErrorResponseDto
+  })
+  async update(@Param('id') id: string, @Body() updateInventoryDto: UpdateInventoryDto) {
+    // Validate that URL parameter ID matches DTO ID if provided
+    if (updateInventoryDto.id && updateInventoryDto.id !== id) {
+      throw new BadRequestException(
+        `URL parameter ID (${id}) must match the ID in request body (${updateInventoryDto.id})`
+      );
+    }
+    
+    return await this.inventoryService.update(id, updateInventoryDto as any);
+  }
+
+
   @Post('upload')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
@@ -118,118 +188,6 @@ export class InventoryController {
     return await this.inventoryService.processInventoryFile(file);
   }
 
-  @Get()
-  @ApiOperation({ 
-    summary: 'Get all inventory entries',
-    description: 'Retrieve a list of all inventory entries in the system.'
-  })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
-    description: 'List of all inventory entries',
-    type: [InventoryResponseDto]
-  })
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
-  async findAll() {
-    return await this.inventoryService.findAll();
-  }
-
-  @Get(':id')
-  @ApiOperation({ 
-    summary: 'Get an inventory entry by ID',
-    description: 'Retrieve a specific inventory entry by its unique identifier.'
-  })
-  @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
-    description: 'Inventory entry found',
-    type: InventoryResponseDto
-  })
-  @ApiResponse({ 
-    status: HttpStatus.NOT_FOUND, 
-    description: 'Inventory entry not found',
-    type: NotFoundResponseDto
-  })
-  async findOne(@Param('id') id: string) {
-    return await this.inventoryService.findOne(id);
-  }
-
-  @Get('product/:productId')
-  @ApiOperation({ 
-    summary: 'Get inventory entries by product ID',
-    description: 'Retrieve all inventory entries for a specific product.'
-  })
-  @ApiParam({ name: 'productId', description: 'Product ID', example: 'PRD001' })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
-    description: 'Inventory entries found for the product',
-    type: [InventoryResponseDto]
-  })
-  @ApiResponse({ 
-    status: HttpStatus.NOT_FOUND, 
-    description: 'No inventory found for the product',
-    type: NotFoundResponseDto
-  })
-  async findByProductId(@Param('productId') productId: string) {
-    return await this.inventoryService.findByProductId(productId);
-  }
-
-  @Patch(':id')
-  @ApiOperation({ 
-    summary: 'Update an inventory entry',
-    description: 'Update an existing inventory entry with new details. Only provided fields will be updated.'
-  })
-  @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })
-  @ApiBody({ type: UpdateInventoryDto })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
-    description: 'Inventory updated successfully',
-    type: InventoryResponseDto
-  })
-  @ApiResponse({ 
-    status: HttpStatus.NOT_FOUND, 
-    description: 'Inventory entry not found',
-    type: NotFoundResponseDto
-  })
-  @ApiResponse({ 
-    status: HttpStatus.BAD_REQUEST, 
-    description: 'Invalid input data or validation errors',
-    type: ValidationErrorResponseDto
-  })
-  async update(@Param('id') id: string, @Body() updateInventoryDto: UpdateInventoryDto) {
-    // Validate that URL parameter ID matches DTO ID if provided
-    if (updateInventoryDto.id && updateInventoryDto.id !== id) {
-      throw new BadRequestException(
-        `URL parameter ID (${id}) must match the ID in request body (${updateInventoryDto.id})`
-      );
-    }
-    
-    return await this.inventoryService.update(id, updateInventoryDto as any);
-  }
-
-  @Put(':id/quantity')
-  @ApiOperation({ summary: 'Update inventory quantity' })
-  @ApiParam({ name: 'id', description: 'Inventory ID', example: 'INV001' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        quantity: {
-          type: 'number',
-          description: 'New quantity value',
-          example: 150,
-          minimum: 0,
-        }
-      },
-      required: ['quantity']
-    }
-  })
-  @ApiResponse({ status: HttpStatus.OK, description: 'Inventory quantity updated successfully' })
-  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Inventory entry not found' })
-  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Invalid quantity value' })
-  async updateQuantity(@Param('id') id: string, @Body() body: { quantity: number }) {
-    return await this.inventoryService.updateQuantity(id, body.quantity);
-  }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete an inventory entry' })

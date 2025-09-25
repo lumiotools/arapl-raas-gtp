@@ -8,28 +8,12 @@ import {
   JoinColumn,
   Relation,
 } from 'typeorm';
-import type { Product } from './product.entity';
 import { LocationStatus } from './station.entity'
 
 @Entity('inventory')
 export class Inventory {
   @PrimaryColumn({ type: 'varchar', length: 10 })
   id: string;
-
-  @Column({ type: 'varchar', length: 10 })
-  product_id: string;
-
-  @Column({ type: 'int', default: 0 })
-  quantity: number;
-
-  @Column({ type: 'int', default: 0 })
-  defective_quantity: number;
-
-  @Column({ type: 'int', default: 0 })
-  missing_quantity: number;
-  
-  @Column({ type: 'int', default: 0 })
-  quantity_in_system: number;
 
   @Column({ type: 'boolean', default: false })
   isProcessing: boolean;
@@ -57,7 +41,4 @@ export class Inventory {
   })
   updated_at: Date;
 
-  @ManyToOne('Product', 'inventory')
-  @JoinColumn({ name: 'product_id' })
-  product: Relation<Product>;
 }

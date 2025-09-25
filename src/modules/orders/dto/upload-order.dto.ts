@@ -8,37 +8,22 @@ import {
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UploadOrderItemDto {
+
   @ApiProperty({
-    description: 'Unique identifier for the order',
-    example: 'ORD001',
+    description: 'Source Location ID',
+  example: 'R10X001',
   })
   @IsString()
   @IsNotEmpty()
-  'Order ID': string;
+  'source_location': string;
 
   @ApiProperty({
-    description: 'Product identifier',
-    example: 'PRD001',
+    description: 'Destination Pallet Slot ID',
+    example: 'PL001',
   })
   @IsString()
   @IsNotEmpty()
-  'Product Id': string;
-
-  @ApiProperty({
-    description: 'Quantity of the product',
-    example: 10,
-  })
-  @IsNumber()
-  @IsNotEmpty()
-  'Qty': number;
-
-  @ApiProperty({
-    description: 'License plate identifier',
-    example: 'LP001',
-  })
-  @IsString()
-  @IsNotEmpty()
-  'License Plate ID': string;
+  'destination_location': string;
 }
 
 export class ProcessedOrderItemDto {

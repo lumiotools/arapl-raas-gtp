@@ -21,6 +21,9 @@ import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { LocationEntity } from 'src/entities/location.entity';
 import { BaseopsTaskModule } from '../baseops_task/baseops_task.module';
 import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
+import { EmptyLocation } from 'src/entities/empty-location.entity';
+import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
+import { EmptyLocationsModule } from '../empty_locations/empty_locations.module';
 
 @Module({
   imports: [
@@ -38,13 +41,15 @@ import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.
       Robot,
       ScheduleMapping,
       LocationEntity,
+      EmptyLocation,
     ]),
     HttpModule,
     InventoryModule,
-    BaseopsTaskModule
+    BaseopsTaskModule,
+    EmptyLocationsModule
   ],
   controllers: [OrchestratorController],
-  providers: [OrchestratorService, StationsService, WaitingLocationService, BaseopsTaskService, BaseopsTaskService, BaseOpsLocationManagerService],
+  providers: [OrchestratorService, StationsService, WaitingLocationService, BaseopsTaskService, BaseopsTaskService, BaseOpsLocationManagerService, EmptyLocationsService],
   exports: [OrchestratorService],
 })
 export class OrchestratorModule {}

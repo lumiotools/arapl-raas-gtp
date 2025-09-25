@@ -27,14 +27,6 @@ export class ToolService {
         private readonly waitingLocationRepository: Repository<WaitingLocation>,
     ) {}
 
-    async getAllInventory(): Promise<Inventory[]> {
-        return await this.inventoryRepository.find();
-    }
-
-    async getAllProducts(): Promise<Product[]> {
-        return await this.productRepository.find();
-    }
-
     async getOrderItems(): Promise<OrderItem[]> {
         return await this.orderItemRepository.find();
     }
@@ -66,31 +58,6 @@ export class ToolService {
         return gtpLocations;
     }
 
-    // Fixed: Parameter name matches the Tools definition
-    async getLicensePlateNumberRequirement(args: { lp: string }): Promise<number> {
-        const orderItems = await this.orderItemRepository.find({
-            where: { license_plate_id: args.lp.toUpperCase() },
-            select: ['remaining_quantity']
-        });
-        return orderItems.reduce((total, item) => total + (item.remaining_quantity || 0), 0);
-    }
-
-    // Fixed: Parameter name matches the Tools definition
-    async getLicensePlateNumberInitialRequirement(args: { lp: string }): Promise<number> {
-        const orderItems = await this.orderItemRepository.find({
-            where: { license_plate_id: args.lp.toUpperCase() },
-            select: ['quantity']
-        });
-        return orderItems.reduce((total, item) => total + (item.quantity || 0), 0);
-    }
-
-    // Fixed: Parameter name matches the Tools definition
-    async getOrderItemAssignedToPickLocation(args: { gtpLocationId: string }): Promise<OrderItem[]> {
-        return await this.orderItemRepository.find({
-            where: { assigned_gtp_location: args.gtpLocationId.toUpperCase() },
-            relations: ['product']
-        });
-    }
 
     async getWaitingLocations(): Promise<WaitingLocation[]> {
         return await this.waitingLocationRepository.find();
@@ -113,30 +80,6 @@ export class ToolService {
 }
 
 export const Tools: ChatCompletionTool[] = [
-    {
-        type: 'function',
-        function: {
-            name: 'getAllInventory',
-            description: 'Get all inventory items in the warehouse system',
-            parameters: {
-                type: 'object',
-                properties: {},
-                required: []
-            }
-        }
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'getAllProducts',
-            description: 'Get all products available in the system',
-            parameters: {
-                type: 'object',
-                properties: {},
-                required: []
-            }
-        }
-    },
     {
         type: 'function',
         function: {
@@ -204,23 +147,6 @@ export const Tools: ChatCompletionTool[] = [
                     }
                 },
                 required: ['stationId']
-            }
-        }
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'getLicensePlateNumberRequirement',
-            description: 'Get the total remaining quantity for a given license plate number',
-            parameters: {
-                type: 'object',
-                properties: {
-                    lp: {
-                        type: 'string',
-                        description: 'The license plate number'
-                    }
-                },
-                required: ['lp']
             }
         }
     },
