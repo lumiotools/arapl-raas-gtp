@@ -3,7 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Task, TaskStatus } from "src/entities";
 import { LocationEntity, LocationType } from "src/entities/location.entity";
 import { LocationStatus } from "src/entities/station.entity";
-import { In, Repository } from "typeorm";
+import { In, Raw, Repository } from "typeorm";
 
 @Injectable()
 export class BaseOpsLocationManagerService {
@@ -124,7 +124,14 @@ export class BaseOpsLocationManagerService {
     }
 
     async getOptimalWaitLocation(){
-        const waitZone = await this.locationRepository.findOne({ where: { location_type: LocationType.ZONE, display_name: 'wait' } });
+        const waitZone = await this.locationRepository.findOne({
+            where: {
+                location_type: LocationType.ZONE,
+                attributes: Raw(alias => `${alias} @> :attr::jsonb`, {
+                    attr: JSON.stringify([{ attribute_name: 'waiting', attribute_value: true }])
+                })
+            }
+        });
         if (!waitZone) {
             console.log(`Wait zone not found.`);
             return null;
@@ -144,13 +151,19 @@ export class BaseOpsLocationManagerService {
             const locations = Array.isArray(fmsLocations[zoneId]) ? fmsLocations[zoneId] : [];
             console.log(`Syncing zone ${zoneId} with ${locations.length} locations`);
 
-            // Upsert zone
-            const zoneRecord = this.locationRepository.create({
-                location_id: zoneId,
-                display_name: zoneId,
-                location_type: LocationType.ZONE,
-            });
-            await this.locationRepository.save(zoneRecord);
+            // Ensure zone exists (add-only, no overwrite)
+            const existingZone = await this.locationRepository.findOne({ where: { location_id: zoneId, location_type: LocationType.ZONE } });
+            if (!existingZone) {
+                const zoneRecord = this.locationRepository.create({
+                    location_id: zoneId,
+                    display_name: zoneId,
+                    location_type: LocationType.ZONE,
+                });
+                await this.locationRepository.save(zoneRecord);
+                console.log(`Created new zone ${zoneId}`);
+            } else {
+                console.log(`Zone ${zoneId} already exists; skipping update`);
+            }
 
             // Load existing pallet locations under this zone for cleanup
             const existing = await this.locationRepository.find({
@@ -194,15 +207,11 @@ export class BaseOpsLocationManagerService {
                     }
 
                     await this.locationRepository.save(record);
+                    console.log(`Created new location ${id} under zone ${zoneId}`);
                 } else {
-                    // Update only provided fields; do not overwrite existing when FMS omits
-                    const updates: Partial<LocationEntity> = {};
-                    if (l.location_row != null) updates.row = Number(l.location_row);
-                    if (l.location_column != null) updates.column = Number(l.location_column);
-
-                    if (Object.keys(updates).length > 0) {
-                        await this.locationRepository.update({ location_id: id }, updates);
-                    }
+                    // Existing location found - no changes (add-only policy)
+                    // Intentionally skipping updates for existing locations
+                    // to avoid overwriting local data when FMS omits fields
                 }
             }
 
