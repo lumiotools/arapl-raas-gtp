@@ -6,6 +6,8 @@ import { Repository } from 'typeorm';
 import { GtpLocation } from 'src/entities/gtp-location.entity'; // Assuming you have a Gtp entity defined
 import { Station } from 'src/entities/station.entity';
 import { OrderItem, OrderItemStatus } from 'src/entities/order-item.entity';
+import { TaskType } from 'src/entities';
+import { LoggingService } from 'src/services/logging.service';
 
 @Injectable()
 export class GtpService {
@@ -16,6 +18,7 @@ export class GtpService {
     private readonly stationRepository: Repository<Station>,
     @InjectRepository(OrderItem)
     private readonly orderItemRepository: Repository<OrderItem>,
+    private readonly loggingService: LoggingService,
   ) {}
   async create(createGtpDto: GtpLocation) {
     // Check if station_id exists in Station repository
@@ -24,6 +27,7 @@ export class GtpService {
       if (!station) {
         throw new NotFoundException(`Station with id ${createGtpDto.station_id} not found`);
       }
+      await this.loggingService.log(`GTP Location ${createGtpDto.gtp_location_id} associated with Station ${createGtpDto.station_id}`, TaskType.GOODS_TO_PERSON, null, null);
     }
     const existingGtp = await this.gtpRepository.findOne({ where: { gtp_location_id: createGtpDto.gtp_location_id} });
     if (existingGtp) {
@@ -74,6 +78,9 @@ export class GtpService {
       if (existingGtp && existingGtp.gtp_location_id !== id) {
         throw new BadRequestException(`GTP location with id ${updateGtpDto.gtp_location_id} already exists`);
       }
+    }
+    if (existing.station_id !== updateGtpDto.station_id){
+      await this.loggingService.log(`GTP Location ${id} associated with Station ${updateGtpDto.station_id}`, TaskType.GOODS_TO_PERSON, null, null);
     }
     await this.gtpRepository.update(id, updateGtpDto);
     if (updateGtpDto.station_id) {

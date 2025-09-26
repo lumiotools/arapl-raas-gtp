@@ -110,7 +110,7 @@ export class EmptyLocationsService {
     return currentEmptyLocations;
   }
 
-  async reserveWaitingLocation(location_id: string): Promise<boolean> {
+  async reserveEmptyLocation(location_id: string): Promise<boolean> {
     const queryRunner = this.emptyLocationRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();

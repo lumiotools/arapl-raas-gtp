@@ -60,7 +60,9 @@ export class TriggerService {
     currentTask.status = TaskStatus.TRIGERRED;
 
     // Log trigger action
-    await this.loggingService.log(`Station ${stationId} triggered - Task ${currentTask.task_id} status updated to TRIGGERED`);
+    await this.loggingService.log(`Station ${stationId} Completed - Task ${currentTask.task_id} status updated to TRIGGERED`,
+      currentTask.task_type, currentTask.task_id, null
+    );
 
     await this.processNextTask(currentTask, message_code);
 

@@ -9,6 +9,7 @@ import { ProductRequirement as ProductRequirementEntity } from 'src/entities/pro
 import { MOVE_TYPE, TaskStatus, TaskType } from 'src/entities/task.entity';
 import { firstValueFrom } from 'rxjs';
 import { ConflictError } from 'groq-sdk';
+import { LoggingService } from 'src/services/logging.service';
 
 @Injectable()
 export class StationsService {
@@ -24,6 +25,7 @@ export class StationsService {
     private readonly orderItemRepository: Repository<OrderItem>,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
+    private readonly loggingService: LoggingService,
   ) {}
 
   async create(createStationDto: CreateStationDto) {
@@ -223,6 +225,7 @@ export class StationsService {
       const gtpLocation = await this.gtpLocation.findOne({ where: { gtp_location_id: gtpLocationId } });
       if (gtpLocation && gtpLocation.station_id !== id) {
         gtpLocation.station_id = id;
+        await this.loggingService.log(`GTP Location ${gtpLocationId} associated with Station ${id}`, TaskType.GOODS_TO_PERSON, null, null);
         await this.gtpLocation.save(gtpLocation);
       }
       else if (!gtpLocation){
