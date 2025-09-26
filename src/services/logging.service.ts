@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Log } from '../entities/log.entity';
+import { TaskType } from 'src/entities';
 
 @Injectable()
 export class LoggingService {
@@ -15,10 +16,13 @@ export class LoggingService {
     private readonly logRepository: Repository<Log>,
   ) {}
 
-  async log(message: string): Promise<void> {
+  async log(message: string, task_type: TaskType, task_id: string | null, order_batch_id: string | null): Promise<void> {
     try {
       const logEntry = this.logRepository.create({
         message,
+        task_type,
+        task_id,
+        order_batch_id,
       });
 
       await this.logRepository.save(logEntry);
@@ -73,8 +77,6 @@ export class LoggingService {
       await this.logRepository.clear();
       
       const deletedCount = countBefore;
-      
-      await this.log(`All logs cleared - ${deletedCount} entries deleted`);
       
       return {
         deletedCount,

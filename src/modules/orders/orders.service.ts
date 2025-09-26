@@ -12,7 +12,7 @@ import {
   ProcessedOrderItemDto,
   UploadResponseDto,
 } from './dto/upload-order.dto';
-import { Log, Task } from 'src/entities';
+import { Log, Task, TaskType } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
@@ -160,6 +160,8 @@ export class OrdersService {
             }
             
           }
+          await this.loggingService.log(`New Order Item: Batch ID: ${orderItem.order_batch_id}, Source ${orderItem.source_location_id}, Destination ${orderItem.destination_pallet_slot_id}, upload mode: ${upload_mode['upload_mode']}`,
+            TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id);
           await this.orderItemRepository.save(orderItem);
           processedItems++;
         }catch (error) {
