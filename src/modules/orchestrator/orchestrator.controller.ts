@@ -515,35 +515,45 @@ export class OrchestratorController {
     return await this.orchestratorService.getAllRobots(task_type);
   }
 
-  // @Get('error-check')
-  // @ApiOperation({
-  //   summary: 'Perform error check',
-  //   description: 'Perform a system-wide error check to identify any issues or inconsistencies.',
-  // })
-  // @ApiResponse({
-  //   status: HttpStatus.OK,
-  //   description: 'Error check completed successfully',
-  //   schema: {
-  //     type: 'object',
-  //     properties: {
-  //       success: { type: 'boolean', example: true },
-  //       message: { type: 'string', example: 'Error check completed' },
-  //       errors: {
-  //         type: 'array',
-  //         items: {
-  //           type: 'object',
-  //           properties: {
-  //             type: { type: 'string', example: 'WARNING' },
-  //             message: { type: 'string', example: 'Robot ROBOT_001 has low battery' }
-  //           }
-  //         }
-  //       }
-  //     }
-  //   }
-  // })
-  // async performErrorCheck() {
-  //   return await this.orchestratorService.performErrorCheck();
-  // }
+  @Post('handle-erroneous-task')
+  @ApiOperation({
+    summary: 'Handle erroneous task',
+    description: 'Mark a task as erroneous or perform corrective action for a given task_id.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Erroneous task handled successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Erroneous task handled successfully' },
+        task_id: { type: 'number', example: 123 }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid or missing task_id',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'task_id is required and must be a number' },
+        error: { type: 'string', example: 'Bad Request' },
+        statusCode: { type: 'number', example: 400 }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  async handleErroneousTask(@Body('task_id') taskId: string) {
+    await this.orchestratorService.handleErroneousTask(taskId);
+    return {
+      success: true,
+      message: 'Erroneous task handled successfully',
+      task_id: taskId
+    };
+  }
 
   @Post('initial-config')
   @ApiOperation({

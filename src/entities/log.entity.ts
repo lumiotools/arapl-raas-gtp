@@ -23,6 +23,9 @@ export class Log {
   @Column({ type: 'varchar', length: 100, nullable: true })
   order_batch_id: string | null;
 
+  @Column({ type: 'boolean', default: false })
+  is_error: boolean;
+
   @CreateDateColumn({ 
     type: 'timestamp', 
     precision: 3, // Millisecond precision

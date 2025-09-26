@@ -16,13 +16,14 @@ export class LoggingService {
     private readonly logRepository: Repository<Log>,
   ) {}
 
-  async log(message: string, task_type: TaskType, task_id: string | null, order_batch_id: string | null): Promise<void> {
+  async log(message: string, task_type: TaskType, task_id: string | null, order_batch_id: string | null, is_error: boolean = false): Promise<void> {
     try {
       const logEntry = this.logRepository.create({
         message,
         task_type,
         task_id,
         order_batch_id,
+        is_error,
       });
 
       await this.logRepository.save(logEntry);
@@ -31,6 +32,19 @@ export class LoggingService {
       this.logger.error(`Failed to save log to database: ${error.message}`);
       this.logger.log(`Original log: ${message}`);
     }
+  }
+
+  async deleteErrorLogsForTask(task_id: string){
+    await this.logRepository.delete({ task_id: task_id, is_error: true });
+  }
+
+  async createErrorLog(message: string, task_type: TaskType, task_id: string , order_batch_id: string | null, is_error: boolean = true): Promise<void> {
+    const existingErrorLog = await this.logRepository.findOne({ where: { task_id: task_id, is_error: true } });
+    if (existingErrorLog) {
+      // If an error log already exists for this task, do not create a new one
+      return;
+    }
+    await this.log(message, task_type, task_id, order_batch_id, is_error);
   }
 
   // Query methods for retrieving logs
