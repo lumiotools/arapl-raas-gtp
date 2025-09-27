@@ -31,17 +31,32 @@ export class BaseopsTaskService {
     return 'This action adds a new baseopsTask';
   }
 
-  findAll() {
+  async findAll() {
     // Return tasks that originate from baseops flows.
     // The CSV importer in this module creates tasks with TaskType.CROSSDOCK
     // and MOVE_TYPE.ZONE_TO_ZONE — treat those as "base ops" tasks.
-    return this.taskRepository.find({
+    let tasks =  await this.taskRepository.find({
       where: [
         { task_type: TaskType.BASEOPS },
       ],
       relations: ['batch'],
       order: { created_at: 'DESC' },
     });
+
+    for (const task of tasks) {
+      if (task.start_location) {
+        task.start_location.display_name = (await this.BaseOpsLocationManagerService.getDisplayName(task.start_location.location_id));
+
+      }
+
+      if (task.end_location) {
+        task.end_location.display_name = (await this.BaseOpsLocationManagerService.getDisplayName(task.end_location.location_id));
+      }
+
+      console.log(`Task ${task.task_id} start location: ${JSON.stringify(task.start_location)}, end location: ${JSON.stringify(task.end_location)}`);
+    }
+
+    return tasks;
   }
 
   findOne(id: number) {
@@ -258,7 +273,7 @@ export class BaseopsTaskService {
       end_location_id = await this.BaseOpsLocationManagerService.findOptimalDropLocation(task.end_location.location_attribute?.attribute_value);
       if (!end_location_id){
         // no optimal drop location found in the zone, look for the location in wait zone
-        end_location_id = await this.BaseOpsLocationManagerService.getOptimalWaitLocation();
+        end_location_id = await this.BaseOpsLocationManagerService.getOptimalWaitLocation(task.end_location.location_attribute?.attribute_value);
         if (!end_location_id){
           // no wait location was found instead
           console.log(`No wait location found, re-queue the task ${task.task_id}`);
@@ -290,7 +305,7 @@ export class BaseopsTaskService {
         await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
         return;
       }
-      end_location_id = await this.BaseOpsLocationManagerService.getOptimalWaitLocation();
+      end_location_id = await this.BaseOpsLocationManagerService.getOptimalWaitLocation(task.end_location.location_attribute?.attribute_value);
       if (!end_location_id){
         console.log(`No wait location found, re-queue the task ${task.task_id}`);
         await this.markTaskHaulted(task.task_id);
@@ -704,7 +719,7 @@ export class BaseopsTaskService {
       await this.robotRepository.save(newRobotConfig);
     }
 
-    await this.BaseOpsLocationManagerService.syncFMSLocations();  
+    // await this.BaseOpsLocationManagerService.syncFMSLocations();  
   }
 
   async getManualTaskStartLocation(){

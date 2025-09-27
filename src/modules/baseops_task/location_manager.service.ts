@@ -14,11 +14,11 @@ export class BaseOpsLocationManagerService {
         private taskRepository: Repository<Task>,
     ) {}
 
-    async reserveLocation(display_name: string): Promise<boolean> {
-        const location = await this.locationRepository.findOne({ where: { display_name: display_name, location_status: LocationStatus.AVAILABLE } });
+    async reserveLocation(location_id: string): Promise<boolean> {
+        const location = await this.locationRepository.findOne({ where: { location_id: location_id, location_status: LocationStatus.AVAILABLE } });
         console.log(`location found: ${JSON.stringify(location)}`);
         if (!location) {
-            console.log(`Location ${display_name} is not available for reservation.`);
+            console.log(`Location ${location_id} is not available for reservation.`);
             return false;
         }
         location.location_status = LocationStatus.RESERVED;
@@ -26,10 +26,10 @@ export class BaseOpsLocationManagerService {
         return true;
     }
 
-    async reserveStartLocation(display_name: string): Promise<boolean> {
-        const location = await this.locationRepository.findOne({ where: { display_name: display_name, location_status: In([LocationStatus.AVAILABLE, LocationStatus.OCCUPIED]) } });
+    async reserveStartLocation(location_id: string): Promise<boolean> {
+        const location = await this.locationRepository.findOne({ where: { location_id: location_id, location_status: In([LocationStatus.AVAILABLE, LocationStatus.OCCUPIED]) } });
         if (!location) {
-            console.log(`Location ${display_name} is not available for reservation.`);
+            console.log(`Location ${location_id} is not available for reservation.`);
             return false;
         }
         location.location_status = LocationStatus.RESERVED;
@@ -38,7 +38,7 @@ export class BaseOpsLocationManagerService {
     }
 
     async findOptimalDropLocation(zone_id: string): Promise<string | null> {
-        const zone = await this.locationRepository.findOne({ where: { display_name: zone_id, location_type: LocationType.ZONE } });
+        const zone = await this.locationRepository.findOne({ where: { location_id: zone_id, location_type: LocationType.ZONE } });
         if (!zone) {
             console.log(`Zone with ID ${zone_id} not found.`);
             return null;
@@ -52,7 +52,7 @@ export class BaseOpsLocationManagerService {
 
         const optimalLocation = locations.find(loc => loc.drop_priority !== null);
         if (optimalLocation) {
-            return optimalLocation.display_name;
+            return optimalLocation.location_id;
         }
         const validLocations = locations.filter(loc => 
             loc.row != null && loc.column != null
@@ -65,19 +65,19 @@ export class BaseOpsLocationManagerService {
             return current;
             }
             return min;
-        }).display_name;
+        }).location_id;
     }
 
-    async freeLocation(display_name: string): Promise<void> {
-        await this.locationRepository.update({ display_name }, { location_status: LocationStatus.AVAILABLE });
+    async freeLocation(location_id: string): Promise<void> {
+        await this.locationRepository.update({ location_id }, { location_status: LocationStatus.AVAILABLE });
     }
 
-    async occupyLocation(display_name: string): Promise<void> {
-        await this.locationRepository.update({ display_name }, { location_status: LocationStatus.OCCUPIED });
+    async occupyLocation(location_id: string): Promise<void> {
+        await this.locationRepository.update({ location_id }, { location_status: LocationStatus.OCCUPIED });
     }
 
     async isValidLocationId(location_id: string, isStart: boolean): Promise<boolean> {
-        const location = await this.locationRepository.findOne({ where: { display_name: location_id, location_status: isStart ? In([LocationStatus.OCCUPIED, LocationStatus.AVAILABLE]) : LocationStatus.AVAILABLE, location_type: LocationType.PALLET } });
+        const location = await this.locationRepository.findOne({ where: { location_id: location_id, location_status: isStart ? In([LocationStatus.OCCUPIED, LocationStatus.AVAILABLE]) : LocationStatus.AVAILABLE, location_type: LocationType.PALLET } });
         console.log(`Checking location ID: ${location_id}, Found: ${location ? 'Yes' : 'No'}`);
         if (!location) {
             return false;
@@ -123,22 +123,89 @@ export class BaseOpsLocationManagerService {
         return endLocation;
     }
 
-    async getOptimalWaitLocation(){
-        const waitZone = await this.locationRepository.findOne({
-            where: {
-                location_type: LocationType.ZONE,
-                attributes: Raw(alias => `${alias} @> :attr::jsonb`, {
-                    attr: JSON.stringify([{ attribute_name: 'waiting', attribute_value: true }])
-                })
+    async getOptimalWaitLocation(required_location_id: string): Promise<string | null> {
+        console.log("Finding optimal wait location in end zone...");
+
+        const requiredLocation = await this.locationRepository.findOne({ where: { location_id: required_location_id } });
+
+        console.log(`Required location found: ${requiredLocation ? 'Yes' : 'No'}, Current Zone: `, requiredLocation?.location_type === LocationType.PALLET ? requiredLocation.parent_id : requiredLocation?.location_id);
+
+        let waitLocationQuery = this.locationRepository
+            .createQueryBuilder('location')
+            .where('location.location_type = :locationType', { locationType: LocationType.PALLET })
+            .andWhere('location.parent_id = :parentId', { parentId: requiredLocation?.location_type === LocationType.PALLET ? requiredLocation.parent_id : requiredLocation?.location_id })
+            .andWhere('location.location_status = :locationStatus', { locationStatus: LocationStatus.AVAILABLE })
+            .andWhere(
+                `location.attributes::jsonb @> :attr::jsonb`,
+                { 
+                    attr: JSON.stringify([{ 
+                        attribute_name: 'is_waiting_area', 
+                        attribute_value: true 
+                    }])
+                }
+            )
+            .orderBy('location.drop_priority', 'ASC');
+        
+        let waitLocation = await waitLocationQuery.getOne();
+
+        console.log(`Wait location in same zone found: ${waitLocation ? 'Yes' : 'No'}`);
+
+        if (!waitLocation) {
+
+            console.log("Searching for wait location...");
+            const waitZone = await this.locationRepository
+                .createQueryBuilder('location')
+                .where('location.location_type = :locationType', { locationType: LocationType.ZONE })
+                .andWhere(
+                    `location.attributes::jsonb @> :attr::jsonb`,
+                    { 
+                        attr: JSON.stringify([{ 
+                            attribute_name: 'is_waiting_area', 
+                            attribute_value: true 
+                        }])
+                    }
+                )
+                .getOne();
+            
+            if (!waitZone) {
+                console.log(`Wait zone not found, Searching for other wait locations...`);
             }
-        });
-        if (!waitZone) {
-            console.log(`Wait zone not found.`);
-            return null;
+            
+            waitLocationQuery = this.locationRepository
+                .createQueryBuilder('location')
+                .where('location.location_type = :locationType', { locationType: LocationType.PALLET })
+                .andWhere('location.location_status = :locationStatus', { locationStatus: LocationStatus.AVAILABLE })
+                .orderBy('location.drop_priority', 'ASC');
+            
+            if (waitZone) {
+                waitLocationQuery.andWhere('location.parent_id = :parentId', { parentId: waitZone.location_id });
+            } else {
+                waitLocationQuery.andWhere(
+                    `location.attributes::jsonb @> :attr::jsonb`,
+                    { 
+                        attr: JSON.stringify([{ 
+                            attribute_name: 'is_waiting_area', 
+                            attribute_value: true 
+                        }])
+                    }
+                );
+            }
+            
+            waitLocation = await waitLocationQuery.getOne();
+            console.log(`Found wait location: ${waitLocation ? 'Yes' : 'No'}`);
+            console.log(`Found wait location: ${waitLocation?.location_id}`);
+        } else {
+            console.log(`Found wait location in same zone: ${waitLocation.location_id}`);
         }
-        const waitLocation = await this.locationRepository.findOne({ where: { parent_id: waitZone.location_id, location_type: LocationType.PALLET, location_status: LocationStatus.AVAILABLE }, order: { drop_priority: "ASC" } });
-        return waitLocation?.display_name || null;
+
+        return waitLocation?.location_id || null;
     }
+
+    async getDisplayName(location_id: string): Promise<string> {
+        const location = await this.locationRepository.findOne({ where: { location_id: location_id } });
+        return location?.display_name || location_id;
+    }
+
     async syncFMSLocations() {
         console.log("Starting FMS location sync...");
         const fmsLocations = await this.fetchFMSLocations();

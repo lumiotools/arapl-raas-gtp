@@ -1,4 +1,4 @@
-import { IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { LocationStatus } from 'src/entities/station.entity';
 
 export class UpdateLocationDto {
@@ -20,5 +20,9 @@ export class UpdateLocationDto {
   @IsEnum(LocationStatus)
   @IsOptional()
   location_status?: LocationStatus;
+
+  @IsOptional()
+  @IsBoolean()
+  is_waiting_area?: boolean;
 }
  

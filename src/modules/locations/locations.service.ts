@@ -41,6 +41,30 @@ export class LocationsService {
     if (body.drop_priority !== undefined) updates.drop_priority = body.drop_priority;
     if (body.location_status !== undefined) updates.location_status = body.location_status;
 
+    if (body.is_waiting_area !== undefined) {
+      // Ensure attributes array exists
+      if (!Array.isArray(existing.attributes)) {
+      existing.attributes = [] as any;
+      }
+      const attrs: any[] = existing.attributes as any[];
+      const waitIdx = attrs.findIndex(a => a && a.attribute_name === 'is_waiting_area');
+
+      if (body.is_waiting_area === false) {
+      // remove the attribute entry entirely when explicitly false
+      if (waitIdx >= 0) {
+        attrs.splice(waitIdx, 1);
+      }
+      } else {
+      const value = body.is_waiting_area === null ? null : body.is_waiting_area;
+      if (waitIdx >= 0) {
+        attrs[waitIdx].attribute_value = value;
+      } else {
+        attrs.push({ attribute_name: 'is_waiting_area', attribute_value: value });
+      }
+      }
+      existing.attributes = attrs as any;
+    }
+
     Object.assign(existing, updates);
     await this.locationRepository.save(existing);
     return existing;
@@ -89,8 +113,25 @@ export class LocationsService {
       mutated = true;
     }
 
+    if (dto.is_waiting_area !== undefined) {
+      // Ensure attributes array exists
+      if (!Array.isArray(zone.attributes)) {
+        zone.attributes = [] as any;
+      }
+      const attrs: any[] = zone.attributes as any[];
+      const waitIdx = attrs.findIndex(a => a && a.attribute_name === 'is_waiting_area');
+
+      if (waitIdx >= 0) {
+        attrs[waitIdx].attribute_value = dto.is_waiting_area === null ? null : dto.is_waiting_area;
+      } else {
+        attrs.push({ attribute_name: 'is_waiting_area', attribute_value: dto.is_waiting_area === null ? null : dto.is_waiting_area });
+      }
+      zone.attributes = attrs as any;
+      mutated = true;
+    }
+
     if (!mutated) {
-      throw new BadRequestException('No updatable fields provided (display_name or category).');
+      throw new BadRequestException('No updatable fields provided (display_name or category or is_waiting_area).');
     }
 
     await this.locationRepository.save(zone);
