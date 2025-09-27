@@ -10,9 +10,10 @@ import { User } from 'src/entities/user.entity';
 import { HttpModule } from '@nestjs/axios';
 import { BaseOpsLocationManagerService } from './location_manager.service';
 import { LocationEntity } from 'src/entities/location.entity';
+import { LocationsModule } from '../locations/locations.module';
 
 @Module({
-  imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity, Robot, Task]),HttpModule],
+  imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity, Robot, Task]),HttpModule, LocationsModule],
   controllers: [BaseopsTaskController],
   providers: [BaseopsTaskService, BaseOpsLocationManagerService],
 })

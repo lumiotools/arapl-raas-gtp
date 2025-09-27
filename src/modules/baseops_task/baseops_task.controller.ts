@@ -41,6 +41,27 @@ export class BaseopsTaskController {
     }
   }
 
+  @Get('batch-tasks')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BASEOPS_ADMIN)
+  findAllBatches() {
+    return this.baseopsTaskService.findAllBatches();
+  }
+
+  @Get('batch-tasks/:batch_id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BASEOPS_ADMIN)
+  findBatchTasks(@Param('batch_id') batch_id: string) {
+    return this.baseopsTaskService.findBatchTasks(batch_id);
+  }
+
+  @Get('batch-tasks/:batch_id/:task_id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BASEOPS_ADMIN)
+  findBatchTasksSubtasks(@Param('batch_id') batch_id: string, @Param('task_id') task_id: string) {
+    return this.baseopsTaskService.findBatchTasksSubtasks(batch_id, task_id);
+  }
+
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.BASEOPS_ADMIN)

@@ -29,6 +29,7 @@ export interface LocationAttribute {
 
 export interface Location {
   location_id: string;
+  display_name?: string;
   location_type: LocationType;
   location_action: LocationAction;
   location_dimension?: LocationDimension;

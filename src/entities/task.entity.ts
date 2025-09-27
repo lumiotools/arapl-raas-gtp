@@ -60,6 +60,7 @@ export enum TaskStatus {
   PICK_FAILED = 'pick_failed',
   DROP_FAILED = 'drop_failed',
   HALTED = 'HALTED',
+  WAITING = 'WAITING',
 
 }
 

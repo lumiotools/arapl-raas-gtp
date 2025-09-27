@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 
 // DTO for updating a Zone. Only display_name and "Category" attribute are editable
 export class UpdateZoneDto {
@@ -11,4 +11,9 @@ export class UpdateZoneDto {
   @IsOptional()
   @IsString()
   category?: string; // allowing string; if need to allow null, absence or explicit null handled in service
+
+  // is_waiting_area attribte value (can be boolean or null). 
+  @IsOptional()
+  @IsBoolean()
+  is_waiting_area?: boolean;
 }
