@@ -3,12 +3,12 @@ import { CreateBaseopsTaskDto } from './dto/create-baseops_task.dto';
 import { UpdateBaseopsTaskDto } from './dto/update-baseops_task.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Between, Repository, IsNull } from 'typeorm';
 import { Task, TaskStatus, TaskType, MOVE_TYPE } from 'src/entities/task.entity';
 import { LocationAction, LocationType } from 'src/entities/location.entity';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Cron, Interval } from '@nestjs/schedule';
-import { firstValueFrom } from 'rxjs';
+import { first, firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { BaseOpsLocationManagerService } from './location_manager.service';
 import { OperationType, Robot } from 'src/entities/robot.entity';
@@ -29,6 +29,150 @@ export class BaseopsTaskService {
 
   create(createBaseopsTaskDto: CreateBaseopsTaskDto) {
     return 'This action adds a new baseopsTask';
+  }
+
+  async findAllBatches() {
+    // Return tasks that originate from baseops flows.
+    // The CSV importer in this module creates tasks with TaskType.CROSSDOCK
+    // and MOVE_TYPE.ZONE_TO_ZONE — treat those as "base ops" tasks.
+    let batches =  await this.batchRepository.find({
+      select: ['batch_id', 'priority', 'status', 'completed_tasks', 'total_tasks', 'created_at', 'updated_at'],
+      // where: [
+      //   { task_type: TaskType.BASEOPS },
+      // ],
+      order: { created_at: 'DESC' },
+    });
+
+    for(const batch of batches) {}
+
+    return batches;
+  }
+
+  async findBatchTasks(batch_id: string) {
+    let tasks =  await this.taskRepository.find({
+      where: {
+        batch_id: batch_id,
+        task_type: TaskType.BASEOPS,
+        task_dependency: IsNull(),
+      },
+      relations: ['batch'],
+      order: { created_at: 'DESC' },
+    });
+
+    for (const task of tasks) {
+      if (task.start_location) {
+        task.start_location.display_name = (await this.BaseOpsLocationManagerService.getDisplayName(task.start_location.location_id));
+
+      }
+
+      if (task.end_location) {
+        const originalEndLocation = await this.BaseOpsLocationManagerService.getLocation(task.end_location.location_attribute.attribute_value);
+
+        if(originalEndLocation) {
+            task.end_location = {
+              ...task.end_location,
+              location_id: originalEndLocation.location_id,
+              location_type: originalEndLocation.location_type,
+              display_name: originalEndLocation.display_name,
+            }
+        }
+      }
+
+      if(task.move_type == MOVE_TYPE.ZONE_TO_WAIT && task.status == TaskStatus.COMPLETED) {
+        const waitToZoneTask = await this.taskRepository.findOne({
+          where:{
+            task_dependency: task.task_id,
+          }
+        })
+
+        if (!waitToZoneTask) {
+          task.status = TaskStatus.WAITING
+        } else {
+          task.status = waitToZoneTask.status
+        }
+      }
+
+    }
+
+    return tasks;
+  }
+
+  async findBatchTasksSubtasks(batch_id: string, task_id: string) {
+    const subtasks: Task[] = [];
+
+    const firstTask = await this.taskRepository.findOne({
+      where: { task_id: task_id, batch: { batch_id: batch_id } },
+      relations: ['batch'],
+    });
+
+    if (firstTask) {
+
+      if(firstTask.start_location) {
+        firstTask.start_location.display_name = (await this.BaseOpsLocationManagerService.getDisplayName(firstTask.start_location.location_id));
+      }
+
+      if(firstTask.end_location) {
+        firstTask.end_location.display_name = (await this.BaseOpsLocationManagerService.getDisplayName(firstTask.end_location.location_id));
+      }
+      subtasks.push(firstTask);
+    }
+
+    while (true) {
+      const nextTask = await this.taskRepository.findOne({
+        where: { task_dependency: subtasks[subtasks.length - 1].task_id },
+      });
+
+      if (!nextTask) {
+        break;
+      }
+
+      subtasks.push(nextTask);  
+    }
+
+    if(subtasks.length === 1) {
+      const task = subtasks[0];
+
+      if(task.move_type == MOVE_TYPE.ZONE_TO_WAIT) {
+        subtasks.push({
+          ...task,
+
+          task_id: '-',
+          //@ts-ignore
+          display_task_id: '-',
+          task_dependency: task.task_id,
+          move_type: MOVE_TYPE.WAIT_TO_ZONE,
+          fms_batch_id: '-',
+          status: TaskStatus.PENDING,
+          sequence_order: task.sequence_order + 1,
+          robot_id: '-',
+          //@ts-ignore
+          created_at: null,
+          //@ts-ignore
+          updated_at: null,
+          //@ts-ignore
+          processing: null,
+          //@ts-ignore
+          completed: null,
+          start_location: {
+            ...task.start_location,
+            location_id: task.end_location.location_id,
+            location_type:  task.end_location.location_type,
+            display_name: task.end_location.display_name,
+            location_attribute: task.end_location.location_attribute
+          },
+          end_location: {
+            ...task.end_location,
+            location_id: task.end_location.location_attribute.attribute_value,
+            location_type:  task.end_location.location_attribute.attribute_name === 'ZONE' ? LocationType.ZONE : LocationType.PALLET,
+            display_name: await this.BaseOpsLocationManagerService.getDisplayName(task.end_location.location_attribute.attribute_value),
+            location_attribute: task.end_location.location_attribute
+          },
+        })
+
+      }
+    }
+
+    return subtasks;
   }
 
   async findAll() {

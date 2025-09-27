@@ -206,6 +206,11 @@ export class BaseOpsLocationManagerService {
         return location?.display_name || location_id;
     }
 
+    async getLocation(location_id: string): Promise<LocationEntity | null> {
+        const location = await this.locationRepository.findOne({ where: { location_id: location_id } });
+        return location || null;
+    }
+
     async syncFMSLocations() {
         console.log("Starting FMS location sync...");
         const fmsLocations = await this.fetchFMSLocations();
