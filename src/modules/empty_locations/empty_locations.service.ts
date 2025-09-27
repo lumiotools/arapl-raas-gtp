@@ -3,12 +3,14 @@ import { CreateEmptyLocationDto } from './dto/create-empty_location.dto';
 import { UpdateEmptyLocationDto } from './dto/update-empty_location.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { empty } from 'rxjs';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationStatus } from 'src/entities/station.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { Task } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
+import { Settings } from 'src/entities/settings.entity';
+import { OperationType } from 'src/entities/robot.entity';
 
 @Injectable()
 export class EmptyLocationsService {
@@ -17,6 +19,8 @@ export class EmptyLocationsService {
     private readonly emptyLocationRepository: Repository<EmptyLocation>,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
+    @InjectRepository(Settings)
+    private readonly settingsRepository: Repository<Settings>,
     private readonly inventoryService: InventoryService,
   ) {}
   async create(createEmptyLocationDto: {location_id: string, location_name: string, is_active: boolean, priority: number}) {
@@ -96,7 +100,7 @@ export class EmptyLocationsService {
       }
     }
     const recentTasks = await this.taskRepository.find({
-      where: { move_type: MOVE_TYPE.STATION_TO_EMPTY_LOCATION }, order: {created_at: 'DESC'}
+      where: { move_type: In([MOVE_TYPE.STATION_TO_EMPTY_LOCATION, MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION]) }, order: {created_at: 'DESC'}
     });
     const currentEmptyLocations: any[] = await this.emptyLocationRepository.find();
     for (let i = 0; i < currentEmptyLocations.length; i++) {
@@ -165,5 +169,27 @@ export class EmptyLocationsService {
   remove(id: string) {
     this.emptyLocationRepository.delete({ location_id: id });
     return `This action removes a #${id} emptyLocation`;
+  }
+
+  async updateAllocation(
+    allocationType: 'ROUND_ROBIN' | 'MANUAL'
+  ) {
+    const settings = await this.settingsRepository.findOne({where:{operation_type: OperationType.FLOWOPS}});
+    if (!settings){
+      await this.settingsRepository.save({
+        id: crypto.randomUUID(),
+        operation_type: OperationType.FLOWOPS,
+        value: {
+          "EMPTY_LOCATION": allocationType,
+        }
+      });
+      return;
+    }
+    settings.value = {
+      ...settings.value,
+      "EMPTY_LOCATION": allocationType,
+    };
+    await this.settingsRepository.save(settings);
+    return settings;
   }
 }

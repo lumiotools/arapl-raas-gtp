@@ -83,7 +83,9 @@ export class InventoryService {
           where: { origin_location: inv.id },
           order: { created_at: 'DESC' }
         });
-        if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
+        if (recentTask && (recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION
+          || recentTask.move_type === MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION)
+        ) {
           inventories[i].is_at_empty_location = true;
           inventories[i].empty_location_id = recentTask.end_location.location_id;
           inventories[i].pallet_id = recentTask.cargos ? recentTask?.cargos[0]?.cargo_code : null;
