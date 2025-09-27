@@ -173,7 +173,7 @@ export class InventoryService {
     }
   }
 
-  async update(id: string, updateInventoryDto: Inventory) {
+  async update(id: string, updateInventoryDto: any) {
     const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
     
     if (!existingInventory) {

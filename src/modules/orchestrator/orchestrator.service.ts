@@ -27,6 +27,7 @@ import { OperationType } from 'src/entities/robot.entity';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
+import { truncate } from 'fs';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -555,7 +556,7 @@ export class OrchestratorService {
     const isRobotAvailable = await this.isRobotAvailable();
     if (!isRobotAvailable){return;}
 
-    const inventory = await this.inventoryRepository.findOne({ where: { id: inventoryID, isProcessing: false, status: LocationStatus.AVAILABLE } });
+    const inventory = await this.inventoryRepository.findOne({ where: { id: inventoryID, isProcessing: false, status: LocationStatus.AVAILABLE, is_active: true } });
     if (!inventory) {return;}
 
     const taskID = await this.createSingleTaskToFirstAvailableStation(
