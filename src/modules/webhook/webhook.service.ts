@@ -167,10 +167,29 @@ export class WebhookService {
 
         if (destinationType === 'inventory'){
           await this.orchestratorService.decrementRobotInUse();
+          await this.saveCompletedOrders(task.task_id);
           await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
         }
       }
     }
+  }
+
+  private async saveCompletedOrders(task_id: string): Promise<void> {
+    const completedTask = await this.taskRepository.findOne({ where: { task_id }, relations: ['orderItems'] });
+    if (!completedTask) { return; }
+    const batch_tasks = await this.taskRepository.find({ where: { batch_id: completedTask.batch_id }, relations: ['orderItems'] });
+    if (!completedTask.orderItems){ completedTask.orderItems = []; }
+    for (const task of batch_tasks) {
+      this.logger.log(`checking task: ${task.task_id}`);
+      if (task.task_id == completedTask.task_id){ continue; }
+      if (task.orderItems && task.orderItems.length > 0){
+        this.logger.log(`checking orderItems: ${task.orderItems.length}`);
+        for (const orderItem of task.orderItems) {
+          completedTask.orderItems.push(orderItem);
+        }
+      }
+    }
+    await this.taskRepository.save(completedTask);
   }
 
   

@@ -60,6 +60,7 @@ interface ProductRequirement {
 export interface TaskDetails{
   task_id: string;
   batch_id: string;
+  fms_batch_id?: string;
   origin_location: string;
   robot_id: string;
   move_type: MOVE_TYPE;
@@ -71,6 +72,7 @@ export interface TaskDetails{
   pallet_id: string | null;
   priority: number;
   batch_priority: number;
+  orderItems: OrderItem[];
 }
 
 @Injectable()
@@ -1048,6 +1050,9 @@ export class OrchestratorService {
               if (!orderItem.completedTasks){
                 orderItem.completedTasks = [];
               }
+              if (!completedTask.orderItems) {completedTask.orderItems = [];}
+              completedTask.orderItems.push(orderItem);
+              await this.taskRepository.save(completedTask);
               await this.loggingService.log(`Order Item ${orderItem.order_item_id}: ${orderItem.source_location_id} (source) - ${orderItem.destination_pallet_slot_id} (destination), marked as COMPLETED`, TaskType.GOODS_TO_PERSON, completedTask.task_id, orderItem.order_batch_id);
               orderItem.status = OrderItemStatus.COMPLETED;
               orderItem.completedTasks.push(completedTask);
@@ -2181,35 +2186,35 @@ export class OrchestratorService {
       TaskItems.push(...await this.taskRepository.find({
         where: whereCondition,
         order: { created_at: 'DESC' },
-        relations: ['batch']
+        relations: ['batch', 'orderItems']
       }));
     }
     if (statusList.includes('pending')) {
       TaskItems.push(...await this.taskRepository.find({
         where: { ...whereCondition, status: TaskStatus.PENDING },
         order: { created_at: 'DESC' },
-        relations: ['batch']
+        relations: ['batch', 'orderItems']
       }));
     }
     if (statusList.includes('processing')) {
       TaskItems.push(...await this.taskRepository.find({
         where: { ...whereCondition, status: TaskStatus.PROCESSING },
         order: { created_at: 'DESC' },
-        relations: ['batch']
+        relations: ['batch', 'orderItems']
       }));
     }
     if (statusList.includes('completed')) {
       TaskItems.push(...await this.taskRepository.find({
         where: { ...whereCondition, status: TaskStatus.COMPLETED },
         order: { created_at: 'DESC' },
-        relations: ['batch']
+        relations: ['batch', 'orderItems']
       }));
     }
     if (statusList.includes('cancelled')) {
       TaskItems.push(...await this.taskRepository.find({
         where: { ...whereCondition, status: TaskStatus.CANCELLED },
         order: { created_at: 'DESC' },
-        relations: ['batch']
+        relations: ['batch', 'orderItems']
       }));
     }
     console.log(`first task: ${JSON.stringify(TaskItems[0])}`);
@@ -2217,6 +2222,7 @@ export class OrchestratorService {
       const taskDetails: TaskDetails = {
         task_id: task.task_id,
         batch_id: task.batch_id,
+        fms_batch_id: task.fms_batch_id,
         origin_location: task.origin_location,
         move_type: task.move_type,
         status: task.status,
@@ -2227,7 +2233,8 @@ export class OrchestratorService {
         updated_at: task.updated_at,
         pallet_id: task.cargos ? task.cargos[0].cargo_code : '',
         priority: task.priority || 3,
-        batch_priority: task.batch.priority || 3
+        batch_priority: task.batch.priority || 3,
+        orderItems: task.orderItems || [],
       }
       results.push(taskDetails);
     }
