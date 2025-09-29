@@ -58,7 +58,9 @@ interface ProductRequirement {
 
 export interface TaskDetails{
   task_id: string;
+  display_task_id: number;
   batch_id: string;
+  fms_batch_id?: string | null;
   product_id: string;
   robot_id: string;
   quantity: number;
@@ -2600,7 +2602,9 @@ export class OrchestratorService {
     for (const task of TaskItems) {
       const taskDetails: TaskDetails = {
         task_id: task.task_id,
+        display_task_id: task.display_task_id,
         batch_id: task.batch_id,
+        fms_batch_id: task.fms_batch_id,
         product_id: task.product_id,
         quantity: task.quantity,
         move_type: task.move_type,
