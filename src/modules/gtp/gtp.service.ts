@@ -31,7 +31,7 @@ export class GtpService {
     }
     const existingGtp = await this.gtpRepository.findOne({ where: { gtp_location_id: createGtpDto.gtp_location_id} });
     if (existingGtp) {
-      throw new BadRequestException(`GTP location for id ${createGtpDto.gtp_location_id} already exists`);
+      throw new BadRequestException(`Pallet slot with id ${createGtpDto.gtp_location_id} already exists`);
     }
     const newGtp = this.gtpRepository.create(createGtpDto);
     return await this.gtpRepository.save(newGtp);

@@ -230,6 +230,7 @@ export class OrdersService {
       orderItems.push(...await this.orderItemRepository.find({
         where: whereCondition,
         relations: ['completedTasks'],
+        order: { created_at: 'DESC', updated_at: 'DESC' }
       }));
     }
     if (statusList.includes('pending')){
@@ -237,6 +238,7 @@ export class OrdersService {
       orderItems.push(...await this.orderItemRepository.find({
         where: whereCondition,
         relations: ['completedTasks'],
+        order: { created_at: 'DESC', updated_at: 'DESC' }
       }));
     }
     if (statusList.includes('assigned')){
@@ -244,6 +246,7 @@ export class OrdersService {
       orderItems.push(...await this.orderItemRepository.find({
         where: whereCondition,
         relations: ['completedTasks'],
+        order: { created_at: 'DESC', updated_at: 'DESC' }
       }));
     }
     if (statusList.includes('in_progress')){
@@ -251,6 +254,7 @@ export class OrdersService {
       orderItems.push(...await this.orderItemRepository.find({
         where: whereCondition,
         relations: ['completedTasks'],
+        order: { created_at: 'DESC', updated_at: 'DESC' }
       }));
     }
     if (statusList.includes('completed')){
@@ -258,6 +262,7 @@ export class OrdersService {
       orderItems.push(...await this.orderItemRepository.find({
         where: whereCondition,
         relations: ['completedTasks'],
+        order: { created_at: 'DESC', updated_at: 'DESC' }
       }));
     }
     if (statusList.includes('cancelled')){
@@ -265,6 +270,7 @@ export class OrdersService {
       orderItems.push(...await this.orderItemRepository.find({
         where: whereCondition,
         relations: ['completedTasks'],
+        order: { created_at: 'DESC', updated_at: 'DESC' }
       }));
     }
     if (orderItems.length === 0) {
@@ -352,8 +358,9 @@ export class OrdersService {
   async getSourceByGtpLocation(gtpLocationId: string): Promise<any> {
     const orderItems = await this.orderItemRepository.find({
       where: { destination_pallet_slot_id: gtpLocationId,
-        status: In([OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS, OrderItemStatus.COMPLETED, OrderItemStatus.CANCELLED])
+        status: In([OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS, OrderItemStatus.COMPLETED, OrderItemStatus.CANCELLED]),
       },
+      order: { created_at: 'DESC' },
     });
     let sourceLocationStats = {};
     for (const orderItem of orderItems) {
