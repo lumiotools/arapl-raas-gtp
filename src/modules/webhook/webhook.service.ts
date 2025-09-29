@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { Not, Repository, IsNull } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Task, TaskStatus, TaskType } from 'src/entities/task.entity';
@@ -116,11 +116,9 @@ export class WebhookService {
       if (mappedStatus === TaskStatus.COMPLETED){
         this.BaseOpsTaskService.decrementRobotInUse();
         await this.BaseOpsLocationManagerService.occupyLocation(task.end_location.location_id);
-          const not_completed_tasks = await this.taskRepository.count({ where: { batch_id: task.batch_id, status: Not(TaskStatus.COMPLETED) } });
-        if (not_completed_tasks===0){
-          await this.batchRepository.update({ batch_id: task.batch_id }, { status: BatchStatus.COMPLETED });
-        }
       }
+      // Persist batch status to DB using BaseOps rules (mirrors findAllBatches logic)
+      await this.updateBaseOpsBatchStatus(task.batch_id);
       return;
     }
     console.log(`------------------------running ------------------------------------------------------`)
@@ -400,4 +398,79 @@ export class WebhookService {
       );
     }
   }
+  
+  // Compute and persist BaseOps batch status and aggregates so findAllBatches can avoid recalculation
+  private async updateBaseOpsBatchStatus(batchId: string): Promise<void> {
+    try {
+      // Pull only top-level BaseOps tasks for the batch (task_dependency IS NULL), as used in findBatchTasks
+      const tasks = await this.taskRepository.find({
+        where: {
+          batch_id: batchId,
+          task_type: TaskType.BASEOPS,
+          task_dependency: IsNull(),
+        },
+        order: { created_at: 'DESC' },
+      });
+
+      // Normalize WAITING: If a ZONE_TO_WAIT task is COMPLETED but its dependent task doesn't exist, treat as WAITING
+      const normalizedStatuses = await Promise.all(
+        tasks.map(async (t) => {
+          if (t.move_type === MOVE_TYPE.ZONE_TO_WAIT && t.status === TaskStatus.COMPLETED) {
+            const hasDependent = await this.taskRepository.findOne({ where: { task_dependency: t.task_id } });
+            return hasDependent ? hasDependent.status : TaskStatus.WAITING;
+          }
+          return t.status;
+        })
+      );
+
+      const total_tasks = tasks.length;
+      const completed_tasks = normalizedStatuses.filter((s) => s === TaskStatus.COMPLETED).length;
+
+      let nextStatus: BatchStatus;
+      if (normalizedStatuses.length > 0 && normalizedStatuses.every((s) => s === TaskStatus.COMPLETED)) {
+        nextStatus = BatchStatus.COMPLETED;
+      } else if (normalizedStatuses.some((s) => s === TaskStatus.PROCESSING)) {
+        nextStatus = BatchStatus.PROCESSING;
+      } else if (
+        normalizedStatuses.length > 0 &&
+        normalizedStatuses.every((s) => s === TaskStatus.COMPLETED || s === TaskStatus.WAITING)
+      ) {
+        nextStatus = BatchStatus.WAITING;
+      } else if (normalizedStatuses.some((s) => s === TaskStatus.HALTED)) {
+        nextStatus = BatchStatus.HALTED;
+      } else {
+        nextStatus = BatchStatus.PENDING;
+      }
+
+      await this.batchRepository.update(
+        { batch_id: batchId },
+        { status: nextStatus, total_tasks, completed_tasks }
+      );
+    } catch (err: any) {
+      this.logger.error(`Failed to update BaseOps batch status for ${batchId}: ${err.message}`);
+    }
+  }
+
+  // Method to free robot by calling the external endpoint
+  // private async freeRobot(robotId: string): Promise<void> {
+  //   if (!robotId) {
+  //     // await this.loggingService.log('Cannot free robot: robot_id is null or empty');
+  //     return;
+  //   }
+
+  //   try {
+  //     const response = await this.httpService.post(`${process.env.WMS_BASE_URL}/orchestrator/robot/set-available`, {
+  //       robot_id: robotId
+  //     }).toPromise();
+
+  //     if (response && response.data) {
+  //       // await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
+  //     } else {
+  //       // await this.loggingService.log(`Robot ${robotId} freed successfully`);
+  //     }
+  //   } catch (error) {
+  //     // await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
+  //     // Don't throw error to avoid breaking the main process
+  //   }
+  // }
 }
