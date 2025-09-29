@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Move } from '@nestjs/common';
 import { CreateBaseopsTaskDto } from './dto/create-baseops_task.dto';
 import { UpdateBaseopsTaskDto } from './dto/update-baseops_task.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
@@ -32,18 +32,11 @@ export class BaseopsTaskService {
   }
 
   async findAllBatches() {
-    // Return tasks that originate from baseops flows.
-    // The CSV importer in this module creates tasks with TaskType.CROSSDOCK
-    // and MOVE_TYPE.ZONE_TO_ZONE — treat those as "base ops" tasks.
-    let batches =  await this.batchRepository.find({
-      select: ['batch_id', 'priority', 'status', 'completed_tasks', 'total_tasks', 'created_at', 'updated_at'],
-      // where: [
-      //   { task_type: TaskType.BASEOPS },
-      // ],
+    // Fetch all batches
+    let batches = await this.batchRepository.find({
+      select: ['batch_id', 'priority', 'status', 'total_tasks', 'completed_tasks', 'created_at', 'updated_at'],
       order: { created_at: 'DESC' },
     });
-
-    for(const batch of batches) {}
 
     return batches;
   }
@@ -726,6 +719,9 @@ export class BaseopsTaskService {
       
       
       await this.taskRepository.save(newTask);
+
+      batch.total_tasks += 1;
+      await this.batchRepository.save(batch);
     }
 
     return tasks;
