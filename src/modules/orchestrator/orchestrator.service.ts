@@ -63,9 +63,8 @@ export interface TaskDetails{
   task_id: string;
   display_task_id: number;
   batch_id: string;
-  fms_batch_id?: string;
-  origin_location: string;
   fms_batch_id?: string | null;
+  origin_location: string;
   robot_id: string;
   move_type: MOVE_TYPE;
   status: TaskStatus;
@@ -2291,7 +2290,6 @@ export class OrchestratorService {
         batch_id: task.batch_id,
         fms_batch_id: task.fms_batch_id,
         origin_location: task.origin_location,
-        fms_batch_id: task.fms_batch_id,
         move_type: task.move_type,
         status: task.status,
         robot_id: task.robot_id,
