@@ -69,4 +69,11 @@ export class CreateInventoryDto {
   })
   @IsOptional()
   is_active?: boolean;
+
+  @ApiProperty({
+    description: 'Indicates if the inventory item is currently empty',
+    example: true,
+  })
+  @IsOptional()
+  is_empty?: boolean;
 }
