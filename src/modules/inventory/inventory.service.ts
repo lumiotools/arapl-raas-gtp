@@ -83,8 +83,10 @@ export class InventoryService {
           where: { origin_location: inv.id },
           order: { created_at: 'DESC' }
         });
-        if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
-          inventories[i].is_at_empty_location = true;
+        if (recentTask && (recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION
+          || recentTask.move_type === MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION)
+        ) {
+          inventories[i].is_at_empty_location = inventories[i].is_empty;
           inventories[i].empty_location_id = recentTask.end_location.location_id;
           inventories[i].pallet_id = recentTask.cargos ? recentTask?.cargos[0]?.cargo_code : null;
         }
@@ -173,37 +175,12 @@ export class InventoryService {
     }
   }
 
-  async update(id: string, updateInventoryDto: Inventory) {
+  async update(id: string, updateInventoryDto: any) {
     const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
     
     if (!existingInventory) {
       throw new NotFoundException(`Inventory with id ${id} not found`);
     }
-    
-    // if (existingInventory.isProcessing){
-    //   const recentTask = await this.taskRepository.findOne({
-    //     where: { origin_location: existingInventory.id },
-    //     order: { created_at: 'DESC' }
-    //   });
-      
-    //   if (recentTask && recentTask.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION) {
-    //     const otherEmptyLocatonTask = await this.taskRepository.find({
-    //       where: { move_type: MOVE_TYPE.STATION_TO_EMPTY_LOCATION,
-    //         created_at: MoreThan(recentTask.created_at)
-    //       }
-    //     });
-    //     const existsOtherTaskTosSameEmptyLocation = otherEmptyLocatonTask.some(task => 
-    //       task.end_location.location_id === recentTask.end_location.location_id && 
-    //       task.task_id !== recentTask.task_id
-    //     );
-    //     if (!existsOtherTaskTosSameEmptyLocation){
-    //       await this.emptyLocationRepository.update(
-    //         { location_id: recentTask.end_location.location_id },
-    //         { status: LocationStatus.AVAILABLE }
-    //       );
-    //     }
-    //   }
-    // }
 
     await this.inventoryRepository.update(id, updateInventoryDto);
     if (updateInventoryDto.id) {

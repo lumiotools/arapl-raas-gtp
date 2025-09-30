@@ -24,6 +24,7 @@ import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
 import { EmptyLocationsModule } from '../empty_locations/empty_locations.module';
+import { Settings } from 'src/entities/settings.entity';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { EmptyLocationsModule } from '../empty_locations/empty_locations.module'
       ScheduleMapping,
       LocationEntity,
       EmptyLocation,
+      Settings,
     ]),
     HttpModule,
     InventoryModule,

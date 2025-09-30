@@ -153,7 +153,7 @@ export class WebhookService {
           );
         }
 
-        if (task.move_type===MOVE_TYPE.STATION_TO_EMPTY_LOCATION){
+        if (task.move_type===MOVE_TYPE.STATION_TO_EMPTY_LOCATION || task.move_type===MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION){
           await this.orchestratorService.decrementRobotInUse();
           await this.loggingService.log(`Task ${task.task_id}: Empty location ${task.end_location.location_id} marked as OCCUPIED.`, task.task_type, task.task_id, null);
           await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
@@ -170,8 +170,6 @@ export class WebhookService {
       }
     }
   }
-
-  
 
   private mapTaskStatus(webhookStatus: string): TaskStatus {
     console.log(webhookStatus);
@@ -241,7 +239,7 @@ export class WebhookService {
         await this.inventoryRepository.save(destinationInventoryLocation);
       }
     }
-    else if (task.move_type === MOVE_TYPE.STATION_TO_INVENTORY){
+    else if (task.move_type === MOVE_TYPE.STATION_TO_INVENTORY || task.move_type === MOVE_TYPE.INVENTORY_TO_INVENTORY){
       const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id } });
       if (destinationInventoryLocation){
         destinationInventoryLocation.status = LocationStatus.AVAILABLE;

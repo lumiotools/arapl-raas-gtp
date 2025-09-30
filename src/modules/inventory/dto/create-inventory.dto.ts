@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsNumber, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, Min, IsOptional } from 'class-validator';
 
 export class CreateInventoryDto {
   @ApiProperty({
@@ -62,4 +62,18 @@ export class CreateInventoryDto {
   })
   @IsNotEmpty()
   isProcessing: boolean;
+
+  @ApiProperty({
+    description: 'Indicates if the inventory item is currently active',
+    example: true,
+  })
+  @IsOptional()
+  is_active?: boolean;
+
+  @ApiProperty({
+    description: 'Indicates if the inventory item is currently empty',
+    example: true,
+  })
+  @IsOptional()
+  is_empty?: boolean;
 }

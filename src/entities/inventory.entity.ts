@@ -31,6 +31,12 @@ export class Inventory {
   @Column({ type: 'varchar', nullable: true })
   holded_by: string | null;
 
+  @Column({ type: 'boolean', default: true})
+  is_active: boolean;
+
+  @Column({ type: 'boolean', default: false})
+  is_empty: boolean;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

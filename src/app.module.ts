@@ -18,6 +18,7 @@ import { BotModule } from './modules/bot/bot.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { BaseopsTaskModule } from './modules/baseops_task/baseops_task.module';
 import { EmptyLocationsModule } from './modules/empty_locations/empty_locations.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -42,7 +43,8 @@ import { EmptyLocationsModule } from './modules/empty_locations/empty_locations.
     BotModule,
     LocationsModule,
     BaseopsTaskModule,
-    EmptyLocationsModule
+    EmptyLocationsModule,
+    SettingsModule
   ],
   controllers: [],
   providers: [],

@@ -36,4 +36,13 @@ export class EmptyLocationsController {
   remove(@Param('id') id: string) {
     return this.emptyLocationsService.remove(id);
   }
+
+  @Patch('/update-allocation/:allocation_type')
+  async updateAllocation(
+    @Param('allocation_type') allocationType: 'ROUND_ROBIN' | 'MANUAL'
+  ) {
+    return await this.emptyLocationsService.updateAllocation(
+      allocationType
+    );
+  }
 }
