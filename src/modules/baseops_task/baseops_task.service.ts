@@ -12,6 +12,7 @@ import { first, firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { BaseOpsLocationManagerService } from './location_manager.service';
 import { OperationType, Robot } from 'src/entities/robot.entity';
+import { ActivityType, BaseopsTaskActivity } from './dto/baseops-task-activity';
 
 @Injectable()
 export class BaseopsTaskService {
@@ -90,82 +91,195 @@ export class BaseopsTaskService {
     return tasks;
   }
 
-  async findBatchTasksSubtasks(batch_id: string, task_id: string) {
-    const subtasks: Task[] = [];
+  async findBatchTasksActivities(batch_id: string, task_id: string) {
+    // We will gather the ordered list of tasks in the sequence, then
+    // 1) create MOVEMENT activities for each
+    // 2) insert a WAITING activity after a ZONE_TO_WAIT leg (i.e., when it waits in between)
+    const activities: BaseopsTaskActivity[] = [];
+    const orderedTasks: Task[] = [];
 
     const firstTask = await this.taskRepository.findOne({
       where: { task_id: task_id, batch: { batch_id: batch_id } },
       relations: ['batch'],
     });
 
-    if (firstTask) {
-
-      if(firstTask.start_location) {
-        firstTask.start_location.display_name = (await this.BaseOpsLocationManagerService.getDisplayName(firstTask.start_location.location_id));
-      }
-
-      if(firstTask.end_location) {
-        firstTask.end_location.display_name = (await this.BaseOpsLocationManagerService.getDisplayName(firstTask.end_location.location_id));
-      }
-      subtasks.push(firstTask);
+    if (!firstTask) {
+      return activities; // empty
     }
 
+    orderedTasks.push(firstTask);
+
+    // Follow the dependency chain to collect subsequent tasks
     while (true) {
+      const prev = orderedTasks[orderedTasks.length - 1];
+      if (!prev) break;
       const nextTask = await this.taskRepository.findOne({
-        where: { task_dependency: subtasks[subtasks.length - 1].task_id },
+        where: { task_dependency: prev.task_id },
+      });
+      if (!nextTask) break;
+      orderedTasks.push(nextTask);
+    }
+
+    // Build activities: MOVEMENT for each task
+    for (let i = 0; i < orderedTasks.length; i++) {
+      const t = orderedTasks[i];
+
+      if (t.start_location) {
+        t.start_location.display_name = await this.BaseOpsLocationManagerService.getDisplayName(t.start_location.location_id);
+      }
+      if (t.end_location) {
+        t.end_location.display_name = await this.BaseOpsLocationManagerService.getDisplayName(t.end_location.location_id);
+      }
+
+      activities.push({
+        activity_id: t.task_id,
+        display_activity_id: t.display_task_id,
+        activity_type: ActivityType.MOVEMENT,
+        status: t.status,
+        activity_reason: t.status === TaskStatus.HALTED ? 'Destination Location is Occupied' : undefined,
+        move_type: t.move_type,
+        robot_id: t.robot_id,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+        inqueue: t.inqueue ?? null,
+        processing: t.processing ?? null,
+        completed: t.completed ?? null,
+        triggered: t.triggered ?? null,
+        cargos: t.cargos,
+        start_location: t.start_location,
+        end_location: t.end_location,
       });
 
-      if (!nextTask) {
-        break;
-      }
+      // Insert WAITING in between if this leg ends at a wait location
+      // i.e., when a ZONE_TO_ZONE target wasn't available and we parked at a wait pallet
+      if (t.move_type === MOVE_TYPE.ZONE_TO_WAIT) {
+        const waitLocId = t.end_location?.location_id;
+        const waitDisplay = waitLocId
+          ? await this.BaseOpsLocationManagerService.getDisplayName(waitLocId)
+          : undefined;
 
-      subtasks.push(nextTask);  
-    }
+  // Derive WAIT timestamps (only when previous task is actually COMPLETED)
+  const prevCompleted = t.completed ?? null;
+  const hasPrevCompleted = !!prevCompleted;
+        const nextTask = orderedTasks[i + 1];
+        const nextStart = nextTask ? (nextTask.processing ?? nextTask.created_at ?? null) : null;
+        // Determine WAIT status:
+        // - If previous task is still PROCESSING -> WAIT is PENDING
+        // - Else if next task exists and has progressed beyond PENDING -> WAIT is COMPLETED
+        // - Else -> WAITING
+        const waitStatus = (t.status === TaskStatus.PROCESSING)
+          ? TaskStatus.PENDING
+          : (nextTask && nextTask.status !== TaskStatus.PENDING
+              ? TaskStatus.COMPLETED
+              : TaskStatus.WAITING);
+        const waitUpdatedAt = waitStatus === TaskStatus.COMPLETED
+          ? (nextStart ?? prevCompleted)
+          : (hasPrevCompleted ? prevCompleted : null);
 
-    if(subtasks.length === 1) {
-      const task = subtasks[0];
+        // Craft a reason for waiting
+        let waitReason: string | undefined = undefined;
+        if (nextTask && nextTask.end_location) {
+          const nextEndName = await this.BaseOpsLocationManagerService.getDisplayName(nextTask.end_location.location_id);
+          if(nextTask.end_location.location_type === LocationType.ZONE) {
+            waitReason = `Waiting for a location in ${nextEndName} to be available`;
+          } else {
+            waitReason = `Waiting for location ${nextEndName} to be available`;
+          }
+        } else if (!nextTask) {
+          const attrNameForReason = t.end_location?.location_attribute?.attribute_name;
+          const attrValueForReason = t.end_location?.location_attribute?.attribute_value;
+          const derivedEndReasonName = attrNameForReason && attrValueForReason
+            ? await this.BaseOpsLocationManagerService.getDisplayName(attrValueForReason)
+            : undefined;
+          if(derivedEndReasonName) {
+            if(attrNameForReason === "ZONE") {
+              waitReason = `Waiting for a location in ${derivedEndReasonName} to be available`;
+            } else {
+              waitReason = `Waiting for location ${derivedEndReasonName} to be available`;
+            }
+          } else {
+            waitReason = undefined;
+          }
+        }
 
-      if(task.move_type == MOVE_TYPE.ZONE_TO_WAIT) {
-        subtasks.push({
-          ...task,
-
-          task_id: '-',
-          //@ts-ignore
-          display_task_id: '-',
-          task_dependency: task.task_id,
-          move_type: MOVE_TYPE.WAIT_TO_ZONE,
-          fms_batch_id: '-',
-          status: TaskStatus.PENDING,
-          sequence_order: task.sequence_order + 1,
+        activities.push({
+          activity_id: `WAIT-${t.task_id}`,
+          display_activity_id: `w${t.display_task_id}`,
+          activity_type: ActivityType.WAITING,
+          status: waitStatus,
+          activity_reason: waitReason,
           robot_id: '-',
-          //@ts-ignore
-          created_at: null,
-          //@ts-ignore
-          updated_at: null,
-          //@ts-ignore
-          processing: null,
-          //@ts-ignore
-          completed: null,
-          start_location: {
-            ...task.start_location,
-            location_id: task.end_location.location_id,
-            location_type:  task.end_location.location_type,
-            display_name: task.end_location.display_name,
-            location_attribute: task.end_location.location_attribute
-          },
-          end_location: {
-            ...task.end_location,
-            location_id: task.end_location.location_attribute.attribute_value,
-            location_type:  task.end_location.location_attribute.attribute_name === 'ZONE' ? LocationType.ZONE : LocationType.PALLET,
-            display_name: await this.BaseOpsLocationManagerService.getDisplayName(task.end_location.location_attribute.attribute_value),
-            location_attribute: task.end_location.location_attribute
-          },
-        })
+          created_at: hasPrevCompleted ? prevCompleted : null,
+          updated_at: waitUpdatedAt,
+          inqueue: null,
+          processing: hasPrevCompleted ? prevCompleted : null,
+          completed: hasPrevCompleted ? nextStart : null,
+          triggered: null,
+          start_location: t.end_location
+            ? {
+                ...t.end_location,
+                display_name: waitDisplay ?? t.end_location.display_name,
+              }
+            : (t.start_location as any),
+          end_location: t.end_location
+            ? {
+                ...t.end_location,
+                display_name: waitDisplay ?? t.end_location.display_name,
+              }
+            : (t.start_location as any),
+        } as unknown as BaseopsTaskActivity);
 
+        // If there is no next task yet, create a synthetic next MOVEMENT (WAIT_TO_ZONE) placeholder
+        if (!nextTask) {
+          // Derive intended end destination from the attribute on the wait location
+          const attrName = t.end_location?.location_attribute?.attribute_name;
+          const attrValue = t.end_location?.location_attribute?.attribute_value;
+          const derivedEndId = attrValue ?? 'To be decided';
+          const derivedEndType = attrName === 'ZONE' ? LocationType.ZONE : LocationType.PALLET;
+          const derivedEndDisplay = attrValue
+            ? await this.BaseOpsLocationManagerService.getDisplayName(attrValue)
+            : 'To be decided';
+
+          activities.push({
+            activity_id: `NEXT-${t.task_id}`,
+            // @ts-ignore: placeholder display id for synthetic activity
+            display_activity_id: '-',
+            activity_type: ActivityType.MOVEMENT,
+            status: TaskStatus.PENDING,
+            move_type: MOVE_TYPE.WAIT_TO_ZONE,
+            robot_id: '-',
+            created_at: null,
+            updated_at: null,
+            inqueue: null,
+            processing: null,
+            completed: null,
+            triggered: null,
+            start_location: t.end_location
+              ? {
+                  ...t.end_location,
+                  display_name: waitDisplay ?? t.end_location.display_name,
+                }
+              : (t.start_location as any),
+            end_location: {
+              location_id: derivedEndId as any,
+              location_type: derivedEndType,
+              location_action: LocationAction.DROP,
+              location_dimension: t.end_location?.location_dimension ?? {
+                length: 1, width: 1, height: 1
+              },
+              location_attribute: {
+                attribute_name: attrName ?? 'ZONE',
+                attribute_value: attrValue ?? 'To be decided'
+              },
+              display_name: derivedEndDisplay as any,
+            } as any,
+            cargos: t.cargos,
+          } as unknown as BaseopsTaskActivity);
+        }
       }
     }
 
-    return subtasks;
+    return activities;
   }
 
   async findAll() {
