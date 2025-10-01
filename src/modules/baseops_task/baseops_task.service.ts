@@ -13,6 +13,7 @@ import { HttpService } from '@nestjs/axios';
 import { BaseOpsLocationManagerService } from './location_manager.service';
 import { OperationType, Robot } from 'src/entities/robot.entity';
 import { ActivityType, BaseopsTaskActivity } from './dto/baseops-task-activity';
+import { LoggingService } from '../../services/logging.service';
 
 @Injectable()
 export class BaseopsTaskService {
@@ -26,6 +27,7 @@ export class BaseopsTaskService {
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(Robot)
     private readonly robotRepository: Repository<Robot>,
+    private readonly loggingService: LoggingService,
   ) {}
 
   create(createBaseopsTaskDto: CreateBaseopsTaskDto) {
@@ -36,6 +38,7 @@ export class BaseopsTaskService {
     // Fetch all batches
     let batches = await this.batchRepository.find({
       select: ['batch_id', 'priority', 'status', 'total_tasks', 'completed_tasks', 'created_at', 'updated_at'],
+      where: { task_type: TaskType.BASEOPS },
       order: { created_at: 'DESC' },
     });
 
@@ -482,11 +485,19 @@ export class BaseopsTaskService {
           }
         })
       );
+      // Log dispatch success
+      await this.loggingService.log(`Task ${task.task_id} sent to WMS API layer`, TaskType.BASEOPS, task.task_id, task.batch_id ?? null);
       
       await this.incrementRobotInUse(); // ← Single increment point
+      await this.loggingService.log(`Robot in use incremented. Current robot in use: ${await this.getRobotInUse()}`,
+        TaskType.BASEOPS, task.task_id, task.batch_id ?? null);
       return true;
     } catch (error) {
       console.error(`Error sending task ${task.task_id} to WMS Layer:`, error);
+      await this.loggingService.createErrorLog(`Error sending task ${task.task_id} to WMS Layer: ${error?.message ?? error}`,
+        TaskType.BASEOPS, task.task_id, task.batch_id ?? null, true);
+      await this.loggingService.log(`Task ${task.task_id} failed to send to WMS. Releasing location ${end_location_id}`,
+        TaskType.BASEOPS, task.task_id, task.batch_id ?? null);
       await this.BaseOpsLocationManagerService.freeLocation(end_location_id);
       await this.taskRepository.delete({task_id: task.task_id});
       return false;
@@ -519,7 +530,7 @@ export class BaseopsTaskService {
     if (!task) return;
     const req_tasks : any[] = [];
     let end_location_id: string | null = null;
-    if (task.end_location.location_attribute?.attribute_name === "ZONE"){
+  if (task.end_location.location_attribute?.attribute_name === "ZONE"){
       // write the logic to find the pallet location in that zone
       end_location_id = await this.BaseOpsLocationManagerService.findOptimalDropLocation(task.end_location.location_attribute?.attribute_value);
       if (!end_location_id){
@@ -534,6 +545,8 @@ export class BaseopsTaskService {
         }
         task.end_location.location_id = end_location_id;
         await this.taskRepository.update({task_id: task.task_id},{end_location: task.end_location, move_type: MOVE_TYPE.ZONE_TO_WAIT});
+        await this.loggingService.log(`Task ${task.task_id} rerouted to WAIT location ${end_location_id} (zone unavailable)`,
+          TaskType.BASEOPS, task.task_id, task.batch_id ?? null);
       }
       task.end_location.location_id = end_location_id;
       await this.taskRepository.update({task_id: task.task_id},{end_location: task.end_location});
@@ -546,6 +559,8 @@ export class BaseopsTaskService {
     if (!reserveStartLocation){
       console.log(`Location ${task.start_location.location_id} is not available.`);
       await this.markTaskHaulted(task.task_id);
+      await this.loggingService.log(`Task ${task.task_id} marked HALTED: start location ${task.start_location.location_id} unavailable`,
+        TaskType.BASEOPS, task.task_id, task.batch_id ?? null);
       return;
     }
 
@@ -561,6 +576,8 @@ export class BaseopsTaskService {
         console.log(`No wait location found, re-queue the task ${task.task_id}`);
         await this.markTaskHaulted(task.task_id);
         await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
+        await this.loggingService.log(`Task ${task.task_id} marked HALTED: no wait location available for ${task.end_location.location_attribute?.attribute_value}`,
+          TaskType.BASEOPS, task.task_id, task.batch_id ?? null);
         return;
       }
       if (!await this.BaseOpsLocationManagerService.reserveLocation(end_location_id)){
@@ -568,6 +585,8 @@ export class BaseopsTaskService {
       }
       task.end_location.location_id = end_location_id;
       await this.taskRepository.update({task_id: task.task_id},{end_location: task.end_location, move_type: MOVE_TYPE.ZONE_TO_WAIT});
+      await this.loggingService.log(`Task ${task.task_id} rerouted to WAIT location ${end_location_id} (destination occupied)`,
+        TaskType.BASEOPS, task.task_id, task.batch_id ?? null);
     }
     req_tasks.push({
       task_id: task.task_id,
@@ -609,9 +628,14 @@ export class BaseopsTaskService {
     } catch (error) {
       console.error(`Error sending batch ${task.batch.batch_id} to WMS Layer:`, error);
       await this.BaseOpsLocationManagerService.freeLocation(end_location_id);
+      await this.loggingService.createErrorLog(`Error sending task ${task.task_id} to WMS Layer: ${error?.message ?? error}`,
+        TaskType.BASEOPS, task.task_id, task.batch_id ?? null, true);
       return;
     }
+    await this.loggingService.log(`Task ${task.task_id} sent to WMS API layer`, TaskType.BASEOPS, task.task_id, task.batch_id ?? null);
     await this.incrementRobotInUse();
+    await this.loggingService.log(`Robot in use incremented. Current robot in use: ${await this.getRobotInUse()}`,
+      TaskType.BASEOPS, task.task_id, task.batch_id ?? null);
     await this.taskRepository.update(
       {task_id: task.task_id},
       {status: TaskStatus.ASSIGNED}
@@ -623,6 +647,7 @@ export class BaseopsTaskService {
       {task_id: task_id},
       {status: TaskStatus.HALTED}
     );
+    await this.loggingService.log(`Task ${task_id} marked as HALTED`, TaskType.BASEOPS, task_id, null);
   }
 
   async parseCsv(csvData: string): Promise<any[]> {
@@ -659,7 +684,8 @@ export class BaseopsTaskService {
     // Count batches created today
     const todayBatchCount = await this.batchRepository.count({
       where: {
-        created_at: Between(startOfDay, endOfDay)
+        created_at: Between(startOfDay, endOfDay),
+        task_type: TaskType.BASEOPS
       }
     });
   
@@ -761,6 +787,7 @@ export class BaseopsTaskService {
     const batch_id = await this.generateBatchId();
     const batch = this.batchRepository.create({
       batch_id: batch_id,
+      task_type: TaskType.BASEOPS,
       description: 'BaseOps Batch',
       status: BatchStatus.PENDING,
       total_tasks: 0, // Will be updated as tasks are created
@@ -833,6 +860,12 @@ export class BaseopsTaskService {
       
       
       await this.taskRepository.save(newTask);
+      await this.loggingService.log(
+        `New Task: ${newTask.task_id}, start location: ${newTask.start_location.location_id} (pallet), destination location: ${newTask.end_location.location_id} (${newTask.end_location.location_attribute.attribute_name === 'ZONE' ? 'zone' : 'pallet'})`,
+        TaskType.BASEOPS,
+        newTask.task_id,
+        batch.batch_id
+      );
 
       batch.total_tasks += 1;
       await this.batchRepository.save(batch);
@@ -906,6 +939,12 @@ export class BaseopsTaskService {
     } finally {
         await queryRunner.release();
     }
+  }
+
+  async getRobotInUse(): Promise<number> {
+    const robots = await this.robotRepository.find({ where: { operation_type: OperationType.BASEOPS } });
+    if (robots.length === 0) return 0;
+    return robots[0].robot_in_use;
   }
 
   async checkIfSystemIsInWaitingState(): Promise<boolean> {
