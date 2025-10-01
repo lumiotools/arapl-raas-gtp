@@ -1475,6 +1475,42 @@ export class OrchestratorService {
       await this.loggingService.log(`Task ${task.task_id} is in CANCELLED state for more than 1 minute`, task.task_type, task.task_id, null);
     }
   }
+
+  private async handleTriggerStations(){
+    const now = new Date();
+    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
+    const oneMinuteAgo = new Date(now.getTime() - 1 * 60 * 1000);
+    const triggeredTasks = await this.taskRepository.find({
+      where: {
+        status: TaskStatus.TRIGERRED,
+        triggered: Between(twoMinutesAgo, oneMinuteAgo),
+      }
+    });
+    for (const triggeredTask of triggeredTasks){
+      const existingNextTask = await this.taskRepository.findOne({
+        where: { 
+          task_dependency: triggeredTask.task_id,
+          batch_id: triggeredTask.batch_id
+        }
+      });
+      if (existingNextTask) {continue;}
+      const remainingRequirements = await this.getRemainingProductRequirements(
+        triggeredTask.origin_location
+      );
+      const currentStationId = triggeredTask.end_location.location_id;
+      const isCurrentStationInReequirements = remainingRequirements.some(req => req.station_id === currentStationId);
+      if (isCurrentStationInReequirements){
+        // If the current station still has requirements, skip processing
+        continue;
+      }
+      if (remainingRequirements.length > 0) {
+        await this.createNextStationTask(triggeredTask, remainingRequirements);
+      } else {
+        await this.createReturnToInventoryTask(triggeredTask);
+      }
+    }
+    
+  }
   
   public async triggerOrchestrator() {
       if (this.orchestratorWorking) {
@@ -1490,6 +1526,8 @@ export class OrchestratorService {
 
         // check for error tasks cases
         await this.checkForErrorTasks();
+
+        await this.handleTriggerStations();
 
         // check if a there is lp plate waiting for a pick location
 
