@@ -121,16 +121,13 @@ export class OrchestratorService {
   async processAssignedOrderItems() {
     try {
       // Calculate product requirements and sort by descending order
-      let productRequirements: ProductRequirement[] = [];
+      let productRequirements = new Set<String>();
       const dbRequirements = await this.productRequirementRepository.find({
         where: { isPaused: false , isCancelled: false},
         order: { source_location_id: 'ASC', station_id: 'ASC' }
       });
       for (const dbReq of dbRequirements) {
-        productRequirements.push({
-          originLocation: dbReq.source_location_id,
-          stationId: dbReq.station_id,
-        });
+        productRequirements.add(dbReq.source_location_id);
       }
       console.log(`Current Product Requirement: ${JSON.stringify(productRequirements)}`);
       // first check waiting locations for this product.
@@ -150,7 +147,7 @@ export class OrchestratorService {
           if (!task){continue;}
 
           // Check if this task's product is in the current requirements
-          const hasRequirement = productRequirements.some(req => req.originLocation === task.origin_location);
+          const hasRequirement = productRequirements.has(task.origin_location);
 
           // the product at waiting location has no requirement and it is not paused as well - return to inventory.
           if (!hasRequirement) {
@@ -209,14 +206,14 @@ export class OrchestratorService {
           }
         }
       }
-      if (productRequirements.length == 0){
+      if (productRequirements.size === 0){
         return;
       }
       for (const requirement of productRequirements) {
         // check if the system is in waiting state
         const isWaiting = await this.checkIfSystemIsInWaitingState();
         if (isWaiting){break;}
-        await this.processInventoryRequirement(requirement.originLocation);
+        await this.processInventoryRequirement(requirement.toString());
       }
       return { message: 'Orchestrator process completed successfully' };
       
@@ -393,7 +390,7 @@ export class OrchestratorService {
             const robotIdToUse = taskComingToInventory.robot_id;
             for (const station of sortedStations) {
               const reserved = await this.stationService.reserveStation(station.station_id);
-              if (!reserved) {  
+              if (!reserved) {
                 continue;
               }
               await this.CancelTask(taskComingToInventory);
@@ -1485,6 +1482,7 @@ export class OrchestratorService {
         return {"message": "Service is already running, Try again in few seconds."};
       }
       try{
+        console.log('--------------------running gtp --------------------------')
         this.orchestratorWorking  = true;
 
         // add a function that sends a task again
