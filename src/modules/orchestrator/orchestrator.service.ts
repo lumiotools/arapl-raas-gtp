@@ -930,6 +930,7 @@ export class OrchestratorService {
 
     const batch = this.batchRepository.create({
       batch_id: batchId,
+      task_type: TaskType.GOODS_TO_PERSON,
       description,
       status: BatchStatus.PENDING,
       total_tasks: 0, // Will be updated as tasks are created

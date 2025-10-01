@@ -7,7 +7,7 @@ import {
   OneToMany,
   Relation,
 } from 'typeorm';
-import type { Task } from './task.entity';
+import { TaskType, type Task } from './task.entity';
 
 export enum BatchStatus {
   PENDING = 'PENDING',
@@ -28,6 +28,12 @@ export enum BatchStatus {
 export class Batch {
   @PrimaryColumn({ type: 'varchar', length: 32 })
   batch_id: string;
+  
+  @Column({
+    type: 'enum',
+    enum: TaskType,
+  })
+  task_type: TaskType;
 
   @Column({ type: 'int', nullable: true })
   priority: number;

@@ -63,6 +63,19 @@ export class LoggingService {
     return await query;
   }
 
+  /**
+   * Get logs with optional filtering by task type.
+   * If taskType is provided, returns logs only for that task_type (descending by timestamp).
+   */
+  async getLogs(taskType?: string | TaskType, limit?: number): Promise<Log[]> {
+    if (taskType) {
+      const opts: any = { where: { task_type: taskType }, order: { timestamp: 'DESC' } };
+      if (limit) opts.take = limit;
+      return await this.logRepository.find(opts);
+    }
+    return await this.getAllLogs(limit);
+  }
+
   async getLogsByTimeRange(startTime: Date, endTime: Date, limit: number = 1000): Promise<Log[]> {
     return await this.logRepository
       .createQueryBuilder('log')

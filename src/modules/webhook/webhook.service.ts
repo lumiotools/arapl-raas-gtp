@@ -112,13 +112,23 @@ export class WebhookService {
     if (task.task_type === TaskType.BASEOPS){
       if (mappedStatus === TaskStatus.PROCESSING){
         await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
+        await this.loggingService.log(`Task ${task.task_id}: Freeing start location ${task.start_location.location_id}.`, task.task_type, task.task_id, task.batch_id);
       }
       if (mappedStatus === TaskStatus.COMPLETED){
         this.BaseOpsTaskService.decrementRobotInUse();
         await this.BaseOpsLocationManagerService.occupyLocation(task.end_location.location_id);
+        await this.loggingService.log(`Task ${task.task_id}: Completed. Occupied ${task.end_location.location_id} and decremented robot count.`, task.task_type, task.task_id, task.batch_id);
+        // Log current robot in use after decrement if service exposes the metric
+        try {
+          const current = await this.BaseOpsTaskService.getRobotInUse();
+          await this.loggingService.log(`Robot in use after completion: ${current}`, TaskType.BASEOPS, task.task_id, task.batch_id);
+        } catch (err) {
+          // ignore if metric not available
+        }
       }
       // Persist batch status to DB using BaseOps rules (mirrors findAllBatches logic)
       await this.updateBaseOpsBatchStatus(task.batch_id);
+      await this.loggingService.log(`Task ${task.task_id}: Updated batch ${task.batch_id} status`, task.task_type, task.task_id, task.batch_id);
       return;
     }
     console.log(`------------------------running ------------------------------------------------------`)

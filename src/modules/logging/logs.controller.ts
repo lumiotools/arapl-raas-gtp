@@ -22,6 +22,11 @@ export class LogsController {
     description: 'Maximum number of logs to return (optional - returns all logs if not specified)',
     example: 100
   })
+  @ApiQuery({
+    name: 'taskType',
+    required: false,
+    description: 'Optional filter to return logs only for a given task type (e.g., BASEOPS, GOODS_TO_PERSON)'
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Logs retrieved successfully',
@@ -39,8 +44,8 @@ export class LogsController {
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
-  async getAllLogs(@Query('limit') limit?: number) {
-    return await this.loggingService.getAllLogs(limit);
+  async getAllLogs(@Query('limit') limit?: number, @Query('task_type') taskType?: string) {
+    return await this.loggingService.getLogs(taskType, limit);
   }
 
   @Get('search')
