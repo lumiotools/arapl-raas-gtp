@@ -386,4 +386,12 @@ export class OrdersController {
     }
     return await this.ordersService.getSourceByGtpLocation(gtpLocationId);
   }
+
+  @Post('order-completed-tasks')
+  @HttpCode(HttpStatus.OK)
+  async getCompletedTasksForOrderItems(
+    @Body() body: { order_item_ids: number[] }
+  ) {
+    return await this.ordersService.getCompletedTasksForOrderItems(body.order_item_ids);
+  }
 }

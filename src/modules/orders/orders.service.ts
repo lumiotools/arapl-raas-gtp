@@ -379,4 +379,21 @@ export class OrdersService {
     }
     return sourceLocationStats;
   }
+
+  async getCompletedTasksForOrderItems(order_item_ids: number[]) {
+    const res = {};
+    const orderItems = await this.orderItemRepository.find({
+      where: { order_item_id: In(order_item_ids) },
+      relations: ['completedTasks'],
+    });
+    for (const orderItem of orderItems) {
+      if (!res[orderItem.order_item_id]){
+        res[orderItem.order_item_id] = [];
+      }
+      for (const task of orderItem.completedTasks){
+        res[orderItem.order_item_id].push(task.task_id);
+      }
+    }
+    return res;
+  }
 }

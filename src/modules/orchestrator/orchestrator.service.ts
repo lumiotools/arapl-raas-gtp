@@ -76,6 +76,10 @@ export interface TaskDetails{
   priority: number;
   batch_priority: number;
   orderItems: OrderItem[];
+  sequence_order?: number;
+  inqueue?: Date;
+  processing?: Date;
+  completed?: Date;
 }
 
 @Injectable()
@@ -2338,6 +2342,10 @@ export class OrchestratorService {
         priority: task.priority || 3,
         batch_priority: task.batch.priority || 3,
         orderItems: task.orderItems || [],
+        sequence_order: task.sequence_order,
+        inqueue: task.inqueue,
+        processing: task.processing,
+        completed: task.completed,
       }
       results.push(taskDetails);
     }
