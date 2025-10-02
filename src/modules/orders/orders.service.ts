@@ -32,7 +32,10 @@ export interface OrderItemDetails{
   status: OrderItemStatus;
   start_time: Date | undefined;
   end_time: Date | undefined;
+  created_at ?: Date;
+  updated_at ?: Date;
 }
+
 
 @Injectable()
 export class OrdersService {
@@ -313,7 +316,9 @@ export class OrdersService {
         robot_ids: robotIds,
         total_unloading_time: totalUnloadingTime,
         start_time: start_time,
-        end_time: end_time
+        end_time: end_time,
+        created_at: order.created_at,
+        updated_at: order.updated_at
       });
     }
     return results;

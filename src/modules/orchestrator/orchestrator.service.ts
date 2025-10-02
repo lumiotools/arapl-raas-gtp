@@ -29,6 +29,7 @@ import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
 import { truncate } from 'fs';
 import { Settings } from 'src/entities/settings.entity';
+import { SettingsService } from '../settings/settings.service';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -120,6 +121,7 @@ export class OrchestratorService {
     private readonly stationService: StationsService,
     private readonly waitingLocationService: WaitingLocationService,
     private readonly baseOpsService: BaseopsTaskService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   async processAssignedOrderItems() {
@@ -2074,6 +2076,48 @@ export class OrchestratorService {
   }
 
   async getAllRobots(task_type: TaskType){
+
+    try {
+      const robots = (await this.settingsService.findAllRobots(task_type)).robots;
+      if (robots.length === 0) {
+        return [];
+      }
+      const res: any[] = [];
+      for (const robot of robots){
+        if (robot.is_active == false){
+          res.push({
+            'id': robot.id,
+            'status': 'inactive',
+            'travel_status': 'INACTIVE',
+            'in_use': false
+          })
+          continue;
+        }
+        const task = await this.taskRepository.findOne({
+          where: { robot_id: robot.id },
+          order: { created_at: 'DESC' }
+        });
+        if (!task){
+          res.push({
+            'id': robot.id,
+            'status': 'idle',
+            'travel_status': 'IDLE',
+            'in_use':false
+          })
+          continue;
+        }
+        res.push({
+          'id': robot.id,
+          'status': task ? (task.status === TaskStatus.PROCESSING ? 'working' : (task.status === TaskStatus.PENDING ? 'idle' : 'idle')) : 'idle',
+          'travel_status': task ? (task.status === TaskStatus.PROCESSING ? `MOVING TO ${task.end_location.location_id}` :(task.status === TaskStatus.COMPLETED ? `REACHED ${task.end_location.location_id}` : `IDLE`)) : 'IDLE',
+          'in_use': task.status === TaskStatus.PROCESSING ? true : (task.status === TaskStatus.COMPLETED && task.end_location.location_action===LocationAction.DROP ? false : true)
+        });
+      }
+      return res;
+    }
+    catch{
+      // pass
+    }
     const moving_tasks = await this.taskRepository.find({
       where: { status: TaskStatus.PROCESSING, task_type: task_type['task_type'] }
     });
@@ -2084,7 +2128,8 @@ export class OrchestratorService {
       res.push({
         'id': task.robot_id,
         'status': 'working',
-        'travel_status': `MOVING TO ${task.end_location.location_id}`
+        'travel_status': `MOVING TO ${task.end_location.location_id}`,
+        'in_use': true
       })
       uniqueRobotIds.add(task.robot_id);
     }
@@ -2102,7 +2147,8 @@ export class OrchestratorService {
         res.push({
           'id': task.robot_id,
           'status': 'working',
-          'travel_status': `REACHED ${task.end_location.location_id}`
+          'travel_status': `REACHED ${task.end_location.location_id}`,
+          'in_use': task.end_location.location_action===LocationAction.DROP ? false : true
         });
       }
     }
