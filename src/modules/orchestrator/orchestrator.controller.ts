@@ -488,33 +488,6 @@ export class OrchestratorController {
     return await this.orchestratorService.getPredictedRobots();
   }
 
-  @Get('robots')
-  @ApiOperation({
-    summary: 'Get all robots',
-    description: 'Retrieve all robots in the system with their current status and details.',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'List of all robots',
-    schema: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          robot_id: { type: 'string', example: 'ROBOT_001' },
-          status: { type: 'string', example: 'AVAILABLE' },
-          location: { type: 'string', example: 'ZONE_A' },
-          battery_level: { type: 'number', example: 85 },
-          created_at: { type: 'string', format: 'date-time' },
-          updated_at: { type: 'string', format: 'date-time' }
-        }
-      }
-    }
-  })
-  async getAllRobots(@Query() task_type: TaskType) {
-    return await this.orchestratorService.getAllRobots(task_type);
-  }
-
   @Post('handle-erroneous-task')
   @ApiOperation({
     summary: 'Handle erroneous task',

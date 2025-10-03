@@ -14,9 +14,8 @@ export class SettingsController {
   }
 
   @Get('robots')
-  async findAllRobots(@Query() task_type: TaskType) {
-    console.log('reached controller');
-    return await this.settingsService.findAllRobots(task_type);
+  async getAllRobots(@Query() task_type: TaskType) {
+    return await this.settingsService.getAllRobots(task_type);
   }
 
   @Get()
@@ -34,9 +33,9 @@ export class SettingsController {
     return this.settingsService.remove(+id);
   }
 
-  @Patch(':robot_id/offline')
-  async makeRobotOffline(@Param('robot_id') robotId: string) {
-    return await this.settingsService.makeRobotOffline(robotId);
+  @Patch(':robot_id/update')
+  async makeRobotOffline(@Param('robot_id') robotId: string, @Body() body: { message_code: 'maintenance' | 'charging' | 'error' | null }) {
+    return await this.settingsService.updateRobot(robotId, body.message_code);
   }
   
 }
