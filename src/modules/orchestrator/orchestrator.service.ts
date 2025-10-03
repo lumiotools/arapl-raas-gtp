@@ -461,7 +461,8 @@ export class OrchestratorService {
                 cargos: taskComingToInventory.cargos
               });
               if (returnTask) {
-                await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.RESERVED, holded_by: returnTaskId});
+                await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.RESERVED, holded_by: returnTask.task_id});
+                await this.inventoryRepository.update(inventory.id, { status: LocationStatus.AVAILABLE });
                 await this.sendSingleTaskToWms(returnTask);
                 await this.taskRepository.update({task_id: taskComingToInventory.task_id},{status: TaskStatus.CANCELLED});
                 this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${returnTask.origin_location}, Start Location: ${returnTask.start_location.location_id} (inventory), Destination Location: ${waitLocation.location_id} (waiting location)`);
