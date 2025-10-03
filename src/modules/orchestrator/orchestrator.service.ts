@@ -808,6 +808,7 @@ export class OrchestratorService {
     sourceInventoryId?: string;
     sourceStationId?: string;
     sourceWaitingLocationId?: string;
+    sourceEmptyLocationId?: string;
     destinationStationId?: string;
     destinationInventoryId?: string;
     destinationWaitingLocationId?: string;
@@ -822,8 +823,8 @@ export class OrchestratorService {
   }): Promise<[string, Task | null]> {
     // Create start location
     const startLocation = this.createLocation(
-      taskData.sourceInventoryId || taskData.sourceStationId || taskData.sourceWaitingLocationId || taskData.destinationEmptyLocationId!,
-      taskData.sourceInventoryId ? 'inventory' : taskData.sourceStationId ? 'station' : 'waiting_location',
+      taskData.sourceInventoryId || taskData.sourceStationId || taskData.sourceWaitingLocationId || taskData.sourceEmptyLocationId!,
+      taskData.sourceInventoryId ? 'inventory' : taskData.sourceStationId ? 'station' : taskData.sourceWaitingLocationId ? 'waiting_location' : 'empty_location',
       this.getLocationAction(taskData, 'start')
     );
 
@@ -911,7 +912,9 @@ export class OrchestratorService {
     const isWaitingToInventory = taskData.sourceWaitingLocationId && taskData.destinationInventoryId;
     const isToEmptyLocation = taskData.destinationEmptyLocationId;
     const isInventoryToInventory = taskData.sourceInventoryId && taskData.destinationInventoryId;
+    const isEmptyToEmpty = taskData.sourceEmptyLocationId && taskData.destinationEmptyLocationId;
 
+    if (isEmptyToEmpty) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
     if (isInventoryToStation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP_PAUSE;
     if (isInventoryToWaitLocation) return position === 'start' ? LocationAction.PICK : LocationAction.NOP_PAUSE;
     if (isStationToStation) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.NOP_PAUSE;
@@ -921,6 +924,7 @@ export class OrchestratorService {
     if (isWaitingToInventory) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
     if (isToEmptyLocation) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
     if (isInventoryToInventory) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
+    
 
     // Default fallback
     return LocationAction.NOP_PAUSE;
@@ -1298,7 +1302,7 @@ export class OrchestratorService {
     
   }
 
-  private async createSendToEmptyLocationTask(completedTask: Task, is_from_wait: boolean = false): Promise<void> {
+  private async createSendToEmptyLocationTask(completedTask: Task, is_from_wait: boolean = false): Promise<boolean> {
     const findEmptyLocation = await this.emptyLocationRepository.find(
       {
         where: { status: LocationStatus.AVAILABLE },
@@ -1306,8 +1310,9 @@ export class OrchestratorService {
       }
     )
     if (findEmptyLocation.length === 0){
-      if (is_from_wait) return;
+      if (is_from_wait) return false;
       await this.createWaitingLocationTask(completedTask, [], completedTask.sequence_order + 1);
+      return true;
     }
     for (const emptyLocation of findEmptyLocation) {
       if (await this.emptyLocationsService.reserveEmptyLocation(emptyLocation.location_id)) {
@@ -1346,10 +1351,12 @@ export class OrchestratorService {
             }
           }
           await this.sendSingleTaskToWms(emptyTask);
-          return;
+          return true;
         }
       }
     }
+    await this.createWaitingLocationTask(completedTask, [], completedTask.sequence_order + 1);
+    return true;
   }
 
   private async createReturnToInventoryTask(completedTask: Task): Promise<void> {
@@ -1544,6 +1551,8 @@ export class OrchestratorService {
             await this.handleStationToWaitCancel(station.station_id);
           }
         }
+
+        await this.handleStationToWaitToEmptyCancel();
 
         const cancelledStationIds = await this.stationService.getCancelledStations(); // get all the cancelled stations.
 
@@ -1906,6 +1915,57 @@ export class OrchestratorService {
     }
   }
 
+  async handleStationToWaitToEmptyCancel(){
+    const stationToWaitTasks = await this.taskRepository.find({
+      where: { status: In([TaskStatus.PROCESSING]), move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION }
+    });
+    for (const task of stationToWaitTasks) {
+      const inventoryId = task.origin_location;
+      const inventory = await this.inventoryRepository.findOne({where: { id: inventoryId }});
+      if (!inventory?.is_empty){continue;}
+      const emptyLocations = await this.emptyLocationRepository.find({where: { status: LocationStatus.AVAILABLE }});
+      if (emptyLocations.length === 0){return;}
+      for (const emptyLocation of emptyLocations) {
+        try{
+          const response = await this.emptyLocationsService.reserveEmptyLocation(emptyLocation.location_id);
+          if (!response) {continue;}
+          console.log(`cancel at release station to wait location.`)
+          await this.CancelTask(task);
+          const [task_id, newTask] = await this.createTask({
+            batchId: task.batch_id,
+            originLocation: task.origin_location,
+            sourceEmptyLocationId: emptyLocation.location_id,
+            destinationEmptyLocationId: emptyLocation.location_id,
+            taskType: TaskType.GOODS_TO_PERSON,
+            move_type: MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION,
+            sequenceOrder: task.sequence_order+1,
+            taskDependency: task.task_id,
+            robotId: task.robot_id,
+            cargos: task.cargos
+          });
+          if (newTask){
+            await this.loggingService.log(`Cancel Task: ${task.task_id} and create new Task: ${task_id}, start location: ${task.end_location.location_id} (waiting location), destination location: ${emptyLocation.location_id} (empty location)`, TaskType.GOODS_TO_PERSON,task_id,null);
+            await this.loggingService.log(`Empty Location ${emptyLocation.location_id}: Marked as Occupied`, TaskType.GOODS_TO_PERSON,task_id,null);
+            const settings = await this.settingsRepository.findOne({where:{operation_type: OperationType.FLOWOPS}});
+            if (settings?.value['EMPTY_LOCATION'] === 'ROUND_ROBIN'){
+              const nextEmptyLocation = await this.emptyLocationRepository.findOne({where: {priority: MoreThanOrEqual((emptyLocation.priority + 1)%10!==0 ? (emptyLocation.priority + 1)%10 : 10), status: LocationStatus.OCCUPIED}, order: {priority: 'ASC'}});
+              if (nextEmptyLocation) {
+                nextEmptyLocation.status = LocationStatus.AVAILABLE;
+                await this.emptyLocationRepository.save(nextEmptyLocation);
+              }
+            }
+            await this.sendSingleTaskToWms(newTask);
+            break;
+          }
+        }
+        catch{
+          await this.emptyLocationRepository.update({ location_id: emptyLocation.location_id }, { status: LocationStatus.AVAILABLE });
+          continue;
+        }
+      }
+    }
+  }
+
   async handleStationToWaitCancel(stationId:string){
     const prdReqForStation = await this.getProductRequirementsByStationId(stationId);
     if (prdReqForStation.length > 0){
@@ -1927,7 +1987,7 @@ export class OrchestratorService {
           // reserve the current station
           const response = await this.CancelTask(carrying_task);
           // await this.taskRepository.update({ task_id: carrying_task.task_id }, { status: TaskStatus.CANCELLED });
-          await this.waitingLocationRepository.update({ location_id: carrying_task.end_location.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
+          // await this.waitingLocationRepository.update({ location_id: carrying_task.end_location.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
           const [task_id, task] = await this.createTask({
             batchId: carrying_task.batch_id,
             originLocation: carrying_task.origin_location,

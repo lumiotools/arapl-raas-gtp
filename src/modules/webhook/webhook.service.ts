@@ -163,7 +163,9 @@ export class WebhookService {
           );
         }
 
-        if (task.move_type===MOVE_TYPE.STATION_TO_EMPTY_LOCATION || task.move_type===MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION){
+        if (task.move_type===MOVE_TYPE.STATION_TO_EMPTY_LOCATION || task.move_type===MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION
+          || task.move_type===MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION
+        ){
           await this.orchestratorService.decrementRobotInUse();
           await this.loggingService.log(`Task ${task.task_id}: Empty location ${task.end_location.location_id} marked as OCCUPIED.`, task.task_type, task.task_id, null);
           await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
