@@ -100,7 +100,7 @@ export class EmptyLocationsService {
       }
     }
     const recentTasks = await this.taskRepository.find({
-      where: { move_type: In([MOVE_TYPE.STATION_TO_EMPTY_LOCATION, MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION]) }, order: {created_at: 'DESC'}
+      where: { move_type: In([MOVE_TYPE.STATION_TO_EMPTY_LOCATION, MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION, MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION]) }, order: {created_at: 'DESC'}
     });
     const currentEmptyLocations: any[] = await this.emptyLocationRepository.find();
     for (let i = 0; i < currentEmptyLocations.length; i++) {
