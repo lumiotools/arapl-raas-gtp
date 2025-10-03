@@ -766,9 +766,9 @@ export class OrchestratorService {
       task.orderItems = [];
     }
     if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION ||
-      task.move_type === MOVE_TYPE.STATION_TO_STATION || task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION
+      task.move_type === MOVE_TYPE.STATION_TO_STATION 
     ){
-      const stationId = task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION ? task.start_location.location_id : task.end_location.location_id;
+      const stationId = task.end_location.location_id;
       const gtpLocations = await this.gtpLocationRepository.find({
         where: { station_id: stationId },
       });
@@ -781,7 +781,8 @@ export class OrchestratorService {
       await this.taskRepository.save(task);
     }
     else if (task.move_type === MOVE_TYPE.STATION_TO_INVENTORY
-      || task.move_type === MOVE_TYPE.INVENTORY_TO_INVENTORY || task.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION || task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION
+      || task.move_type === MOVE_TYPE.INVENTORY_TO_INVENTORY || task.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION || task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION ||
+      task.move_type === MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION || task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION
     ){
       const completedTask = await this.taskRepository.findOne({ where: { task_id: task.task_id }, relations: ['orderItems'] });
       if (!completedTask) { return; }
@@ -2314,6 +2315,7 @@ export class OrchestratorService {
       "StationToInventory": [],
       "WaitingLocationToInventory": [],
       "StationToEmpty": [],
+      "EmptyToEmptyLocation": []
     }: module === "BaseOps" ? {
       "ZoneToZone": [],
     }:{};
@@ -2359,6 +2361,12 @@ export class OrchestratorService {
         if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res.StationToEmpty.push(travelTime);
+        }
+      }
+      else if (task.move_type === MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.EmptyToEmptyLocation.push(travelTime);
         }
       }
     }
