@@ -401,4 +401,40 @@ export class OrdersService {
     }
     return res;
   }
+
+  async cancelOrderItem(orderItemId: number, isGroup?: boolean) {
+    if (isGroup){
+      const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
+      const groupedOrderItems = await this.orderItemRepository.find({
+        where: { merged_order_item_id: orderItemId, status: In([OrderItemStatus.ASSIGNED, OrderItemStatus.PENDING]) }
+      });
+      if (!orderItem){
+        throw new NotFoundException(`Order item with ID ${orderItemId} not found`);
+      }
+      for (const item of groupedOrderItems){
+        item.status = OrderItemStatus.CANCELLED;
+        await this.orderItemRepository.save(item);
+        await this.loggingService.log(`Order Item ID ${item.order_item_id} cancelled (grouped)`,
+          TaskType.GOODS_TO_PERSON, null, item.order_batch_id || '');
+      }
+      orderItem.status = OrderItemStatus.CANCELLED;
+      await this.orderItemRepository.save(orderItem);
+      await this.loggingService.log(`Order Item ID ${orderItem.order_item_id} cancelled`,
+        TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
+      return { success: true, message: `Order item ID ${orderItemId} and its grouped items cancelled` };
+    }
+    const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
+    if (!orderItem){
+      throw new NotFoundException(`Order item with ID ${orderItemId} not found`);
+    }
+    if (orderItem.status === OrderItemStatus.COMPLETED || orderItem.status === OrderItemStatus.CANCELLED){
+      throw new BadRequestException(`Cannot cancel order item with status ${orderItem.status}`);
+    }
+    orderItem.status = OrderItemStatus.CANCELLED;
+    await this.orderItemRepository.save(orderItem);
+    await this.loggingService.log(`Order Item ID ${orderItem.order_item_id} cancelled`,
+      TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
+    return { success: true, message: `Order item ID ${orderItemId} cancelled` };
+
+  }
 }

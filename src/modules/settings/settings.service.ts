@@ -131,13 +131,20 @@ export class SettingsService {
     });
     const res : any[] = [];
     // keep a set of all the robot IDs used in moving_tasks
+    let current_status_time = 0;
     const uniqueRobotIds = new Set<string>();
     for(const task of moving_tasks){
+      const firstTask = await this.taskRepository.findOne({ where: { batch_id: task.batch_id, sequence_order: 1 } });
+      const createdAt = firstTask?.created_at;
+      if (createdAt) {
+        current_status_time = (Date.now() - new Date(createdAt).getTime()) / 1000;
+      }
       res.push({
         'id': task.robot_id,
         'status': 'working',
         'travel_status': `MOVING TO ${task.end_location.location_id}`,
-        'in_use': true
+        'in_use': true,
+        'current_status_time': current_status_time
       })
       uniqueRobotIds.add(task.robot_id);
     }
@@ -149,6 +156,12 @@ export class SettingsService {
     for (const task of station_robots){
       if (uniqueRobotIds.has(task.robot_id)) continue;
       uniqueRobotIds.add(task.robot_id);
+      let current_status_time = 0;
+      const firstTask = await this.taskRepository.findOne({ where: { batch_id: task.batch_id, sequence_order: 1 } });
+      const createdAt = firstTask?.created_at;
+      if (createdAt) {
+        current_status_time = (Date.now() - new Date(createdAt).getTime()) / 1000;
+      }
       if ([MOVE_TYPE.INVENTORY_TO_STATION, MOVE_TYPE.STATION_TO_STATION, MOVE_TYPE.WAITING_LOCATION_TO_STATION,
         MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION, MOVE_TYPE.STATION_TO_WAITING_LOCATION
       ].includes(task.move_type)){
@@ -156,7 +169,8 @@ export class SettingsService {
           'id': task.robot_id,
           'status': 'working',
           'travel_status': `REACHED ${task.end_location.location_id}`,
-          'in_use': task.end_location.location_action===LocationAction.DROP ? false : true
+          'in_use': task.end_location.location_action===LocationAction.DROP ? false : true,
+          'current_status_time': current_status_time
         });
       }
     }

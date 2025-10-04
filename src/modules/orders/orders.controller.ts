@@ -13,6 +13,7 @@ import {
   Body,
   UseGuards,
   Query,
+  Patch,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -393,5 +394,40 @@ export class OrdersController {
     @Body() body: { order_item_ids: number[] }
   ) {
     return await this.ordersService.getCompletedTasksForOrderItems(body.order_item_ids);
+  }
+
+  @Patch('order-item/cancel/:order_item_id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @ApiOperation({
+    summary: 'Cancel order item',
+    description: 'Cancel an order item by its ID. Optionally, specify if the item is a group using the is_group query parameter.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Order item cancelled successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Order item cancelled successfully' },
+        data: { type: 'object' }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid order_item_id or parameters',
+    type: BadRequestDto,
+  })
+  async cancelOrderItem(
+    @Param('order_item_id') orderItemId: number,
+    @Query('is_group') isGroup?: boolean,
+  ) {
+    if (!orderItemId) {
+      throw new BadRequestException('order_item_id is required');
+    }
+    return await this.ordersService.cancelOrderItem(orderItemId, isGroup);
   }
 }
