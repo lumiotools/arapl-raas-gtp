@@ -12,7 +12,7 @@ export enum OperationType{
   FLOWOPS = "FLOWOPS",
 }
 
-@Entity('robot-counts')
+@Entity('robot_counts')
 export class RobotCount {
     @PrimaryGeneratedColumn('uuid')
     id: string;

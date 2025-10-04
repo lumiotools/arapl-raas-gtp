@@ -3,6 +3,7 @@ import { SettingsService } from './settings.service';
 import { CreateSettingDto } from './dto/create-setting.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
 import { TaskType } from 'src/entities';
+import { RobotStatus } from 'src/entities/robots.entity';
 
 @Controller('settings')
 export class SettingsController {
@@ -34,8 +35,8 @@ export class SettingsController {
   }
 
   @Patch(':robot_id/update')
-  async makeRobotOffline(@Param('robot_id') robotId: string, @Body() body: { message_code: 'maintenance' | 'charging' | 'error' | null }) {
-    return await this.settingsService.updateRobot(robotId, body.message_code);
+  async makeRobotOffline(@Param('robot_id') robotId: string, @Body() body: { status: RobotStatus }) {
+    return await this.settingsService.updateRobot(robotId, body.status);
   }
   
 }

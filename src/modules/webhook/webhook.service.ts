@@ -11,7 +11,7 @@ import { WebhookRequestDto } from './dto/webhook-request.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { LoggingService } from '../../services/logging.service';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
-import { Robot } from 'src/entities/robots.entity';
+import { Robot, RobotStatus } from 'src/entities/robots.entity';
 import { MOVE_TYPE } from 'src/entities/task.entity';
 import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
@@ -487,14 +487,22 @@ export class WebhookService {
       if (!robotId) { return; }
       const robot = await this.robotRepository.findOne({ where: { robot_id: robotId } });
       if (robot) {
-        if (robot.in_use === inUse) { return; } // No change needed
-        robot.in_use = inUse;
+        if (robot.status === (inUse ? RobotStatus.INUSE : RobotStatus.ONLINE)) { return; } // No change needed
+        if (!robot.logs){
+          robot.logs = [];
+        }
+        robot.logs.push({
+          timestamp: new Date(),
+          previous_status: robot.status,
+          new_status: inUse ? RobotStatus.INUSE : RobotStatus.ONLINE,
+        });
+        robot.status = inUse ? RobotStatus.INUSE : RobotStatus.ONLINE;
         await this.robotRepository.save(robot);
-        this.logger.log(`Robot ${robotId} in_use set to ${inUse}`);
-        await this.loggingService.log(`Robot ${robotId} in_use set to ${inUse}`, robot.task_type, null, null);
+        this.logger.log(`Robot ${robotId} status set to ${robot.status}`);
+        await this.loggingService.log(`Robot ${robotId} status set to ${robot.status}`, robot.task_type, null, null);
       }
     } catch (error) {
-      this.logger.error(`Failed to update robot ${robotId} in_use status: ${error.message}`);
+      this.logger.error(`Failed to update robot ${robotId} status: ${error.message}`);
     }
   }
 }

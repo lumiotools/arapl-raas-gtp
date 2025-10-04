@@ -9,7 +9,7 @@ import { HttpService } from '@nestjs/axios';
 import { LocationAction, Task, TaskStatus, TaskType } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
 import { isIn } from 'class-validator';
-import { Robot } from 'src/entities/robots.entity';
+import { Robot, RobotStatus } from 'src/entities/robots.entity';
 import { LoggingService } from 'src/services/logging.service';
 
 @Injectable()
@@ -54,7 +54,7 @@ export class SettingsService {
     }
     for (const robot of robots) {
       let robot_task: Task | null = null;
-      if (robot.in_use){
+      if (robot.status === RobotStatus.INUSE){
         robot_task = await this.taskRepository.findOne({
           where: { robot_id: robot.robot_id, status: In([TaskStatus.PROCESSING, TaskStatus.COMPLETED]) },
           order: { created_at: 'DESC' }
@@ -62,9 +62,8 @@ export class SettingsService {
       }
       res.push({
         'id': robot.robot_id,
-        'status': robot.is_active ? (robot.in_use ? 'working' : 'idle') : 'inactive',
-        'travel_status': robot_task ? (robot_task.status === TaskStatus.PROCESSING ? `MOVING TO ${robot_task.end_location.location_id}` : (robot_task.status === TaskStatus.COMPLETED ? `REACHED ${robot_task.end_location.location_id}` : `IDLE`)) : (robot.is_active ? '-' : 'INACTIVE'),
-        'in_use': robot.in_use,
+        'status': robot.status,
+        'travel_status': robot_task ? (robot_task.status === TaskStatus.PROCESSING ? `MOVING TO ${robot_task.end_location.location_id}` : (robot_task.status === TaskStatus.COMPLETED ? `REACHED ${robot_task.end_location.location_id}` : `IDLE`)) : (robot.status === RobotStatus.ONLINE ? '-' : 'INACTIVE'),
         'current_status_time': robot.updated_at ? (Date.now() - new Date(robot.updated_at).getTime()) / 1000 : 0,
         'reason': robot.message_code ? robot.message_code : null
       });
@@ -72,18 +71,25 @@ export class SettingsService {
     return res;
   }
 
-  async updateRobot(robotId: string, message_code: 'maintenance' | 'charging' | 'error' | null) {
+  async updateRobot(robotId: string, status: RobotStatus) {
     try{
       const robot = await this.robotRepository.findOne({ where: { robot_id: robotId } });
       if (!robot) {
         throw new Error(`Robot with ID ${robotId} not found`);
       }
-      robot.is_active = !robot.is_active;
-      robot.message_code = message_code;
-      await this.robotRepository.save(robot);
+      if (!robot.logs){
+        robot.logs = [];
+      }
+      robot.logs.push({
+        timestamp: new Date(),
+        previous_status: robot.status,
+        new_status: status
+      });
+      robot.status = status;
       
-      await this.loggingService.log(`Robot ${robotId} is now ${robot.is_active ? 'active' : 'inactive'}`, robot.task_type, null, null);   
-      return { message: `Robot ${robotId} is now ${robot.is_active ? 'active' : 'inactive'}` };
+      await this.robotRepository.save(robot);
+      await this.loggingService.log(`Robot ${robotId} is now ${robot.status}`, robot.task_type, null, null);
+      return { message: `Robot ${robotId} is now ${robot.status}` };
     } catch (error) {
       throw new Error(`Failed to update robot: ${error.message}`);
     }

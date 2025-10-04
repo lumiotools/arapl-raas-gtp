@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, Move, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Move, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, OneToOne, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
@@ -30,6 +30,7 @@ import { EmptyLocationsService } from '../empty_locations/empty_locations.servic
 import { truncate } from 'fs';
 import { Settings } from 'src/entities/settings.entity';
 import { SettingsService } from '../settings/settings.service';
+import { Robot, RobotStatus } from 'src/entities/robots.entity';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -109,11 +110,13 @@ export class OrchestratorService {
     @InjectRepository(ScheduleMapping)
     private readonly scheduleMappingRepository: Repository<ScheduleMapping>,
     @InjectRepository(RobotCount)
-    private readonly robotRepository: Repository<RobotCount>,
+    private readonly robotCountRepository: Repository<RobotCount>,
     @InjectRepository(EmptyLocation)
     private readonly emptyLocationRepository: Repository<EmptyLocation>,
     @InjectRepository(Settings)
     private readonly settingsRepository: Repository<Settings>,
+    @InjectRepository(Robot)
+    private readonly robotRepository: Repository<Robot>,
     private readonly emptyLocationsService: EmptyLocationsService,
     private readonly inventoryService: InventoryService,
     private readonly httpService: HttpService,
@@ -230,7 +233,7 @@ export class OrchestratorService {
   }
 
   async isRobotAvailable(): Promise<boolean> {
-    const robots = await this.robotRepository.find({where:{operation_type: OperationType.FLOWOPS}});
+    const robots = await this.robotCountRepository.find({where:{operation_type: OperationType.FLOWOPS}});
     if (robots.length === 0){
       return false;
     }
@@ -239,7 +242,7 @@ export class OrchestratorService {
   }
   async incrementRobotInUse(): Promise<void> {
     console.log('increment robot in use count');
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -268,7 +271,7 @@ export class OrchestratorService {
   }
 
   async decrementRobotInUse(): Promise<void> {
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -297,7 +300,7 @@ export class OrchestratorService {
 
 
   async checkIfSystemIsInWaitingState(): Promise<boolean> {
-    const robots = await this.robotRepository.find({where: {operation_type: OperationType.FLOWOPS}});
+    const robots = await this.robotCountRepository.find({where: {operation_type: OperationType.FLOWOPS}});
     if (robots.length === 0){
       return false;
     }
@@ -306,7 +309,7 @@ export class OrchestratorService {
   }
 
   async markSystemAsWaiting(): Promise<void> {
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
     
@@ -332,7 +335,7 @@ export class OrchestratorService {
   }
 
   public async unmarkSystemAsWaiting(): Promise<void> {
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -599,7 +602,7 @@ export class OrchestratorService {
   }
 
   async getRobotInUse(): Promise<number> {
-    const robots = await this.robotRepository.find({where:{operation_type: OperationType.FLOWOPS}});
+    const robots = await this.robotCountRepository.find({where:{operation_type: OperationType.FLOWOPS}});
     if (robots.length === 0){
       return 0;
     }
@@ -673,14 +676,14 @@ export class OrchestratorService {
         }
       })
     }
-    const robots = await this.robotRepository.find({
+    const robots = await this.robotCountRepository.find({
       where:{operation_type: OperationType.FLOWOPS}
     });
     if (robots.length === 0){
-      await this.robotRepository.save({id: "71043f1c-9759-497e-a35c-5a991793fd53", operation_type: OperationType.FLOWOPS, is_waiting: false, total_robots: 1, robot_in_use: 0 });
+      await this.robotCountRepository.save({id: "71043f1c-9759-497e-a35c-5a991793fd53", operation_type: OperationType.FLOWOPS, is_waiting: false, total_robots: 1, robot_in_use: 0 });
     }
     // else{
-    //   await this.robotRepository.updateAll({ is_waiting: false, total_robots: 4, robot_in_use: 0 });
+    //   await this.robotCountRepository.updateAll({ is_waiting: false, total_robots: 4, robot_in_use: 0 });
     // }
   }
 
@@ -2214,6 +2217,72 @@ export class OrchestratorService {
           }
         }
       }
+
+      const repoRobot = await this.robotRepository.findOne({where: { robot_id: robotId }});
+      if (!repoRobot) continue;
+      if (!repoRobot.logs) continue;
+      const requiredLogs = repoRobot.logs.filter(log => {
+        const logDate = new Date(log.timestamp);
+        if (startDate && endDate) {
+          return logDate >= startDate && logDate <= endDate;
+        }
+        else if (startDate){
+          return logDate >= startDate;
+        }
+        else if (endDate){
+          return logDate <= endDate;
+        }
+        return true;
+      });
+      if (requiredLogs.length === 0) continue;
+      requiredLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      res[robotId].maintenance_time = 0;
+      res[robotId].charging_time = 0;
+      res[robotId].online_time = 0;
+      res[robotId].error_time = 0;
+      res[robotId].inUse_time = (new Date(requiredLogs[0].timestamp).getTime() - new Date(repoRobot.created_at).getTime()) / 1000;
+      // iterate through the logs and calculate the time spent in each status
+      let currentStatus: RobotStatus = requiredLogs[0].new_status;
+      let currentTime = new Date(requiredLogs[0].timestamp).getTime();
+      for (let i = 1; i < requiredLogs.length; i++) {
+        const log = requiredLogs[i];
+        if (currentStatus === RobotStatus.INUSE) {
+          res[robotId].inUse_time += (new Date(log.timestamp).getTime() - currentTime) / 1000;
+        }
+        else if (currentStatus === RobotStatus.CHARGING) {
+          res[robotId].charging_time += (new Date(log.timestamp).getTime() - currentTime) / 1000;
+        }
+        else if (currentStatus === RobotStatus.MAINTENANCE) {
+          res[robotId].maintenance_time += (new Date(log.timestamp).getTime() - currentTime) / 1000;
+        }
+        else if (currentStatus === RobotStatus.ONLINE) {
+          res[robotId].online_time += (new Date(log.timestamp).getTime() - currentTime) / 1000;
+        }
+        else if (currentStatus === RobotStatus.ERROR) {
+          res[robotId].error_time += (new Date(log.timestamp).getTime() - currentTime) / 1000;
+        }
+        currentStatus = log.new_status;
+        currentTime = new Date(log.timestamp).getTime();
+        if (i === requiredLogs.length - 1) {
+          // last log, calculate time till now
+          if (currentStatus === RobotStatus.INUSE) {
+            res[robotId].inUse_time += (Date.now() - currentTime) / 1000;
+          }
+          else if (currentStatus === RobotStatus.CHARGING) {
+            res[robotId].charging_time += (Date.now() - currentTime) / 1000;
+          }
+          else if (currentStatus === RobotStatus.MAINTENANCE) {
+            res[robotId].maintenance_time += (Date.now() - currentTime) / 1000;
+          }
+          else if (currentStatus === RobotStatus.ONLINE) {
+            res[robotId].online_time += (Date.now() - currentTime) / 1000;
+          }
+          else if (currentStatus === RobotStatus.ERROR) {
+            res[robotId].error_time += (Date.now() - currentTime) / 1000;
+          }
+          
+        }
+      }
     }
     return res;
 
@@ -2470,14 +2539,14 @@ export class OrchestratorService {
   }
 
   async updateTotalRobots(totalRobots: number, module: "FlowOps" | "BaseOps") {
-    const result = await this.robotRepository
+    const result = await this.robotCountRepository
       .createQueryBuilder()
       .select('COUNT(*)', 'count')
       .where({ operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS })
       .getRawOne();
 
     if (result.count === 0) {
-      await this.robotRepository.save({
+      await this.robotCountRepository.save({
         id: crypto.randomUUID(),
         is_waiting: false,
         operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS,
@@ -2495,13 +2564,13 @@ export class OrchestratorService {
     if (inProgressOrders) {
       throw new BadRequestException('Cannot update total robots while orders are in progress');
     }
-    const robotRecord = (await this.robotRepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}}))[0];
+    const robotRecord = (await this.robotCountRepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}}))[0];
 
-    await this.robotRepository.update({ id: robotRecord.id, operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS }, { total_robots: totalRobots });
+    await this.robotCountRepository.update({ id: robotRecord.id, operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS }, { total_robots: totalRobots });
   }
 
   async getTotalRobots(module: "FlowOps" | "BaseOps") {
-    const result = await this.robotRepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}});
+    const result = await this.robotCountRepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}});
     if (result.length === 0) {
       return 0;
     }

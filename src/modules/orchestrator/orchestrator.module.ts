@@ -26,6 +26,7 @@ import { EmptyLocationsService } from '../empty_locations/empty_locations.servic
 import { EmptyLocationsModule } from '../empty_locations/empty_locations.module';
 import { Settings } from 'src/entities/settings.entity';
 import { SettingsModule } from '../settings/settings.module';
+import { Robot } from 'src/entities/robots.entity';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { SettingsModule } from '../settings/settings.module';
       LocationEntity,
       EmptyLocation,
       Settings,
+      Robot
     ]),
     HttpModule,
     InventoryModule,
