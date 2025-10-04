@@ -25,6 +25,7 @@ import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
 import { EmptyLocationsModule } from '../empty_locations/empty_locations.module';
 import { Settings } from 'src/entities/settings.entity';
+import { WebhookModule } from '../webhook/webhook.module';
 
 @Module({
   imports: [
@@ -48,7 +49,8 @@ import { Settings } from 'src/entities/settings.entity';
     HttpModule,
     InventoryModule,
     BaseopsTaskModule,
-    EmptyLocationsModule
+    EmptyLocationsModule,
+    forwardRef(() => WebhookModule),
   ],
   controllers: [OrchestratorController],
   providers: [OrchestratorService, StationsService, WaitingLocationService, BaseopsTaskService, BaseopsTaskService, BaseOpsLocationManagerService, EmptyLocationsService],

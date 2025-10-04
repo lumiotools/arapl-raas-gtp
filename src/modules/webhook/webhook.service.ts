@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository, IsNull } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
@@ -34,9 +34,11 @@ export class WebhookService {
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
     @InjectRepository(EmptyLocation)
     private readonly emptyLocationRepository: Repository<EmptyLocation>,
+    @Inject(forwardRef(() => OrchestratorService))
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
+    @Inject(forwardRef(() => BaseopsTaskService))
     private readonly BaseOpsTaskService: BaseopsTaskService,
   ) {}
 
@@ -408,7 +410,7 @@ export class WebhookService {
   }
   
   // Compute and persist BaseOps batch status and aggregates so findAllBatches can avoid recalculation
-  private async updateBaseOpsBatchStatus(batchId: string): Promise<void> {
+  async updateBaseOpsBatchStatus(batchId: string): Promise<void> {
     try {
       // Pull only top-level BaseOps tasks for the batch (task_dependency IS NULL), as used in findBatchTasks
       const tasks = await this.taskRepository.find({
@@ -433,9 +435,10 @@ export class WebhookService {
 
       const total_tasks = tasks.length;
       const completed_tasks = normalizedStatuses.filter((s) => s === TaskStatus.COMPLETED).length;
+      const cancelled_tasks = normalizedStatuses.filter((s) => s === TaskStatus.CANCELLED).length;
 
       let nextStatus: BatchStatus;
-      if (normalizedStatuses.length > 0 && normalizedStatuses.every((s) => s === TaskStatus.COMPLETED)) {
+      if (normalizedStatuses.length > 0 && normalizedStatuses.every((s) => s === TaskStatus.COMPLETED || s === TaskStatus.CANCELLED)) {
         nextStatus = BatchStatus.COMPLETED;
       } else if (normalizedStatuses.some((s) => s === TaskStatus.PROCESSING)) {
         nextStatus = BatchStatus.PROCESSING;
@@ -446,13 +449,15 @@ export class WebhookService {
         nextStatus = BatchStatus.WAITING;
       } else if (normalizedStatuses.some((s) => s === TaskStatus.HALTED)) {
         nextStatus = BatchStatus.HALTED;
+      } else if (normalizedStatuses.every((s) => s === TaskStatus.CANCELLED)) {
+        nextStatus = BatchStatus.CANCELLED;
       } else {
         nextStatus = BatchStatus.PENDING;
       }
 
       await this.batchRepository.update(
         { batch_id: batchId },
-        { status: nextStatus, total_tasks, completed_tasks }
+        { status: nextStatus, total_tasks, completed_tasks, cancelled_tasks }
       );
     } catch (err: any) {
       this.logger.error(`Failed to update BaseOps batch status for ${batchId}: ${err.message}`);
