@@ -2181,7 +2181,17 @@ export class OrchestratorService {
           totalTasks: filteredTasks.length,
           travel_time: [],
           wait_time: [],
-          unloading_time: []
+          unloading_time: {},
+          completedTasks: 0,
+          canceledTasks: 0,
+          move_types: {
+            [MOVE_TYPE.INVENTORY_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
+            [MOVE_TYPE.STATION_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
+            [MOVE_TYPE.STATION_TO_INVENTORY]: {'total_tasks': 0, 'travel_times': []},
+            [MOVE_TYPE.STATION_TO_WAITING_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.WAITING_LOCATION_TO_STATION]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
+          }
         };
       }
       // get travel_time
@@ -2190,18 +2200,17 @@ export class OrchestratorService {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res[robotId].travel_time.push(travelTime);
         }
-      }
 
-      // get unloading time
-      for (const task of filteredTasks){
         if (task.end_location.location_attribute?.attribute_value === 'station' && task.completed && task.triggered){
           const unloadingTime = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
-          res[robotId].unloading_time.push(unloadingTime);
+          // res[robotId].unloading_time.push(unloadingTime);
+          if (task.end_location.location_id in res[robotId].unloading_time){
+            res[robotId].unloading_time[task.end_location.location_id].push(unloadingTime);
+          } else {
+            res[robotId].unloading_time[task.end_location.location_id] = [unloadingTime];
+          }
         }
-      }
 
-      // get waiting time
-      for (const task of filteredTasks){
         if (task.end_location.location_attribute?.attribute_value === 'waiting_location' && task.completed && task.status !== TaskStatus.CANCELLED){
           // Find the next task in the same batch with sequence order + 1
           const nextTask = await this.taskRepository.findOne({
@@ -2214,6 +2223,25 @@ export class OrchestratorService {
           if (nextTask && nextTask.processing && task.completed) {
             const waitTime = Math.floor((Number(nextTask.processing) - Number(task.completed)) / 1000);
             res[robotId].wait_time.push(waitTime);
+          }
+        }
+        if (task.status === TaskStatus.COMPLETED || task.status===TaskStatus.TRIGERRED){
+          res[robotId].completedTasks += 1;
+        }
+        if (task.status === TaskStatus.CANCELLED){
+          res[robotId].canceledTasks += 1;
+        }
+        if (task.move_type in res[robotId].move_types){
+          res[robotId].move_types[task.move_type].total_tasks += 1;
+          if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || task.move_type === MOVE_TYPE.STATION_TO_STATION){
+            if (task.completed && task.triggered){
+              const pickingTime = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
+              res[robotId].move_types[task.move_type].picking_times.push(pickingTime);
+            }
+          }
+          if (task.processing && task.completed){
+            const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+            res[robotId].move_types[task.move_type].travel_times.push(travelTime);
           }
         }
       }
@@ -2280,7 +2308,6 @@ export class OrchestratorService {
           else if (currentStatus === RobotStatus.ERROR) {
             res[robotId].error_time += (Date.now() - currentTime) / 1000;
           }
-          
         }
       }
     }
