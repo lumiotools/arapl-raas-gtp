@@ -22,8 +22,8 @@ import { StationsService } from '../stations/stations.service';
 import {config} from 'dotenv';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
-import { Robot } from 'src/entities';
-import { OperationType } from 'src/entities/robot.entity';
+import { RobotCount } from 'src/entities/robot-count.entity';
+import { OperationType } from 'src/entities/robot-count.entity';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
@@ -108,8 +108,8 @@ export class OrchestratorService {
     private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
     @InjectRepository(ScheduleMapping)
     private readonly scheduleMappingRepository: Repository<ScheduleMapping>,
-    @InjectRepository(Robot)
-    private readonly robotRepository: Repository<Robot>,
+    @InjectRepository(RobotCount)
+    private readonly robotRepository: Repository<RobotCount>,
     @InjectRepository(EmptyLocation)
     private readonly emptyLocationRepository: Repository<EmptyLocation>,
     @InjectRepository(Settings)
@@ -247,7 +247,7 @@ export class OrchestratorService {
         // Atomic increment - no race condition possible
         const result = await queryRunner.manager
             .createQueryBuilder()
-            .update(Robot)
+            .update(RobotCount)
             .set({ 
                 robot_in_use: () => "robot_in_use + 1" 
             })
@@ -276,7 +276,7 @@ export class OrchestratorService {
         // Atomic decrement with safety check to prevent negative values
         const result = await queryRunner.manager
             .createQueryBuilder()
-            .update(Robot)
+            .update(RobotCount)
             .set({ 
                 robot_in_use: () => "GREATEST(robot_in_use - 1, 0)" 
             })
@@ -311,14 +311,14 @@ export class OrchestratorService {
     await queryRunner.startTransaction();
     
     try {
-      const robots = await queryRunner.manager.find(Robot, {
+      const robots = await queryRunner.manager.find(RobotCount, {
         where: { operation_type: OperationType.FLOWOPS }
       });
       if (robots.length === 0) {
       throw new Error('No Robot Entry Found');
       }
       await queryRunner.manager.update(
-        Robot,
+        RobotCount,
         { id: robots[0].id, operation_type: OperationType.FLOWOPS },
         { is_waiting: true }
       );
@@ -337,13 +337,13 @@ export class OrchestratorService {
     await queryRunner.startTransaction();
 
     try {
-      const robots = await queryRunner.manager.find(Robot, {
+      const robots = await queryRunner.manager.find(RobotCount, {
         where: { operation_type: OperationType.FLOWOPS }
       });
       if (robots.length === 0) {
         throw new Error('No Robot Entry Found');
       }
-      await queryRunner.manager.update(Robot, 
+      await queryRunner.manager.update(RobotCount, 
         { id: robots[0].id, operation_type: OperationType.FLOWOPS }, 
         { is_waiting: false }
       );
@@ -2143,86 +2143,6 @@ export class OrchestratorService {
     });
   }
 
-  async getAllRobots(task_type: TaskType){
-
-    try {
-      const robots = (await this.settingsService.findAllRobots(task_type)).robots;
-      if (robots.length === 0) {
-        return [];
-      }
-      const res: any[] = [];
-      for (const robot of robots){
-        if (robot.is_active == false){
-          res.push({
-            'id': robot.id,
-            'status': 'inactive',
-            'travel_status': 'INACTIVE',
-            'in_use': false
-          })
-          continue;
-        }
-        const task = await this.taskRepository.findOne({
-          where: { robot_id: robot.id },
-          order: { created_at: 'DESC' }
-        });
-        if (!task){
-          res.push({
-            'id': robot.id,
-            'status': 'idle',
-            'travel_status': 'IDLE',
-            'in_use':false
-          })
-          continue;
-        }
-        res.push({
-          'id': robot.id,
-          'status': task ? (task.status === TaskStatus.PROCESSING ? 'working' : (task.status === TaskStatus.PENDING ? 'idle' : 'idle')) : 'idle',
-          'travel_status': task ? (task.status === TaskStatus.PROCESSING ? `MOVING TO ${task.end_location.location_id}` :(task.status === TaskStatus.COMPLETED ? `REACHED ${task.end_location.location_id}` : `IDLE`)) : 'IDLE',
-          'in_use': task.status === TaskStatus.PROCESSING ? true : (task.status === TaskStatus.COMPLETED && task.end_location.location_action===LocationAction.DROP ? false : true)
-        });
-      }
-      return res;
-    }
-    catch{
-      // pass
-    }
-    const moving_tasks = await this.taskRepository.find({
-      where: { status: TaskStatus.PROCESSING, task_type: task_type['task_type'] }
-    });
-    const res : any[] = [];
-    // keep a set of all the robot IDs used in moving_tasks
-    const uniqueRobotIds = new Set<string>();
-    for(const task of moving_tasks){
-      res.push({
-        'id': task.robot_id,
-        'status': 'working',
-        'travel_status': `MOVING TO ${task.end_location.location_id}`,
-        'in_use': true
-      })
-      uniqueRobotIds.add(task.robot_id);
-    }
-    const station_robots = await this.taskRepository.find({
-      where: {status: TaskStatus.COMPLETED, task_type: task_type['task_type']
-    },
-    order: { updated_at: 'DESC' }
-    })
-    for (const task of station_robots){
-      if (uniqueRobotIds.has(task.robot_id)) continue;
-      uniqueRobotIds.add(task.robot_id);
-      if ([MOVE_TYPE.INVENTORY_TO_STATION, MOVE_TYPE.STATION_TO_STATION, MOVE_TYPE.WAITING_LOCATION_TO_STATION,
-        MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION, MOVE_TYPE.STATION_TO_WAITING_LOCATION
-      ].includes(task.move_type)){
-        res.push({
-          'id': task.robot_id,
-          'status': 'working',
-          'travel_status': `REACHED ${task.end_location.location_id}`,
-          'in_use': task.end_location.location_action===LocationAction.DROP ? false : true
-        });
-      }
-    }
-    return res;
-  }
-
   async getRobotReport(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps") {
     console.log(`Generating robot report from ${startDate} to ${endDate} for module ${module}`);
     const whereCondition: any = {
@@ -2595,7 +2515,11 @@ export class OrchestratorService {
     });
 
     if (!task) {
-      throw new NotFoundException(`No tasks found for robot ID ${robotId}`);
+      return {
+        "success": false,
+        "message": `No tasks found for robot with ID ${robotId}`,
+        "data": { }
+      }
     }
 
     const status = task.status.toUpperCase()

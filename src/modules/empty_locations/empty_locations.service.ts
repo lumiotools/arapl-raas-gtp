@@ -10,7 +10,7 @@ import { InventoryService } from '../inventory/inventory.service';
 import { Task } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
 import { Settings } from 'src/entities/settings.entity';
-import { OperationType } from 'src/entities/robot.entity';
+import { OperationType } from 'src/entities/robot-count.entity';
 
 @Injectable()
 export class EmptyLocationsService {

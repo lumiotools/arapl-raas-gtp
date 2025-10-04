@@ -16,7 +16,7 @@ import { User } from 'src/entities/user.entity';
 import { StationsService } from '../stations/stations.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
-import { Robot } from 'src/entities';
+import { RobotCount } from 'src/entities';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { LocationEntity } from 'src/entities/location.entity';
 import { BaseopsTaskModule } from '../baseops_task/baseops_task.module';
@@ -40,7 +40,7 @@ import { SettingsModule } from '../settings/settings.module';
       ProductRequirement,
       User,
       Station,
-      Robot,
+      RobotCount,
       ScheduleMapping,
       LocationEntity,
       EmptyLocation,

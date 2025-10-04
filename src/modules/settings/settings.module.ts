@@ -4,12 +4,14 @@ import { SettingsController } from './settings.controller';
 import { Settings } from 'src/entities/settings.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
-import { Task, TaskStatus } from 'src/entities';
+import { Log, Task, TaskStatus } from 'src/entities';
+import { Robot } from 'src/entities/robots.entity';
+import { LoggingService } from 'src/services/logging.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Settings, Task]),HttpModule],
+  imports: [TypeOrmModule.forFeature([Settings, Task, Robot, Log]),HttpModule],
   controllers: [SettingsController],
-  providers: [SettingsService],
+  providers: [SettingsService,LoggingService],
   exports: [SettingsService],
 })
 export class SettingsModule {}

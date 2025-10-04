@@ -5,7 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { OperationType } from './robot.entity';
+import { OperationType } from './robot-count.entity';
 
 export enum SettingType{
     EMPTY_LOCATION = "EMPTY_LOCATION",

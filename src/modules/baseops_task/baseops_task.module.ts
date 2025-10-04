@@ -4,7 +4,7 @@ import { BaseopsTaskController } from './baseops_task.controller';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Robot, Task } from 'src/entities';
+import { RobotCount, Task } from 'src/entities';
 import { Batch } from 'src/entities/batch.entity';
 import { User } from 'src/entities/user.entity';
 import { HttpModule } from '@nestjs/axios';
@@ -13,7 +13,7 @@ import { LocationEntity } from 'src/entities/location.entity';
 import { LocationsModule } from '../locations/locations.module';
 
 @Module({
-  imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity, Robot, Task]),HttpModule, LocationsModule],
+  imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity, RobotCount, Task]),HttpModule, LocationsModule],
   controllers: [BaseopsTaskController],
   providers: [BaseopsTaskService, BaseOpsLocationManagerService],
 })
