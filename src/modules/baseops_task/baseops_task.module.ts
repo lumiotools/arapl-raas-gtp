@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { BaseopsTaskService } from './baseops_task.service';
 import { BaseopsTaskController } from './baseops_task.controller';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
@@ -11,9 +11,15 @@ import { HttpModule } from '@nestjs/axios';
 import { BaseOpsLocationManagerService } from './location_manager.service';
 import { LocationEntity } from 'src/entities/location.entity';
 import { LocationsModule } from '../locations/locations.module';
+import { WebhookModule } from '../webhook/webhook.module';
 
 @Module({
-  imports:[ TypeOrmModule.forFeature([Task, Batch,User, LocationEntity, RobotCount, Task]),HttpModule, LocationsModule],
+  imports: [
+    TypeOrmModule.forFeature([Task, Batch, User, LocationEntity, RobotCount]),
+    HttpModule,
+    LocationsModule,
+    forwardRef(() => WebhookModule),
+  ],
   controllers: [BaseopsTaskController],
   providers: [BaseopsTaskService, BaseOpsLocationManagerService],
 })

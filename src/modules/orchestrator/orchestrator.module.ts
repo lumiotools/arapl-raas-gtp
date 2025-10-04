@@ -27,6 +27,7 @@ import { EmptyLocationsModule } from '../empty_locations/empty_locations.module'
 import { Settings } from 'src/entities/settings.entity';
 import { SettingsModule } from '../settings/settings.module';
 import { Robot } from 'src/entities/robots.entity';
+import { WebhookModule } from '../webhook/webhook.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { Robot } from 'src/entities/robots.entity';
     BaseopsTaskModule,
     EmptyLocationsModule,
     SettingsModule,
+    forwardRef(() => WebhookModule),
   ],
   controllers: [OrchestratorController],
   providers: [OrchestratorService, StationsService, WaitingLocationService, BaseopsTaskService, BaseopsTaskService, BaseOpsLocationManagerService, EmptyLocationsService],

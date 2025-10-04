@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Move } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Move } from '@nestjs/common';
 import { CreateBaseopsTaskDto } from './dto/create-baseops_task.dto';
 import { UpdateBaseopsTaskDto } from './dto/update-baseops_task.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
@@ -14,6 +14,7 @@ import { BaseOpsLocationManagerService } from './location_manager.service';
 import { OperationType, RobotCount } from 'src/entities/robot-count.entity';
 import { ActivityType, BaseopsTaskActivity } from './dto/baseops-task-activity';
 import { LoggingService } from '../../services/logging.service';
+import { WebhookService } from '../webhook/webhook.service';
 
 @Injectable()
 export class BaseopsTaskService {
@@ -28,6 +29,8 @@ export class BaseopsTaskService {
     @InjectRepository(RobotCount)
     private readonly robotRepository: Repository<RobotCount>,
     private readonly loggingService: LoggingService,
+    @Inject(forwardRef(() => WebhookService))
+    private readonly webhookService: WebhookService,
   ) {}
 
   create(createBaseopsTaskDto: CreateBaseopsTaskDto) {
@@ -37,7 +40,7 @@ export class BaseopsTaskService {
   async findAllBatches() {
     // Fetch all batches
     let batches = await this.batchRepository.find({
-      select: ['batch_id', 'priority', 'status', 'total_tasks', 'completed_tasks', 'created_at', 'updated_at'],
+      select: ['batch_id', 'priority', 'status', 'total_tasks', 'completed_tasks', 'cancelled_tasks', 'created_at', 'updated_at'],
       where: { task_type: TaskType.BASEOPS },
       order: { created_at: 'DESC' },
     });
@@ -127,6 +130,11 @@ export class BaseopsTaskService {
     for (let i = 0; i < orderedTasks.length; i++) {
       const t = orderedTasks[i];
 
+      // Do not display cancelled tasks
+      if (t.status === TaskStatus.CANCELLED) {
+        continue;
+      }
+
       if (t.start_location) {
         t.start_location.display_name = await this.BaseOpsLocationManagerService.getDisplayName(t.start_location.location_id);
       }
@@ -154,16 +162,16 @@ export class BaseopsTaskService {
       });
 
       // Insert WAITING in between if this leg ends at a wait location
-      // i.e., when a ZONE_TO_ZONE target wasn't available and we parked at a wait pallet
+      // i.e., when a ZONE_TO_WAIT target wasn't available and we parked at a wait pallet
       if (t.move_type === MOVE_TYPE.ZONE_TO_WAIT) {
         const waitLocId = t.end_location?.location_id;
         const waitDisplay = waitLocId
           ? await this.BaseOpsLocationManagerService.getDisplayName(waitLocId)
           : undefined;
 
-  // Derive WAIT timestamps (only when previous task is actually COMPLETED)
-  const prevCompleted = t.completed ?? null;
-  const hasPrevCompleted = !!prevCompleted;
+        // Derive WAIT timestamps (only when previous task is actually COMPLETED)
+        const prevCompleted = t.completed ?? null;
+        const hasPrevCompleted = !!prevCompleted;
         const nextTask = orderedTasks[i + 1];
         const nextStart = nextTask ? (nextTask.processing ?? nextTask.created_at ?? null) : null;
         // Determine WAIT status:
@@ -232,7 +240,7 @@ export class BaseopsTaskService {
             : (t.start_location as any),
         } as unknown as BaseopsTaskActivity);
 
-        // If there is no next task yet, create a synthetic next MOVEMENT (WAIT_TO_ZONE) placeholder
+        // If there is no next non-cancelled task yet, create a synthetic next MOVEMENT (WAIT_TO_ZONE) placeholder
         if (!nextTask) {
           // Derive intended end destination from the attribute on the wait location
           const attrName = t.end_location?.location_attribute?.attribute_name;
@@ -1078,5 +1086,29 @@ export class BaseopsTaskService {
     
     
     return await this.taskRepository.save(newTask);
+  }
+
+  async cancelTask(task_id: string): Promise<any> {
+    const task = await this.taskRepository.findOne({ where: { task_id } });
+    if (!task) {
+      throw new BadRequestException(`Task ${task_id} not found`);
+    }
+
+    // Only allow cancelling if task is PENDING or HALTED
+    if (!(task.status === TaskStatus.PENDING || task.status === TaskStatus.HALTED)) {
+      throw new BadRequestException(`Task ${task_id} must be in PENDING or HALTED state to cancel (current: ${task.status})`);
+    }
+
+    if (task.fms_batch_id) {
+      throw new BadRequestException(`Task ${task_id} has already been sent for execution.`);
+    }
+
+    // Mark cancelled in DB
+    await this.taskRepository.update({ task_id: task.task_id }, { status: TaskStatus.CANCELLED });
+    await this.loggingService.log(`Task ${task.task_id} marked as CANCELLED`, TaskType.BASEOPS, task.task_id, task.batch_id ?? null);
+
+    await this.webhookService.updateBaseOpsBatchStatus(task.batch_id);
+
+    return { task_id: task.task_id, status: TaskStatus.CANCELLED };
   }
 }

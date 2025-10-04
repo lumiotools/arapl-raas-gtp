@@ -90,6 +90,13 @@ export class BaseopsTaskController {
     return this.baseopsTaskService.remove(+id);
   }
 
+  @Post(':id/cancel')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.BASEOPS_ADMIN)
+  async cancelTask(@Param('id') id: string) {
+    return this.baseopsTaskService.cancelTask(id);
+  }
+
   @Post('set-configuration')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.BASEOPS_ADMIN)
