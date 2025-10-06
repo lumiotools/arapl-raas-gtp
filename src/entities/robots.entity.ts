@@ -5,6 +5,7 @@ export interface RobotLogs{
     timestamp: Date;
     previous_status: RobotStatus;
     new_status: RobotStatus;
+    reason?: string | null;
 }
 
 export enum RobotStatus{
@@ -13,6 +14,7 @@ export enum RobotStatus{
     CHARGING = "charging",
     ERROR = "error",
     INUSE = "in_use",
+    OTHER = 'other'
 }
 @Entity('robots')
 export class Robot {
@@ -29,7 +31,7 @@ export class Robot {
     logs: RobotLogs[];
 
     @Column({ type: 'varchar', length: 100, nullable: true })
-    message_code: 'maintenance' | 'charging' | 'error' | null;
+    message_code: string | null;
 
     @CreateDateColumn()
     created_at: Date;

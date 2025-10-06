@@ -71,7 +71,7 @@ export class SettingsService {
     return res;
   }
 
-  async updateRobot(robotId: string, status: RobotStatus) {
+  async updateRobot(robotId: string, status: RobotStatus, reason: string|null) {
     try{
       const robot = await this.robotRepository.findOne({ where: { robot_id: robotId } });
       if (!robot) {
@@ -80,12 +80,15 @@ export class SettingsService {
       if (!robot.logs){
         robot.logs = [];
       }
+      console.log(`reason: ${reason}`);
       robot.logs.push({
         timestamp: new Date(),
         previous_status: robot.status,
-        new_status: status
+        new_status: status,
+        reason: reason,
       });
       robot.status = status;
+      robot.message_code = reason;
       
       await this.robotRepository.save(robot);
       await this.loggingService.log(`Robot ${robotId} is now ${robot.status}`, robot.task_type, null, null);

@@ -2717,7 +2717,7 @@ export class OrchestratorService {
     if (task.status !== TaskStatus.CANCELLED) { throw new BadRequestException(`Task with ID ${taskID} is not in CANCELLED status`); }
     if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_STATION || task.move_type === MOVE_TYPE.STATION_TO_STATION){
       const destinationLocation = task.end_location.location_id;
-      if (!await this.stationService.reserveStation(destinationLocation)){
+      if (task.start_location.location_id != task.end_location.location_id && !await this.stationService.reserveStation(destinationLocation)){
         throw new BadRequestException(`Destination location for this task is not available right now.`);
       }
       const task_obj = {
@@ -2741,26 +2741,14 @@ export class OrchestratorService {
         if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION){
           task_obj['sourceInventoryId'] = task.start_location.location_id;
           task_obj['move_type'] = MOVE_TYPE.INVENTORY_TO_STATION;
-          if (!await this.inventoryService.reserveInventory(task.start_location.location_id)){
-            await this.stationRepository.update({ station_id: destinationLocation }, { status: LocationStatus.AVAILABLE});
-            throw new BadRequestException(`Source location for this task is not available right now.`);
-          }
         }
         else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_STATION){
           task_obj['sourceWaitingLocationId'] = task.start_location.location_id;
           task_obj['move_type'] = MOVE_TYPE.WAITING_LOCATION_TO_STATION;
-          if (!await this.waitingLocationService.reserveWaitingLocation(task.start_location.location_id)){
-            await this.stationRepository.update({ station_id: destinationLocation }, { status: LocationStatus.AVAILABLE});
-            throw new BadRequestException(`Source location for this task is not available right now.`);
-          }
         }
         else {
           task_obj['sourceStationId'] = task.start_location.location_id;
           task_obj['move_type'] = MOVE_TYPE.STATION_TO_STATION;
-          if (!await this.stationService.reserveStation(task.start_location.location_id)){
-            await this.stationRepository.update({ station_id: destinationLocation }, { status: LocationStatus.AVAILABLE});
-            throw new BadRequestException(`Source location for this task is not available right now.`);
-          }
         }
       }
       console.log(`Creating new task with obj: ${JSON.stringify(task_obj)}`);
@@ -2779,7 +2767,7 @@ export class OrchestratorService {
       const task_obj = {
         batchId: task.batch_id,
         originLocation: task.origin_location,
-        destinationStationId: destinationLocation,
+        destinationInventoryId: destinationLocation,
         taskType: TaskType.GOODS_TO_PERSON,
         move_type: MOVE_TYPE.STATION_TO_INVENTORY,
         sequenceOrder: task.sequence_order+1,
@@ -2795,11 +2783,44 @@ export class OrchestratorService {
       }
       if  (!sourceLocationId){
         if (task.move_type === MOVE_TYPE.STATION_TO_INVENTORY){
-          task_obj['sourceInventoryId'] = task.start_location.location_id;
+          task_obj['sourceStationId'] = task.start_location.location_id;
           task_obj['move_type'] = MOVE_TYPE.STATION_TO_INVENTORY;
-          if (!await this.stationService.reserveStation(task.start_location.location_id)){
-            await this.inventoryRepository.update({ id: destinationLocation }, { status: LocationStatus.AVAILABLE});
-          }
+        }
+      }
+      console.log(`Creating new task with obj: ${JSON.stringify(task_obj)}`);
+      const [newTaskId,newTask] = await this.createTask(task_obj)
+      if (newTask && newTaskId) {
+        await this.sendSingleTaskToWms(newTask);
+        await this.loggingService.deleteErrorLogsForTask(taskID);
+        await this.loggingService.log(`Retry Task: ${taskID}, New Task: ${newTaskId}, start location: ${newTask.start_location.location_id}, destination location: ${newTask.end_location.location_id}`, TaskType.GOODS_TO_PERSON,newTaskId,null);
+      }
+    }
+    else if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION){
+      const destinationLocation = task.end_location.location_id;
+      if (!await this.waitingLocationService.reserveWaitingLocation(destinationLocation)){
+        throw new BadRequestException(`Destination location for this task is not available right now.`);
+      }
+      const task_obj = {
+        batchId: task.batch_id,
+        originLocation: task.origin_location,
+        destinationWaitingLocationId: destinationLocation,
+        taskType: TaskType.GOODS_TO_PERSON,
+        move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION,
+        sequenceOrder: task.sequence_order+1,
+        taskDependency: task.task_id,
+        robotId: task.robot_id,
+        cargos: task.cargos,
+      };
+      let sourceLocationId : string | null = null;
+      if (task.processing) {
+        sourceLocationId = task.start_location.location_id;
+        task_obj['sourceWaitingLocationId'] = task.end_location.location_id;
+        task_obj['move_type'] = MOVE_TYPE.WAITING_TO_WAITING_LOCATION;
+      }
+      if  (!sourceLocationId){
+        if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION){
+          task_obj['sourceStationId'] = task.start_location.location_id;
+          task_obj['move_type'] = MOVE_TYPE.STATION_TO_WAITING_LOCATION;
         }
       }
       console.log(`Creating new task with obj: ${JSON.stringify(task_obj)}`);
@@ -2827,6 +2848,116 @@ export class OrchestratorService {
         await this.sendSingleTaskToWms(newTask);
         await this.loggingService.log(`Retry Task: ${taskID}, New Task: ${newTaskId}, start location: ${newTask.start_location.location_id}, destination location: ${newTask.end_location.location_id}`, TaskType.GOODS_TO_PERSON,newTaskId,null);
         await this.loggingService.deleteErrorLogsForTask(taskID);
+      }
+    }
+    else if (task.move_type === MOVE_TYPE.WAITING_TO_WAITING_LOCATION){
+      const [newTaskId,newTask] = await this.createTask({
+        batchId: task.batch_id,
+        originLocation: task.origin_location,
+        sourceWaitingLocationId: task.start_location.location_id,
+        destinationWaitingLocationId: task.end_location.location_id,
+        taskType: TaskType.GOODS_TO_PERSON,
+        move_type: MOVE_TYPE.WAITING_TO_WAITING_LOCATION,
+        sequenceOrder: task.sequence_order+1,
+        taskDependency: task.task_id,
+        robotId: task.robot_id,
+        cargos: task.cargos,
+      });
+      if (newTask && newTaskId) {
+        await this.sendSingleTaskToWms(newTask);
+        await this.loggingService.log(`Retry Task: ${taskID}, New Task: ${newTaskId}, start location: ${newTask.start_location.location_id}, destination location: ${newTask.end_location.location_id}`, TaskType.GOODS_TO_PERSON,newTaskId,null);
+        await this.loggingService.deleteErrorLogsForTask(taskID);
+      }
+    }
+    else if (task.move_type === MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION){
+      const [newTaskId,newTask] = await this.createTask({
+        batchId: task.batch_id,
+        originLocation: task.origin_location,
+        sourceEmptyLocationId: task.start_location.location_id,
+        destinationEmptyLocationId: task.end_location.location_id,
+        taskType: TaskType.GOODS_TO_PERSON,
+        move_type: MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION,
+        sequenceOrder: task.sequence_order+1,
+        taskDependency: task.task_id,
+        robotId: task.robot_id,
+        cargos: task.cargos,
+      });
+      if (newTask && newTaskId) {
+        await this.sendSingleTaskToWms(newTask);
+        await this.loggingService.log(`Retry Task: ${taskID}, New Task: ${newTaskId}, start location: ${newTask.start_location.location_id}, destination location: ${newTask.end_location.location_id}`, TaskType.GOODS_TO_PERSON,newTaskId,null);
+        await this.loggingService.deleteErrorLogsForTask(taskID);
+      }
+    }
+    else if (task.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION){
+      const destinationLocation = task.end_location.location_id;
+      if (!await this.emptyLocationsService.reserveEmptyLocation(destinationLocation)){
+        throw new BadRequestException(`Destination location for this task is not available right now.`);
+      }
+      const task_obj = {
+        batchId: task.batch_id,
+        originLocation: task.origin_location,
+        destinationEmptyLocationId: destinationLocation,
+        taskType: TaskType.GOODS_TO_PERSON,
+        move_type: MOVE_TYPE.STATION_TO_EMPTY_LOCATION,
+        sequenceOrder: task.sequence_order+1,
+        taskDependency: task.task_id,
+        robotId: task.robot_id,
+        cargos: task.cargos,
+      };
+      let sourceLocationId : string | null = null;
+      if (task.processing) {
+        sourceLocationId = task.start_location.location_id;
+        task_obj['sourceEmptyLocationId'] = task.end_location.location_id;
+        task_obj['move_type'] = MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION;
+      }
+      if  (!sourceLocationId){
+        if (task.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION){
+          task_obj['sourceStationId'] = task.start_location.location_id;
+          task_obj['move_type'] = MOVE_TYPE.STATION_TO_EMPTY_LOCATION;
+        }
+      }
+      console.log(`Creating new task with obj: ${JSON.stringify(task_obj)}`);
+      const [newTaskId,newTask] = await this.createTask(task_obj)
+      if (newTask && newTaskId) {
+        await this.sendSingleTaskToWms(newTask);
+        await this.loggingService.deleteErrorLogsForTask(taskID);
+        await this.loggingService.log(`Retry Task: ${taskID}, New Task: ${newTaskId}, start location: ${newTask.start_location.location_id}, destination location: ${newTask.end_location.location_id}`, TaskType.GOODS_TO_PERSON,newTaskId,null);
+      }
+    }
+    else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION){
+      const destinationLocation = task.end_location.location_id;
+      if (!await this.emptyLocationsService.reserveEmptyLocation(destinationLocation)){
+        throw new BadRequestException(`Destination location for this task is not available right now.`);
+      }
+      const task_obj = {
+        batchId: task.batch_id,
+        originLocation: task.origin_location,
+        destinationEmptyLocationId: destinationLocation,
+        taskType: TaskType.GOODS_TO_PERSON,
+        move_type: MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION,
+        sequenceOrder: task.sequence_order+1,
+        taskDependency: task.task_id,
+        robotId: task.robot_id,
+        cargos: task.cargos,
+      };
+      let sourceLocationId : string | null = null;
+      if (task.processing) {
+        sourceLocationId = task.start_location.location_id;
+        task_obj['sourceEmptyLocationId'] = task.end_location.location_id;
+        task_obj['move_type'] = MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION;
+      }
+      if  (!sourceLocationId){
+        if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION){
+          task_obj['sourceWaitingLocationId'] = task.start_location.location_id;
+          task_obj['move_type'] = MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION;
+        }
+      }
+      console.log(`Creating new task with obj: ${JSON.stringify(task_obj)}`);
+      const [newTaskId,newTask] = await this.createTask(task_obj)
+      if (newTask && newTaskId) {
+        await this.sendSingleTaskToWms(newTask);
+        await this.loggingService.deleteErrorLogsForTask(taskID);
+        await this.loggingService.log(`Retry Task: ${taskID}, New Task: ${newTaskId}, start location: ${newTask.start_location.location_id}, destination location: ${newTask.end_location.location_id}`, TaskType.GOODS_TO_PERSON,newTaskId,null);
       }
     }
   }

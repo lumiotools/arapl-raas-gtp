@@ -248,22 +248,22 @@ export class WebhookService {
   private async handleCancelledUpdateds(task: Task, mappedStatus: TaskStatus): Promise<void> {
     if (mappedStatus !== TaskStatus.CANCELLED){ return; }
     await this.loggingService.log(`Task ${task.task_id}: Task Cancelled`, task.task_type, task.task_id, null);
-    // if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION || task.move_type === MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION){
-    //   const destinationWaitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
-    //   if (destinationWaitingLocation){
-    //     destinationWaitingLocation.status = LocationStatus.AVAILABLE;
-    //     destinationWaitingLocation.holded_by = null;
-    //     await this.loggingService.log(`Task ${task.task_id}: Marking waiting location ${destinationWaitingLocation.location_id} as AVAILABLE (task cancelled).`, task.task_type, task.task_id, null);
-    //     await this.waitingLocationRepository.save(destinationWaitingLocation);
-    //   }
-    // }
-    // else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY || task.move_type === MOVE_TYPE.STATION_TO_INVENTORY || task.move_type === MOVE_TYPE.INVENTORY_TO_INVENTORY){
-    //   const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id } });
-    //   if (destinationInventoryLocation){
-    //     destinationInventoryLocation.status = LocationStatus.AVAILABLE;
-    //     await this.inventoryRepository.save(destinationInventoryLocation);
-    //   }
-    // }
+    if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION || task.move_type === MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION){
+      const destinationWaitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
+      if (destinationWaitingLocation){
+        destinationWaitingLocation.status = LocationStatus.AVAILABLE;
+        destinationWaitingLocation.holded_by = null;
+        await this.loggingService.log(`Task ${task.task_id}: Marking waiting location ${destinationWaitingLocation.location_id} as AVAILABLE (task cancelled).`, task.task_type, task.task_id, null);
+        await this.waitingLocationRepository.save(destinationWaitingLocation);
+      }
+    }
+    else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY || task.move_type === MOVE_TYPE.STATION_TO_INVENTORY || task.move_type === MOVE_TYPE.INVENTORY_TO_INVENTORY){
+      const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id } });
+      if (destinationInventoryLocation){
+        destinationInventoryLocation.status = LocationStatus.AVAILABLE;
+        await this.inventoryRepository.save(destinationInventoryLocation);
+      }
+    }
     if (task.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION){
       const destinationEmptyLocation = await this.emptyLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
       if (destinationEmptyLocation){

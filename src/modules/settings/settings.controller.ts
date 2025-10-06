@@ -35,8 +35,8 @@ export class SettingsController {
   }
 
   @Patch(':robot_id/update')
-  async makeRobotOffline(@Param('robot_id') robotId: string, @Body() body: { status: RobotStatus }) {
-    return await this.settingsService.updateRobot(robotId, body.status);
+  async makeRobotOffline(@Param('robot_id') robotId: string, @Body() body: { status: RobotStatus, reason: string|null }) {
+    return await this.settingsService.updateRobot(robotId, body.status, body.reason);
   }
   
 }
