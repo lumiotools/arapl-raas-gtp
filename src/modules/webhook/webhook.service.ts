@@ -89,6 +89,12 @@ export class WebhookService {
       return;
     }
 
+    task.robot_id = taskStatusData.robot_id || null;
+    if (task.robot_id){
+      await this.taskRepository.save(task);
+    }
+    
+
     if (oldStatus == mappedStatus) {
       this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
       return; // No change needed

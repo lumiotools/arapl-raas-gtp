@@ -403,7 +403,15 @@ export class OrchestratorService {
               if (!reserved) {
                 continue;
               }
-              await this.CancelTask(taskComingToInventory);
+              try{
+                await this.CancelTask(taskComingToInventory);
+              }
+              catch(error){
+                this.logger.error(`Error cancelling task ${taskComingToInventory.task_id} before creating new task to station ${station.station_id}: ${error.message}`);
+                await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
+                continue;
+              }
+              
               if (!robotIdToUse) {
                 await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
                 return;
@@ -449,7 +457,15 @@ export class OrchestratorService {
                 break;
               }
               const batchId = taskComingToInventory.batch_id;
-              await this.CancelTask(taskComingToInventory);
+              try{
+                await this.CancelTask(taskComingToInventory);
+              }
+              catch(error){
+                this.logger.error(`Error cancelling task ${taskComingToInventory.task_id} before creating new task to waiting location ${waitLocation.location_id}: ${error.message}`);
+                await this.waitingLocationRepository.update(waitLocation.location_id, { status: LocationStatus.AVAILABLE });
+                continue;
+              }
+              
               console.log(`cancelling at db_req > 0 - waiting location`)
               const [returnTaskId, returnTask] = await this.createTask({
                 batchId: batchId,
@@ -502,7 +518,15 @@ export class OrchestratorService {
             if (!reserved) {  
               continue;
             }
-            await this.CancelTask(taskToWaitingLocation);
+            try{
+              await this.CancelTask(taskToWaitingLocation);
+            }
+            catch(error){
+              this.logger.error(`Error cancelling task ${taskToWaitingLocation.task_id} before creating new task to station ${station.station_id}: ${error.message}`);
+              await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
+              continue;
+            }
+            
             const [returnTaskId, returnTask] = await this.createTask({
               batchId: taskToWaitingLocation.batch_id,
               originLocation: inventoryID,
@@ -1937,7 +1961,14 @@ export class OrchestratorService {
           const response = await this.emptyLocationsService.reserveEmptyLocation(emptyLocation.location_id);
           if (!response) {continue;}
           console.log(`cancel at release station to wait location.`)
-          await this.CancelTask(task);
+          try{
+            await this.CancelTask(task);
+          }
+          catch(error){
+            this.logger.error(`Error cancelling task ${task.task_id} before creating new task to waiting location ${emptyLocation.location_id}: ${error.message}`);
+            await this.emptyLocationRepository.update(emptyLocation.location_id, { status: LocationStatus.AVAILABLE });
+            continue;
+          }
           const [task_id, newTask] = await this.createTask({
             batchId: task.batch_id,
             originLocation: task.origin_location,
@@ -2005,7 +2036,7 @@ export class OrchestratorService {
             taskType: TaskType.GOODS_TO_PERSON,
             robotId: carrying_task.robot_id,
             move_type: MOVE_TYPE.STATION_TO_STATION,
-            sequenceOrder: carrying_task.sequence_order+1, 
+            sequenceOrder: carrying_task.sequence_order+1,
             taskDependency: carrying_task.task_id,
             cargos: carrying_task.cargos
           });
