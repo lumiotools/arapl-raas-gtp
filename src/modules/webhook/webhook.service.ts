@@ -298,6 +298,20 @@ export class WebhookService {
         await this.stationRepository.save(destinationStation);
       }
     }
+    else if (task.move_type===MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION){
+      const destinationEmptyLocation = await this.emptyLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
+      if (destinationEmptyLocation){
+        destinationEmptyLocation.status = LocationStatus.AVAILABLE;
+        await this.emptyLocationRepository.save(destinationEmptyLocation);
+      }
+    }
+    else if (task.move_type===MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION){
+      const destinationEmptyLocation = await this.emptyLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
+      if (destinationEmptyLocation){
+        destinationEmptyLocation.status = LocationStatus.AVAILABLE;
+        await this.emptyLocationRepository.save(destinationEmptyLocation);
+      }
+    }
   }
 
   private async handleInventoryUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus, batchId: string): Promise<void> {
