@@ -16,6 +16,7 @@ import { RobotCount } from 'src/entities';
 import { LocationEntity } from 'src/entities/location.entity';
 import { BaseopsTaskModule } from '../baseops_task/baseops_task.module';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
+import { CrossdockTaskModule } from '../crossdock_task/crossdock_task.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { EmptyLocation } from 'src/entities/empty-location.entity';
     HttpModule,
     forwardRef(() => OrchestratorModule),
     forwardRef(() => BaseopsTaskModule),
+    forwardRef(() => CrossdockTaskModule),
     LoggingModule,
   ],
   controllers: [WebhookController],

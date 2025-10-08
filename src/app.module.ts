@@ -19,6 +19,7 @@ import { LocationsModule } from './modules/locations/locations.module';
 import { BaseopsTaskModule } from './modules/baseops_task/baseops_task.module';
 import { EmptyLocationsModule } from './modules/empty_locations/empty_locations.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { CrossdockTaskModule } from './modules/crossdock_task/crossdock_task.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { SettingsModule } from './modules/settings/settings.module';
     BotModule,
     LocationsModule,
     BaseopsTaskModule,
+    CrossdockTaskModule,
     EmptyLocationsModule,
     SettingsModule
   ],

@@ -31,6 +31,7 @@ import { truncate } from 'fs';
 import { Settings } from 'src/entities/settings.entity';
 import { SettingsService } from '../settings/settings.service';
 import { Robot, RobotStatus } from 'src/entities/robots.entity';
+import { CrossdockTaskService } from '../crossdock_task/crossdock_task.service';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -124,6 +125,7 @@ export class OrchestratorService {
     private readonly stationService: StationsService,
     private readonly waitingLocationService: WaitingLocationService,
     private readonly baseOpsService: BaseopsTaskService,
+    private readonly crossdockService: CrossdockTaskService,
     private readonly settingsService: SettingsService,
   ) {}
 
@@ -1440,6 +1442,7 @@ export class OrchestratorService {
   @Cron('*/5 * * * * *')
   async orchestratorCronJob() {
     await this.baseOpsService.taskService.orchestrator();
+    await this.crossdockService.taskService.orchestrator();
     await this.triggerOrchestrator();
   }
 
@@ -1661,7 +1664,7 @@ export class OrchestratorService {
         where: { 
           status: TaskStatus.PENDING,
           created_at: LessThan(twoMinutesAgo),
-          task_type: Not(TaskType.BASEOPS),
+          task_type: TaskType.GOODS_TO_PERSON,
         },
         order: { created_at: 'ASC' } // FIFO order
       });

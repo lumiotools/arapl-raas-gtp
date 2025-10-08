@@ -16,6 +16,7 @@ import { MOVE_TYPE } from 'src/entities/task.entity';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationAction } from 'src/entities';
+import { CrossdockTaskService } from '../crossdock_task/crossdock_task.service';
 
 @Injectable()
 export class WebhookService {
@@ -41,6 +42,8 @@ export class WebhookService {
     private readonly loggingService: LoggingService,
     @Inject(forwardRef(() => BaseopsTaskService))
     private readonly BaseOpsTaskService: BaseopsTaskService,
+    @Inject(forwardRef(() => CrossdockTaskService))
+    private readonly CrossdockTaskService: CrossdockTaskService,
   ) {}
 
   async processWebhook(webhookData: any): Promise<{ message: string }> {
@@ -126,19 +129,20 @@ export class WebhookService {
     }
     await this.taskRepository.save(task);
 
-    if (task.task_type === TaskType.BASEOPS){
+    if (task.task_type === TaskType.BASEOPS || task.task_type === TaskType.CROSSDOCK){
+      const taskService = task.task_type === TaskType.BASEOPS ? this.BaseOpsTaskService.taskService : this.CrossdockTaskService.taskService;
       if (mappedStatus === TaskStatus.PROCESSING){
-        await this.BaseOpsTaskService.taskService.LocationManagerService.freeLocation(task.start_location.location_id);
+        await taskService.LocationManagerService.freeLocation(task.start_location.location_id);
         await this.loggingService.log(`Task ${task.task_id}: Freeing start location ${task.start_location.location_id}.`, task.task_type, task.task_id, task.batch_id);
       }
       if (mappedStatus === TaskStatus.COMPLETED){
-        this.BaseOpsTaskService.taskService.decrementRobotInUse();
-        await this.BaseOpsTaskService.taskService.LocationManagerService.occupyLocation(task.end_location.location_id);
+        taskService.decrementRobotInUse();
+        await taskService.LocationManagerService.occupyLocation(task.end_location.location_id);
         await this.loggingService.log(`Task ${task.task_id}: Completed. Occupied ${task.end_location.location_id} and decremented robot count.`, task.task_type, task.task_id, task.batch_id);
         // Log current robot in use after decrement if service exposes the metric
         try {
-          const current = await this.BaseOpsTaskService.taskService.getRobotInUse();
-          await this.loggingService.log(`Robot in use after completion: ${current}`, TaskType.BASEOPS, task.task_id, task.batch_id);
+          const current = await taskService.getRobotInUse();
+          await this.loggingService.log(`Robot in use after completion: ${current}`, task.task_type, task.task_id, task.batch_id);
         } catch (err) {
           // ignore if metric not available
         }

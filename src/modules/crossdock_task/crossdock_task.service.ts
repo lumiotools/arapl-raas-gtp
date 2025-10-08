@@ -2,7 +2,7 @@ import { BadRequestException, Inject, Injectable, forwardRef } from '@nestjs/com
 import { TaskService } from '../tasks/tasks.service';
 
 @Injectable()
-export class BaseopsTaskService {
+export class CrossdockTaskService {
   constructor(
     @Inject(forwardRef(() => TaskService))
     readonly taskService: TaskService,

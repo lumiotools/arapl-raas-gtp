@@ -27,8 +27,7 @@ import { Settings } from 'src/entities/settings.entity';
 import { SettingsModule } from '../settings/settings.module';
 import { Robot } from 'src/entities/robots.entity';
 import { WebhookModule } from '../webhook/webhook.module';
-import { TaskService } from '../tasks/tasks.service';
-import { LocationManagerService } from '../tasks/location_manager.service';
+import { CrossdockTaskModule } from '../crossdock_task/crossdock_task.module';
 
 @Module({
   imports: [
@@ -53,12 +52,16 @@ import { LocationManagerService } from '../tasks/location_manager.service';
     HttpModule,
     InventoryModule,
     BaseopsTaskModule,
+    CrossdockTaskModule,
     EmptyLocationsModule,
     SettingsModule,
     forwardRef(() => WebhookModule),
   ],
   controllers: [OrchestratorController],
-  providers: [OrchestratorService, StationsService, WaitingLocationService, BaseopsTaskService, TaskService, LocationManagerService, EmptyLocationsService],
+  // Only declare providers that are not already exported by imported modules.
+  // CrossdockTaskService and BaseopsTaskService are exported by their respective modules.
+  // EmptyLocationsService is NOT exported by EmptyLocationsModule, so it needs to be provided here.
+  providers: [OrchestratorService, StationsService, WaitingLocationService, EmptyLocationsService],
   exports: [OrchestratorService],
 })
 export class OrchestratorModule {}

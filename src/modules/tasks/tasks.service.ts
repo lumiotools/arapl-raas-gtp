@@ -749,7 +749,7 @@ export class TaskService {
         );
         await this.loggingService.log(
           `Task ${task.task_id} marked HALTED: no wait location available for ${task.end_location.location_attribute?.attribute_value}`,
-          TaskType.BASEOPS,
+          task.task_type,
           task.task_id,
           task.batch_id ?? null,
         );
