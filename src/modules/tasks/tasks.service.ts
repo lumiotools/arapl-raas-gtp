@@ -948,8 +948,7 @@ export class TaskService {
       newTask.sequence_order = 1;
       newTask.task_dependency = null as any;
       newTask.robot_id = null as any;
-      newTask.priority =
-        task['priority'] === 'HIGH' ? 1 : task['priority'] === 'MEDIUM' ? 2 : 3;
+      newTask.priority = task['priority'];
 
       let end_location_id = null;
       if (task['end_location_location_type'] === 'PALLET') {

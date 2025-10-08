@@ -69,6 +69,8 @@ export class BaseopsTaskService {
         validationErrors.push(`Row ${rowNum-1}: priority must be 'HIGH', 'MEDIUM', or 'LOW', found '${priorityValue}'`);
       }
 
+      task['priority'] = task['priority'] === 'HIGH' ? 1 : task['priority'] === 'MEDIUM' ? 2 : 3;
+
       // 7. Check if the start and end location ids exist in the system and they are available
       const startLocationValid = await this.taskService.LocationManagerService.isValidLocationId(startLocationId, true);
       if (!startLocationValid) {
