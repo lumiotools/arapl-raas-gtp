@@ -2205,6 +2205,8 @@ export class OrchestratorService {
     const allRobotIds = Array.from(robotIds);
     const res = {};
     for (const robotId of allRobotIds){
+      const repoRobot = await this.robotRepository.findOne({where: { robot_id: robotId }});
+      if (!repoRobot) continue;
       const filteredTasks = allTasks.filter(task => task.robot_id === robotId);
       if (filteredTasks.length == 0) continue;
       if (!res[robotId]) {
@@ -2276,9 +2278,6 @@ export class OrchestratorService {
           }
         }
       }
-
-      const repoRobot = await this.robotRepository.findOne({where: { robot_id: robotId }});
-      if (!repoRobot) continue;
       if (!repoRobot.logs) continue;
       const requiredLogs = repoRobot.logs.filter(log => {
         const logDate = new Date(log.timestamp);
@@ -2322,24 +2321,22 @@ export class OrchestratorService {
         }
         currentStatus = log.new_status;
         currentTime = new Date(log.timestamp).getTime();
-        if (i === requiredLogs.length - 1) {
-          // last log, calculate time till now
-          if (currentStatus === RobotStatus.INUSE) {
-            res[robotId].inUse_time += (Date.now() - currentTime) / 1000;
-          }
-          else if (currentStatus === RobotStatus.CHARGING) {
-            res[robotId].charging_time += (Date.now() - currentTime) / 1000;
-          }
-          else if (currentStatus === RobotStatus.MAINTENANCE) {
-            res[robotId].maintenance_time += (Date.now() - currentTime) / 1000;
-          }
-          else if (currentStatus === RobotStatus.ONLINE) {
-            res[robotId].online_time += (Date.now() - currentTime) / 1000;
-          }
-          else if (currentStatus === RobotStatus.ERROR) {
-            res[robotId].error_time += (Date.now() - currentTime) / 1000;
-          }
-        }
+      }
+      // last log, calculate time till now
+      if (currentStatus === RobotStatus.INUSE) {
+        res[robotId].inUse_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.CHARGING) {
+        res[robotId].charging_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.MAINTENANCE) {
+        res[robotId].maintenance_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.ONLINE) {
+        res[robotId].online_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.ERROR) {
+        res[robotId].error_time += (Date.now() - currentTime) / 1000;
       }
     }
     return res;
