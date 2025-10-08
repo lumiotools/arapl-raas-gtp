@@ -1439,7 +1439,7 @@ export class OrchestratorService {
   // Manual trigger method for testing
   @Cron('*/5 * * * * *')
   async orchestratorCronJob() {
-    await this.baseOpsService.baseOpsOrchestrator();
+    await this.baseOpsService.taskService.orchestrator();
     await this.triggerOrchestrator();
   }
 

@@ -1,6 +1,5 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Body, Patch, Param } from '@nestjs/common';
 import { LocationsService } from './locations.service';
-import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
 
@@ -8,24 +7,9 @@ import { UpdateZoneDto } from './dto/update-zone.dto';
 export class LocationsController {
   constructor(private readonly locationsService: LocationsService) {}
 
-  @Post()
-  create(@Body() createLocationDto: CreateLocationDto) {
-    return this.locationsService.create(createLocationDto);
-  }
-
-  @Get()
-  findAll() {
-    return this.locationsService.findAll();
-  }
-
   @Get('zones')
   async findZones() {
     return await this.locationsService.findZones();
-  }
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.locationsService.findOne(+id);
   }
 
   @Patch(':id')
@@ -37,11 +21,6 @@ export class LocationsController {
   @Patch('zones/:zone_id')
   updateZone(@Param('zone_id') zoneId: string, @Body() updateZoneDto: UpdateZoneDto) {
     return this.locationsService.updateZone(zoneId, updateZoneDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.locationsService.remove(+id);
   }
 
   @Get('zone/:zone_id')

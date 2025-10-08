@@ -13,7 +13,6 @@ import { LoggingService } from '../../services/logging.service';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot, RobotStatus } from 'src/entities/robots.entity';
 import { MOVE_TYPE } from 'src/entities/task.entity';
-import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationAction } from 'src/entities';
@@ -40,7 +39,6 @@ export class WebhookService {
     @Inject(forwardRef(() => OrchestratorService))
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
-    private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
     @Inject(forwardRef(() => BaseopsTaskService))
     private readonly BaseOpsTaskService: BaseopsTaskService,
   ) {}
@@ -130,23 +128,23 @@ export class WebhookService {
 
     if (task.task_type === TaskType.BASEOPS){
       if (mappedStatus === TaskStatus.PROCESSING){
-        await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
+        await this.BaseOpsTaskService.taskService.LocationManagerService.freeLocation(task.start_location.location_id);
         await this.loggingService.log(`Task ${task.task_id}: Freeing start location ${task.start_location.location_id}.`, task.task_type, task.task_id, task.batch_id);
       }
       if (mappedStatus === TaskStatus.COMPLETED){
-        this.BaseOpsTaskService.decrementRobotInUse();
-        await this.BaseOpsLocationManagerService.occupyLocation(task.end_location.location_id);
+        this.BaseOpsTaskService.taskService.decrementRobotInUse();
+        await this.BaseOpsTaskService.taskService.LocationManagerService.occupyLocation(task.end_location.location_id);
         await this.loggingService.log(`Task ${task.task_id}: Completed. Occupied ${task.end_location.location_id} and decremented robot count.`, task.task_type, task.task_id, task.batch_id);
         // Log current robot in use after decrement if service exposes the metric
         try {
-          const current = await this.BaseOpsTaskService.getRobotInUse();
+          const current = await this.BaseOpsTaskService.taskService.getRobotInUse();
           await this.loggingService.log(`Robot in use after completion: ${current}`, TaskType.BASEOPS, task.task_id, task.batch_id);
         } catch (err) {
           // ignore if metric not available
         }
       }
       // Persist batch status to DB using BaseOps rules (mirrors findAllBatches logic)
-      await this.updateBaseOpsBatchStatus(task.batch_id);
+      await this.updateBatchStatus(task.batch_id, task.task_type);
       await this.loggingService.log(`Task ${task.task_id}: Updated batch ${task.batch_id} status`, task.task_type, task.task_id, task.batch_id);
       return;
     }
@@ -436,13 +434,13 @@ export class WebhookService {
   }
   
   // Compute and persist BaseOps batch status and aggregates so findAllBatches can avoid recalculation
-  async updateBaseOpsBatchStatus(batchId: string): Promise<void> {
+  async updateBatchStatus(batchId: string, task_type: TaskType): Promise<void> {
     try {
       // Pull only top-level BaseOps tasks for the batch (task_dependency IS NULL), as used in findBatchTasks
       const tasks = await this.taskRepository.find({
         where: {
           batch_id: batchId,
-          task_type: TaskType.BASEOPS,
+          task_type: task_type,
           task_dependency: IsNull(),
         },
         order: { created_at: 'DESC' },

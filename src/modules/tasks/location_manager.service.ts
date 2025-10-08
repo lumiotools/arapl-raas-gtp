@@ -2,13 +2,16 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Task, TaskStatus } from "src/entities";
 import { TaskType } from "src/entities/task.entity";
+import { OperationType } from 'src/entities/robot-count.entity';
 import { LocationEntity, LocationType } from "src/entities/location.entity";
 import { LocationStatus } from "src/entities/station.entity";
 import { In, Raw, Repository } from "typeorm";
 import { LoggingService } from "../../services/logging.service";
 
 @Injectable()
-export class BaseOpsLocationManagerService {
+export class LocationManagerService {
+    private taskType: TaskType = TaskType.BASEOPS;
+    private operationType: OperationType = OperationType.BASEOPS;
     constructor(
         @InjectRepository(LocationEntity)
         private locationRepository: Repository<LocationEntity>,
@@ -17,17 +20,23 @@ export class BaseOpsLocationManagerService {
         private readonly loggingService: LoggingService,
     ) {}
 
+    // Initialize the service for a specific operation/task type
+    public initForTaskType(operationType: OperationType, taskType: TaskType) {
+        this.operationType = operationType ?? this.operationType;
+        this.taskType = taskType ?? this.taskType;
+    }
+
     async reserveLocation(location_id: string): Promise<boolean> {
         const location = await this.locationRepository.findOne({ where: { location_id: location_id, location_status: LocationStatus.AVAILABLE } });
         console.log(`location found: ${JSON.stringify(location)}`);
         if (!location) {
             console.log(`Location ${location_id} is not available for reservation.`);
-            await this.loggingService.log(`Location ${location_id} not available for reservation`, TaskType.BASEOPS, null, null);
+            await this.loggingService.log(`Location ${location_id} not available for reservation`, this.taskType, null, null);
             return false;
         }
         location.location_status = LocationStatus.RESERVED;
         await this.locationRepository.save(location);
-        await this.loggingService.log(`Location ${location_id} reserved`, TaskType.BASEOPS, null, null);
+        await this.loggingService.log(`Location ${location_id} reserved`, this.taskType, null, null);
         return true;
     }
 
@@ -35,12 +44,12 @@ export class BaseOpsLocationManagerService {
         const location = await this.locationRepository.findOne({ where: { location_id: location_id, location_status: In([LocationStatus.AVAILABLE, LocationStatus.OCCUPIED]) } });
         if (!location) {
             console.log(`Location ${location_id} is not available for reservation.`);
-            await this.loggingService.log(`Start location ${location_id} not available for reservation`, TaskType.BASEOPS, null, null);
+            await this.loggingService.log(`Start location ${location_id} not available for reservation`, this.taskType, null, null);
             return false;
         }
         location.location_status = LocationStatus.RESERVED;
         await this.locationRepository.save(location);
-        await this.loggingService.log(`Start location ${location_id} reserved`, TaskType.BASEOPS, null, null);
+        await this.loggingService.log(`Start location ${location_id} reserved`, this.taskType, null, null);
         return true;
     }
 
@@ -48,7 +57,7 @@ export class BaseOpsLocationManagerService {
         const zone = await this.locationRepository.findOne({ where: { location_id: zone_id, location_type: LocationType.ZONE } });
         if (!zone) {
             console.log(`Zone with ID ${zone_id} not found.`);
-            await this.loggingService.log(`Zone ${zone_id} not found while finding drop location`, TaskType.BASEOPS, null, null);
+            await this.loggingService.log(`Zone ${zone_id} not found while finding drop location`, this.taskType, null, null);
             return null;
         }
         const locations = await this.locationRepository.find({
@@ -56,21 +65,21 @@ export class BaseOpsLocationManagerService {
             order: { drop_priority: "ASC" }
         });
         if (locations.length === 0){
-            await this.loggingService.log(`No available drop locations in zone ${zone_id}`, TaskType.BASEOPS, null, null);
+            await this.loggingService.log(`No available drop locations in zone ${zone_id}`, this.taskType, null, null);
             return null;
         }
         // fetch the location from the locations with smallest (highest priority) drop_priority
 
         const optimalLocation = locations.find(loc => loc.drop_priority !== null);
-        if (optimalLocation) {
-            await this.loggingService.log(`Selected drop location ${optimalLocation.location_id} in zone ${zone_id}`, TaskType.BASEOPS, null, null);
+            if (optimalLocation) {
+            await this.loggingService.log(`Selected drop location ${optimalLocation.location_id} in zone ${zone_id}`, this.taskType, null, null);
             return optimalLocation.location_id;
         }
         const validLocations = locations.filter(loc => 
             loc.row != null && loc.column != null
         );
         if (!validLocations.length) {
-            await this.loggingService.log(`No valid drop locations (row/column) in zone ${zone_id}`, TaskType.BASEOPS, null, null);
+            await this.loggingService.log(`No valid drop locations (row/column) in zone ${zone_id}`, this.taskType, null, null);
             return null;
         }
 
@@ -81,25 +90,25 @@ export class BaseOpsLocationManagerService {
             }
             return min;
         });
-        await this.loggingService.log(`Selected drop location ${chosen.location_id} in zone ${zone_id} by row/column`, TaskType.BASEOPS, null, null);
+        await this.loggingService.log(`Selected drop location ${chosen.location_id} in zone ${zone_id} by row/column`, this.taskType, null, null);
         return chosen.location_id;
     }
 
     async freeLocation(location_id: string): Promise<void> {
         await this.locationRepository.update({ location_id }, { location_status: LocationStatus.AVAILABLE });
-        await this.loggingService.log(`Location ${location_id} set to AVAILABLE`, TaskType.BASEOPS, null, null);
+        await this.loggingService.log(`Location ${location_id} set to AVAILABLE`, this.taskType, null, null);
     }
 
     async occupyLocation(location_id: string): Promise<void> {
         await this.locationRepository.update({ location_id }, { location_status: LocationStatus.OCCUPIED });
-        await this.loggingService.log(`Location ${location_id} set to OCCUPIED`, TaskType.BASEOPS, null, null);
+        await this.loggingService.log(`Location ${location_id} set to OCCUPIED`, this.taskType, null, null);
     }
 
     async isValidLocationId(location_id: string, isStart: boolean): Promise<boolean> {
         const location = await this.locationRepository.findOne({ where: { location_id: location_id, location_status: isStart ? In([LocationStatus.OCCUPIED, LocationStatus.AVAILABLE]) : LocationStatus.AVAILABLE, location_type: LocationType.PALLET } });
         console.log(`Checking location ID: ${location_id}, Found: ${location ? 'Yes' : 'No'}`);
         if (!location) {
-            await this.loggingService.log(`Invalid or unavailable ${isStart ? 'start' : 'end'} location ${location_id}`, TaskType.BASEOPS, null, null);
+            await this.loggingService.log(`Invalid or unavailable ${isStart ? 'start' : 'end'} location ${location_id}`, this.taskType, null, null);
             return false;
         }
         return true;
@@ -169,9 +178,9 @@ export class BaseOpsLocationManagerService {
         let waitLocation = await waitLocationQuery.getOne();
 
         console.log(`Wait location in same zone found: ${waitLocation ? 'Yes' : 'No'}`);
-        if (waitLocation) {
-            await this.loggingService.log(`Wait location ${waitLocation.location_id} selected in same zone for ${requiredLocation?.location_id}`,
-                TaskType.BASEOPS, null, null);
+            if (waitLocation) {
+                await this.loggingService.log(`Wait location ${waitLocation.location_id} selected in same zone for ${requiredLocation?.location_id}`,
+                this.taskType, null, null);
         }
 
         if (!waitLocation) {
@@ -191,9 +200,9 @@ export class BaseOpsLocationManagerService {
                 )
                 .getOne();
             
-            if (!waitZone) {
+                if (!waitZone) {
                 console.log(`Wait zone not found, Searching for other wait locations...`);
-                await this.loggingService.log(`Wait zone attribute not found; searching global wait locations`, TaskType.BASEOPS, null, null);
+                await this.loggingService.log(`Wait zone attribute not found; searching global wait locations`, this.taskType, null, null);
             }
             
             waitLocationQuery = this.locationRepository
@@ -220,14 +229,14 @@ export class BaseOpsLocationManagerService {
             console.log(`Found wait location: ${waitLocation ? 'Yes' : 'No'}`);
             console.log(`Found wait location: ${waitLocation?.location_id}`);
             if (waitLocation) {
-                await this.loggingService.log(`Wait location ${waitLocation.location_id} selected (fallback search)`, TaskType.BASEOPS, null, null);
+                await this.loggingService.log(`Wait location ${waitLocation.location_id} selected (fallback search)`, this.taskType, null, null);
             }
         } else {
             console.log(`Found wait location in same zone: ${waitLocation.location_id}`);
         }
 
         if (!waitLocation) {
-            await this.loggingService.log(`No wait location available for ${requiredLocation?.location_id}`, TaskType.BASEOPS, null, null);
+            await this.loggingService.log(`No wait location available for ${requiredLocation?.location_id}`, this.taskType, null, null);
         }
         return waitLocation?.location_id || null;
     }
@@ -263,7 +272,7 @@ export class BaseOpsLocationManagerService {
                     location_type: LocationType.ZONE,
                 });
                 await this.locationRepository.save(zoneRecord);
-                await this.loggingService.log(`Created new zone ${zoneId} from FMS sync`, TaskType.BASEOPS, null, null);
+                    await this.loggingService.log(`Created new zone ${zoneId} from FMS sync`, this.taskType, null, null);
                 console.log(`Created new zone ${zoneId}`);
             } else {
                 console.log(`Zone ${zoneId} already exists; skipping update`);
@@ -311,7 +320,7 @@ export class BaseOpsLocationManagerService {
                     }
 
                     await this.locationRepository.save(record);
-                    await this.loggingService.log(`Created new location ${id} under zone ${zoneId} from FMS sync`, TaskType.BASEOPS, null, null);
+                    await this.loggingService.log(`Created new location ${id} under zone ${zoneId} from FMS sync`, this.taskType, null, null);
                     console.log(`Created new location ${id} under zone ${zoneId}`);
                 } else {
                     // Existing location found - no changes (add-only policy)
@@ -325,7 +334,7 @@ export class BaseOpsLocationManagerService {
                 if (!seenIds.has(e.location_id)) {
                     console.log(`Deleting location ${e.location_id} from zone ${zoneId} as it's not present in FMS`);
                     await this.locationRepository.delete({ location_id: e.location_id });
-                    await this.loggingService.log(`Deleted location ${e.location_id} (not present in FMS)`, TaskType.BASEOPS, null, null);
+                    await this.loggingService.log(`Deleted location ${e.location_id} (not present in FMS)`, this.taskType, null, null);
                 }
             }
         }
@@ -337,7 +346,7 @@ export class BaseOpsLocationManagerService {
                 console.log(`Deleting zone ${dbZone.location_id} and its children as it's not present in FMS`);
                 await this.locationRepository.delete({ parent_id: dbZone.location_id, location_type: LocationType.PALLET });
                 await this.locationRepository.delete({ location_id: dbZone.location_id });
-                await this.loggingService.log(`Deleted zone ${dbZone.location_id} and its children (not present in FMS)`, TaskType.BASEOPS, null, null);
+                await this.loggingService.log(`Deleted zone ${dbZone.location_id} and its children (not present in FMS)`, this.taskType, null, null);
             }
         }
     }
@@ -373,8 +382,8 @@ export class BaseOpsLocationManagerService {
             return zoneMap;
         }
                 catch(error){
-                    await this.loggingService.createErrorLog(`Failed to fetch locations from FMS: ${error?.message ?? error}`,
-                        TaskType.BASEOPS, null as any, null, true);
+            await this.loggingService.createErrorLog(`Failed to fetch locations from FMS: ${error?.message ?? error}`,
+                this.taskType, null as any, null, true);
                     throw new BadRequestException('Failed to fetch locations from FMS' );
         }
   }

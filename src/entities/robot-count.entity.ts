@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 
 export enum OperationType{
+  CROSSDOCK = "CROSSDOCK",
   BASEOPS = "BASEOPS",
   FLOWOPS = "FLOWOPS",
 }

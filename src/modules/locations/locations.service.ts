@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
-import { Repository, Not } from 'typeorm';
+import { Repository } from 'typeorm';
 import { LocationEntity, LocationType } from 'src/entities/location.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UpdateZoneDto } from './dto/update-zone.dto';
@@ -13,18 +12,6 @@ export class LocationsService {
     @InjectRepository(LocationEntity)
     private readonly locationRepository: Repository<LocationEntity>,
   ) {}
-
-  create(createLocationDto: CreateLocationDto) {
-    return 'This action adds a new location';
-  }
-
-  findAll() {
-    return `This action returns all locations`;
-  }
-
-  findOne(id: number) {
-    return `This action returns a #${id} location`;
-  }
 
   async update(id: any, updateLocationDto: UpdateLocationDto) {
     const locationId = String(id);
@@ -68,10 +55,6 @@ export class LocationsService {
     Object.assign(existing, updates);
     await this.locationRepository.save(existing);
     return existing;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} location`;
   }
 
   async findByZone(zoneId: string) {

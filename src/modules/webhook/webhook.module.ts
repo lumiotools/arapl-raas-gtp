@@ -13,9 +13,8 @@ import { LoggingModule } from '../logging/logging.module';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot } from 'src/entities/robots.entity';
 import { RobotCount } from 'src/entities';
-import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 import { LocationEntity } from 'src/entities/location.entity';
-import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
+import { BaseopsTaskModule } from '../baseops_task/baseops_task.module';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 
 @Module({
@@ -23,10 +22,11 @@ import { EmptyLocation } from 'src/entities/empty-location.entity';
     TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation, Robot, RobotCount,LocationEntity, EmptyLocation]),
     HttpModule,
     forwardRef(() => OrchestratorModule),
+    forwardRef(() => BaseopsTaskModule),
     LoggingModule,
   ],
   controllers: [WebhookController],
-  providers: [WebhookService, WaitingLocationService, BaseOpsLocationManagerService, BaseopsTaskService],
+  providers: [WebhookService, WaitingLocationService],
   exports: [WebhookService],
 })
 export class WebhookModule {}

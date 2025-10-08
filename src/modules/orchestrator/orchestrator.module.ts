@@ -20,7 +20,6 @@ import { RobotCount } from 'src/entities';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { LocationEntity } from 'src/entities/location.entity';
 import { BaseopsTaskModule } from '../baseops_task/baseops_task.module';
-import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { EmptyLocationsService } from '../empty_locations/empty_locations.service';
 import { EmptyLocationsModule } from '../empty_locations/empty_locations.module';
@@ -28,6 +27,8 @@ import { Settings } from 'src/entities/settings.entity';
 import { SettingsModule } from '../settings/settings.module';
 import { Robot } from 'src/entities/robots.entity';
 import { WebhookModule } from '../webhook/webhook.module';
+import { TaskService } from '../tasks/tasks.service';
+import { LocationManagerService } from '../tasks/location_manager.service';
 
 @Module({
   imports: [
@@ -57,7 +58,7 @@ import { WebhookModule } from '../webhook/webhook.module';
     forwardRef(() => WebhookModule),
   ],
   controllers: [OrchestratorController],
-  providers: [OrchestratorService, StationsService, WaitingLocationService, BaseopsTaskService, BaseopsTaskService, BaseOpsLocationManagerService, EmptyLocationsService],
+  providers: [OrchestratorService, StationsService, WaitingLocationService, BaseopsTaskService, TaskService, LocationManagerService, EmptyLocationsService],
   exports: [OrchestratorService],
 })
 export class OrchestratorModule {}
