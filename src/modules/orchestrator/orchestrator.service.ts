@@ -2207,7 +2207,7 @@ export class OrchestratorService {
     for (const robotId of allRobotIds){
       const repoRobot = await this.robotRepository.findOne({where: { robot_id: robotId }});
       if (!repoRobot) continue;
-      const filteredTasks = allTasks.filter(task => task.robot_id === robotId && task.created_at >= repoRobot.created_at);
+      const filteredTasks = allTasks.filter(task => task.robot_id === robotId);
       if (filteredTasks.length == 0) continue;
       if (!res[robotId]) {
         res[robotId] = {
