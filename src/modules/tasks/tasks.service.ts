@@ -916,7 +916,19 @@ export class TaskService {
 
     // Generate batch ID with incremented count
     const batchNumber = todayBatchCount + 1;
-    const batchId = `${dateString}_${batchNumber}`;
+
+    let batchPre = "";
+    
+    if (this.taskType === TaskType.GOODS_TO_PERSON) {
+      batchPre = "GP"
+    } else if (this.taskType === TaskType.BASEOPS) {
+      batchPre = "BO"
+    } else if (this.taskType === TaskType.CROSSDOCK) {
+      batchPre = "CD"
+    } else {
+      batchPre = "B"
+    }
+    const batchId = `${batchPre}_${dateString}_${batchNumber}`;
 
     return batchId;
   }
