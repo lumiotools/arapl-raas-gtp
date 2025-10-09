@@ -2136,40 +2136,40 @@ export class OrchestratorService {
   }
 
   async getPredictedRobots(){
-    return {
-      "predicted": 1
-    }
-    // const orderItems = await this.orderItemRepository.find({
-    //   where: { status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS]) },
-    // });
-    // const uniqueProducts = new Set(orderItems.map(item => item.product_id)); // unique product IDS
-    // const setOfUniqueGTP = new Set(orderItems.map(item => item.assigned_gtp_location));
-    // const inventory_to_waiting_locations = await this.waitingLocationRepository.find({
-    //     where: { type: WaitingLocationType.INVENTORY_TO_STATION }
-    // });
-    // const uniqueStations = new Set();
-    // for (const gtpLocationId of setOfUniqueGTP) {
-    //   if (!gtpLocationId) continue;
-    //   const gtpLocation = await this.gtpLocationRepository.findOne({
-    //     where: { gtp_location_id: gtpLocationId }
-    //   });
-    //   if (gtpLocation && gtpLocation.station_id) {
-    //     uniqueStations.add(gtpLocation.station_id);
-    //   }
-    // }
-    // const numberOfUniqueStations = uniqueStations.size;
-    // let x = uniqueProducts.size;
-    // let y = numberOfUniqueStations;
-    // let z = inventory_to_waiting_locations.length;
-    // let l = Math.min(x, y+z);
-    // let h = 2*y;
-    // let predicted = Math.ceil((l + h) / 2);
-
-    // console.log(`Predicted Robots: ${predicted} (Unique Products: ${x}, Unique Stations: ${y}, Inventory to Waiting Locations: ${z})`);
-
     // return {
-    //   "predicted": predicted,
+    //   "predicted": 1
     // }
+    const orderItems = await this.orderItemRepository.find({
+      where: { status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED, OrderItemStatus.IN_PROGRESS]) },
+    });
+    const uniqueProducts = new Set(orderItems.map(item => item.source_location_id)); // unique product IDS
+    const setOfUniqueGTP = new Set(orderItems.map(item => item.destination_pallet_slot_id));
+    const inventory_to_waiting_locations = await this.waitingLocationRepository.find({
+        where: { type: WaitingLocationType.INVENTORY_TO_STATION }
+    });
+    const uniqueStations = new Set();
+    for (const gtpLocationId of setOfUniqueGTP) {
+      if (!gtpLocationId) continue;
+      const gtpLocation = await this.gtpLocationRepository.findOne({
+        where: { gtp_location_id: gtpLocationId }
+      });
+      if (gtpLocation && gtpLocation.station_id) {
+        uniqueStations.add(gtpLocation.station_id);
+      }
+    }
+    const numberOfUniqueStations = uniqueStations.size;
+    let x = uniqueProducts.size;
+    let y = numberOfUniqueStations;
+    let z = inventory_to_waiting_locations.length;
+    let l = Math.min(x, y+z);
+    let h = 2*y;
+    let predicted = Math.ceil((l + h) / 2);
+
+    console.log(`Predicted Robots: ${predicted} (Unique Products: ${x}, Unique Stations: ${y}, Inventory to Waiting Locations: ${z})`);
+
+    return {
+      "predicted": predicted,
+    }
 
   }
   async getTasksByRobotId(robotId: string){
@@ -2219,6 +2219,8 @@ export class OrchestratorService {
     const allRobotIds = Array.from(robotIds);
     const res = {};
     for (const robotId of allRobotIds){
+      const repoRobot = await this.robotRepository.findOne({where: { robot_id: robotId }});
+      if (!repoRobot) continue;
       const filteredTasks = allTasks.filter(task => task.robot_id === robotId);
       if (filteredTasks.length == 0) continue;
       if (!res[robotId]) {
@@ -2290,9 +2292,6 @@ export class OrchestratorService {
           }
         }
       }
-
-      const repoRobot = await this.robotRepository.findOne({where: { robot_id: robotId }});
-      if (!repoRobot) continue;
       if (!repoRobot.logs) continue;
       const requiredLogs = repoRobot.logs.filter(log => {
         const logDate = new Date(log.timestamp);
@@ -2336,24 +2335,22 @@ export class OrchestratorService {
         }
         currentStatus = log.new_status;
         currentTime = new Date(log.timestamp).getTime();
-        if (i === requiredLogs.length - 1) {
-          // last log, calculate time till now
-          if (currentStatus === RobotStatus.INUSE) {
-            res[robotId].inUse_time += (Date.now() - currentTime) / 1000;
-          }
-          else if (currentStatus === RobotStatus.CHARGING) {
-            res[robotId].charging_time += (Date.now() - currentTime) / 1000;
-          }
-          else if (currentStatus === RobotStatus.MAINTENANCE) {
-            res[robotId].maintenance_time += (Date.now() - currentTime) / 1000;
-          }
-          else if (currentStatus === RobotStatus.ONLINE) {
-            res[robotId].online_time += (Date.now() - currentTime) / 1000;
-          }
-          else if (currentStatus === RobotStatus.ERROR) {
-            res[robotId].error_time += (Date.now() - currentTime) / 1000;
-          }
-        }
+      }
+      // last log, calculate time till now
+      if (currentStatus === RobotStatus.INUSE) {
+        res[robotId].inUse_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.CHARGING) {
+        res[robotId].charging_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.MAINTENANCE) {
+        res[robotId].maintenance_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.ONLINE) {
+        res[robotId].online_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.ERROR) {
+        res[robotId].error_time += (Date.now() - currentTime) / 1000;
       }
     }
     return res;
