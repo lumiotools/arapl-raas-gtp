@@ -46,7 +46,7 @@ export class SettingsService {
 
   async getAllRobots(task_type: TaskType) {
     const robots = await this.robotRepository.find({
-      where: { task_type: task_type['task_type'] },
+      where: { task_type: task_type },
     });
     const res: any[] = [];
     if (robots.length === 0) {

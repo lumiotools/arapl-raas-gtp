@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Log } from '../entities/log.entity';
 import { TaskType } from 'src/entities';
+import { OperationType } from 'src/entities/robot-count.entity';
 
 @Injectable()
 export class LoggingService {
@@ -67,8 +68,14 @@ export class LoggingService {
    * Get logs with optional filtering by task type.
    * If taskType is provided, returns logs only for that task_type (descending by timestamp).
    */
-  async getLogs(taskType?: string | TaskType, limit?: number): Promise<Log[]> {
-    if (taskType) {
+  async getLogs(operationType?: OperationType, limit?: number): Promise<Log[]> {
+    let taskType: TaskType;
+    if (operationType) {
+      if(operationType === OperationType.FLOWOPS) taskType = TaskType.GOODS_TO_PERSON;
+      else if(operationType === OperationType.BASEOPS) taskType = TaskType.BASEOPS;
+      else if (operationType === OperationType.CROSSDOCK) taskType = TaskType.CROSSDOCK;
+      else throw new Error('Invalid operation type');
+      
       const opts: any = { where: { task_type: taskType }, order: { timestamp: 'DESC' } };
       if (limit) opts.take = limit;
       return await this.logRepository.find(opts);

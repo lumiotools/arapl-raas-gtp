@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
 import { Role } from 'src/entities/user.entity';
+import { OperationType } from 'src/entities/robot-count.entity';
 
 @ApiTags('Logs')
 @Controller('logs')
@@ -44,7 +45,7 @@ export class LogsController {
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
-  async getAllLogs(@Query('limit') limit?: number, @Query('task_type') taskType?: string) {
+  async getAllLogs(@Query('limit') limit?: number, @Query('task_type') taskType?: OperationType) {
     return await this.loggingService.getLogs(taskType, limit);
   }
 
