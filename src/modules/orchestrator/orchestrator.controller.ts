@@ -8,6 +8,7 @@ import { RolesGuard } from '../auth/guard/roles.guard';
 import { BadRequestDto } from '../orders/dto/error-responses.dto';
 import { Role } from 'src/entities/user.entity';
 import { TaskType } from 'src/entities';
+import { OperationType } from 'src/entities/robot-count.entity';
 
 @ApiTags('Orchestrator')
 @Controller('orchestrator')
@@ -993,7 +994,7 @@ export class OrchestratorController {
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN)
-  async updateTotalRobots(@Body('total_robots') totalRobots: number, @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps") {
+  async updateTotalRobots(@Body('total_robots') totalRobots: number, @Query('module') module: OperationType = OperationType.FLOWOPS) {
     if (!totalRobots || totalRobots <= 0) {
       throw new BadRequestException('total_robots must be a positive number');
     }
@@ -1026,7 +1027,7 @@ export class OrchestratorController {
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
-  async getTotalRobots(@Query('module') module: "FlowOps" | "BaseOps" = "FlowOps") {
+  async getTotalRobots(@Query('module') module: OperationType = OperationType.FLOWOPS) {
     const totalRobots = await this.orchestratorService.getTotalRobots(module);
 
     return {

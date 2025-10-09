@@ -2599,18 +2599,18 @@ export class OrchestratorService {
     return res;
   }
 
-  async updateTotalRobots(totalRobots: number, module: "FlowOps" | "BaseOps") {
+  async updateTotalRobots(totalRobots: number, module: OperationType) {
     const result = await this.robotCountRepository
       .createQueryBuilder()
       .select('COUNT(*)', 'count')
-      .where({ operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS })
+      .where({ operation_type: module })
       .getRawOne();
 
     if (result.count === 0) {
       await this.robotCountRepository.save({
         id: crypto.randomUUID(),
         is_waiting: false,
-        operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS,
+        operation_type: module,
         total_robots: totalRobots,
         robot_in_use: 0
       });
@@ -2625,13 +2625,13 @@ export class OrchestratorService {
     if (inProgressOrders) {
       throw new BadRequestException('Cannot update total robots while orders are in progress');
     }
-    const robotRecord = (await this.robotCountRepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}}))[0];
+    const robotRecord = (await this.robotCountRepository.find({where: {operation_type: module }}))[0];
 
-    await this.robotCountRepository.update({ id: robotRecord.id, operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS }, { total_robots: totalRobots });
+    await this.robotCountRepository.update({ id: robotRecord.id, operation_type: module  }, { total_robots: totalRobots });
   }
 
-  async getTotalRobots(module: "FlowOps" | "BaseOps") {
-    const result = await this.robotCountRepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}});
+  async getTotalRobots(module: OperationType) {
+    const result = await this.robotCountRepository.find({where: {operation_type: module }});
     if (result.length === 0) {
       return 0;
     }
