@@ -2180,11 +2180,22 @@ export class OrchestratorService {
     });
   }
 
-  async getRobotReport(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps") {
+  async getRobotReport(startDate: Date | undefined, endDate: Date | undefined, module: OperationType) {
     console.log(`Generating robot report from ${startDate} to ${endDate} for module ${module}`);
-    const whereCondition: any = {
-      task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
-    };
+    const whereCondition: any = {};
+
+    if(module === OperationType.FLOWOPS) {
+      whereCondition.task_type = TaskType.GOODS_TO_PERSON;
+    }
+    else if(module === OperationType.BASEOPS) {
+      whereCondition.task_type = TaskType.BASEOPS;
+    }
+    else if(module === OperationType.CROSSDOCK) {
+      whereCondition.task_type = TaskType.CROSSDOCK;
+    } else {
+      throw new BadRequestException('Invalid module type. Must be FLOWOPS, BASEOPS, or CROSSDOCK.');
+    }
+
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
     }
@@ -2349,7 +2360,7 @@ export class OrchestratorService {
 
   }
 
-  async getMovementReport(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps") {
+  async getMovementReport(startDate: Date | undefined, endDate: Date | undefined, module: OperationType) {
     const whereCondition: any = {};
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
@@ -2363,7 +2374,7 @@ export class OrchestratorService {
     const allTasks = await this.taskRepository.find({
       where: whereCondition,
     });
-    const res: Record<string, number[]> = module === "FlowOps" ? {
+    const res: Record<string, number[]> = module === OperationType.FLOWOPS ? {
       "InventoryToStation": [],
       "InventoryToWaitingLocation": [],
       "StationToWaitingLocation": [],
@@ -2373,11 +2384,13 @@ export class OrchestratorService {
       "WaitingLocationToInventory": [],
       "StationToEmpty": [],
       "EmptyToEmptyLocation": []
-    }: module === "BaseOps" ? {
+    } : module === OperationType.BASEOPS ? {
       "ZoneToZone": [],
-    }:{};
+    } : module === OperationType.CROSSDOCK ? {
+      "ZoneToZone": [],
+    } : {};
 
-    if(module === "FlowOps"){
+    if(module === OperationType.FLOWOPS){
     for (const task of allTasks){
       if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION){
         if (task.processing && task.completed) {
@@ -2427,7 +2440,16 @@ export class OrchestratorService {
         }
       }
     }
-  }  else if (module === "BaseOps"){
+  }  else if (module === OperationType.BASEOPS){
+    for (const task of allTasks){
+      if (task.task_type === TaskType.BASEOPS){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.ZoneToZone.push(travelTime);
+        }
+      }
+    } 
+  } else if (module === OperationType.CROSSDOCK){
     for (const task of allTasks){
       if (task.task_type === TaskType.BASEOPS){
         if (task.processing && task.completed) {
@@ -2440,10 +2462,20 @@ export class OrchestratorService {
     return res;
   }
 
-  async getTasksByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined, module: "FlowOps" | "BaseOps") {
-    const whereCondition: any = {
-      task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
-    };
+  async getTasksByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined, module: OperationType) {
+    const whereCondition: any = {};
+
+    if(module === OperationType.FLOWOPS) {
+      whereCondition.task_type = TaskType.GOODS_TO_PERSON;
+    }
+    else if(module === OperationType.BASEOPS) {
+      whereCondition.task_type = TaskType.BASEOPS;
+    }
+    else if(module === OperationType.CROSSDOCK) {
+      whereCondition.task_type = TaskType.CROSSDOCK;
+    } else {
+      throw new BadRequestException('Invalid module type. Must be FLOWOPS, BASEOPS, or CROSSDOCK.');
+    }
 
     if (!statusList || statusList.length === 0) {
       throw new BadRequestException('Status is required');

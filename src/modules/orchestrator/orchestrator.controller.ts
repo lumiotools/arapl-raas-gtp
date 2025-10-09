@@ -677,7 +677,7 @@ export class OrchestratorController {
     async getRobotReport(
       @Query('start_time') startTime?: string,
       @Query('end_time') endTime?: string,
-      @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
+      @Query('module') module: OperationType = OperationType.FLOWOPS
     ) {
       let startDate: Date | undefined;
       let endDate: Date | undefined;
@@ -756,7 +756,7 @@ export class OrchestratorController {
   async getMovementReport(
     @Query('start_time') startTime?: string,
     @Query('end_time') endTime?: string,
-    @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
+    @Query('module') module: OperationType = OperationType.FLOWOPS
   ) {
     let startDate: Date | undefined;
     let endDate: Date | undefined;
@@ -822,7 +822,7 @@ export class OrchestratorController {
     @Query('status') status: string,
     @Query('start_time') startTime?: string,
     @Query('end_time') endTime?: string,
-    @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
+    @Query('module') module: OperationType = OperationType.FLOWOPS
     ): Promise<TaskDetails[]> {
     if (!status) {
       throw new BadRequestException('Status query parameter is required');
