@@ -466,7 +466,9 @@ export class WebhookService {
       const cancelled_tasks = normalizedStatuses.filter((s) => s === TaskStatus.CANCELLED).length;
 
       let nextStatus: BatchStatus;
-      if (normalizedStatuses.length > 0 && normalizedStatuses.every((s) => s === TaskStatus.COMPLETED || s === TaskStatus.CANCELLED)) {
+      if (normalizedStatuses.every((s) => s === TaskStatus.CANCELLED)) {
+        nextStatus = BatchStatus.CANCELLED;
+      } else if (normalizedStatuses.length > 0 && normalizedStatuses.every((s) => s === TaskStatus.COMPLETED || s === TaskStatus.CANCELLED)) {
         nextStatus = BatchStatus.COMPLETED;
       } else if (normalizedStatuses.some((s) => s === TaskStatus.PROCESSING)) {
         nextStatus = BatchStatus.PROCESSING;
@@ -477,8 +479,6 @@ export class WebhookService {
         nextStatus = BatchStatus.WAITING;
       } else if (normalizedStatuses.some((s) => s === TaskStatus.HALTED)) {
         nextStatus = BatchStatus.HALTED;
-      } else if (normalizedStatuses.every((s) => s === TaskStatus.CANCELLED)) {
-        nextStatus = BatchStatus.CANCELLED;
       } else {
         nextStatus = BatchStatus.PENDING;
       }
