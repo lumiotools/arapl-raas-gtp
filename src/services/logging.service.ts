@@ -44,6 +44,7 @@ export class LoggingService {
       // If an error log already exists for this task, do not create a new one
       return;
     }
+    await this.log(`Task ${task_id} is in CANCELLED state for more than 1 minute`, task_type, task_id, null);
     await this.log(message, task_type, task_id, order_batch_id, is_error);
   }
 
