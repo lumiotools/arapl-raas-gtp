@@ -1505,7 +1505,8 @@ export class OrchestratorService {
   async checkForErrorTasks(){
     const errorTasks = await this.taskRepository.find({
       where: { status: TaskStatus.CANCELLED,
-        updated_at: LessThan(new Date(Date.now() - 1 * 60 * 1000))
+        updated_at: Between(new Date(Date.now() - 5 * 60 * 1000), new Date(Date.now() - 1 * 60 * 1000)),
+        task_type: TaskType.GOODS_TO_PERSON
       },
     });
     
@@ -1520,7 +1521,6 @@ export class OrchestratorService {
         continue;
       }
       await this.loggingService.createErrorLog(`Task ${task.task_id} is in CANCELLED state for more than 1 minute`, task.task_type, task.task_id, null, true);
-      await this.loggingService.log(`Task ${task.task_id} is in CANCELLED state for more than 1 minute`, task.task_type, task.task_id, null);
     }
   }
 
