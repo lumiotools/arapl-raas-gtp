@@ -7,6 +7,7 @@ import { Roles } from '../auth/guard/roles.decorator';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { BadRequestDto } from '../orders/dto/error-responses.dto';
 import { Role } from 'src/entities/user.entity';
+import { TaskType } from 'src/entities';
 
 @ApiTags('Orchestrator')
 @Controller('orchestrator')
@@ -751,6 +752,43 @@ export class OrchestratorController {
       }
 
       return await this.orchestratorService.getRobotReport(startDate, endDate, module);
+  }
+
+  @Get('robot-status/:robot_id')
+  @ApiOperation({
+    summary: 'Get robot status by robot ID',
+    description: 'Retrieve the current status and details of a specific robot by its ID.',
+  })
+  @ApiParam({ name: 'robot_id', description: 'Robot ID', example: 'ROBOT_001' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Robot status retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        robot_id: { type: 'string', example: 'ROBOT_001' },
+        status: { type: 'string', example: 'AVAILABLE' },
+        location: { type: 'string', example: 'ZONE_A' },
+        battery_level: { type: 'number', example: 85 },
+        last_active: { type: 'string', format: 'date-time', example: '2024-01-15T10:30:00Z' }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Robot not found',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Robot ROBOT_001 not found' }
+      }
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN)
+  async getRobotStatus(@Param('robot_id') robotId: string, @Query('task_type') task_type: TaskType) {
+    const robot = await this.orchestratorService.getRobotStatus(robotId, task_type);
+    return robot;
   }
 
   @Get('movement-report')

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, Move, NotFoundException } from
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, OneToOne, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
-import { firstValueFrom, last, min, take } from 'rxjs';
+import { first, firstValueFrom, last, min, take } from 'rxjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderItem, OrderItemStatus } from 'src/entities/order-item.entity';
 import { Task, TaskType, TaskStatus, MOVE_TYPE } from 'src/entities/task.entity';
@@ -2729,9 +2729,9 @@ export class OrchestratorService {
         relations: ['batch']
       }));
     }
-    if (statusList.includes('completed')) {
+    if (statusList  .includes('completed')) {
       TaskItems.push(...await this.taskRepository.find({
-        where: { ...whereCondition, status: TaskStatus.COMPLETED },
+        where: { ...whereCondition, status: In([TaskStatus.COMPLETED, TaskStatus.TRIGERRED]) },
         order: { created_at: 'DESC' },
         relations: ['batch']
       }));
@@ -2766,6 +2766,116 @@ export class OrchestratorService {
       results.push(taskDetails);
     }
     return results;
+  }
+
+  
+  async getRobotStatus(robotId: string, task_type: TaskType) {
+    const task = await this.taskRepository.findOne({
+      where: { robot_id: robotId, task_type: task_type },
+      order: { updated_at: 'DESC' },
+    });
+
+    if (!task) {
+      return {
+        "success": false,
+        "message": `No tasks found for robot with ID ${robotId}`,
+        "data": { }
+      }
+    }
+
+    const status = task.status.toUpperCase()
+    const attributeValue = task.end_location.location_attribute.attribute_value
+
+    let currentTask: Task | null = null;
+    if ((status === TaskStatus.COMPLETED) && attributeValue === "inventory") {
+      // Don't show task
+    }
+    // Exclusion Rule 2: Status is PENDING, ASSIGNED, or TRIGGERED
+    else if (status === TaskStatus.PENDING || status === TaskStatus.ASSIGNED || status === TaskStatus.TRIGERRED) {
+      // Don't show task
+    }
+    else {
+      currentTask = task;
+    }
+
+    let inventory_info: Inventory | null = null;
+    if (currentTask) {
+      const firstTask = await this.taskRepository.findOne({where: { batch_id: currentTask.batch_id, sequence_order: 1 }});
+      if (!firstTask) { return {
+        "success": false,
+        "message": `No tasks found for robot with ID ${robotId}`,
+        "data": { }
+      }}
+      const inventory = await this.inventoryRepository.findOne({
+        where: { id: firstTask.start_location.location_id }
+      });
+      if (inventory) { inventory_info = inventory;}
+    }
+    let station_info: Station | WaitingLocation | null = null;
+    let station_id : string | null = null;
+    let isStation = false;
+    if (currentTask && currentTask.end_location.location_attribute.attribute_value === 'station') {
+      const station = await this.stationRepository.findOne({
+        where: { station_id: currentTask.end_location.location_id }
+      });
+      if (station) { station_info = station;
+        station_id = station.station_id;
+        isStation = true;
+      }
+    }
+    if (currentTask && currentTask.end_location.location_attribute.attribute_value === 'waiting_location') {
+      const waiting_location = await this.waitingLocationRepository.findOne({
+        where: { location_id: currentTask.end_location.location_id }
+      });
+      if (waiting_location) { station_info = waiting_location;
+        station_id = waiting_location.location_id;
+      }
+    }
+
+    let gtp_location_mapping : any[] = [];
+    let destination_order_items: any[] = [];
+    let gtpLocations: GtpLocation[] = [];
+    if (isStation && station_id){
+      gtpLocations = await this.gtpLocationRepository.find({ where: { station_id: station_id } });
+    }
+    const orderItems = await this.orderItemRepository.find({
+      where: {
+        status: OrderItemStatus.IN_PROGRESS,
+        product_id: currentTask ? currentTask.product_id : '',
+        assigned_gtp_location: In(gtpLocations.map(loc => loc.gtp_location_id))
+      }
+    })
+    for (const item of orderItems){
+      gtp_location_mapping.push({
+        "order_item_id": item.order_item_id,
+        "gtp_location_id": item.assigned_gtp_location,
+        "station_id": station_id,
+        "license_plate_id": item.license_plate_id,
+        "quantity": item.remaining_quantity,
+      });
+      if (isStation){
+          destination_order_items.push({
+          "order_item_id": item.order_item_id,
+          "order_batch_id": item.order_batch_id,
+          "destination_pallet_slot_id": item.assigned_gtp_location,
+          "status": item.status,
+          "license_plate_id": item.license_plate_id,
+        });
+      }
+      
+    }
+
+    return {
+      "success": true,
+      "message": "Robot status retrieved successfully",
+      "data": {
+        "current_task": currentTask,
+        "inventory": inventory_info,
+        "station_info": station_info,
+        "gtp_location_mappings": gtp_location_mapping,
+        "destination_order_items": destination_order_items,
+      }
+    }
   }
 
   async getTravelAnalysisMovements(
