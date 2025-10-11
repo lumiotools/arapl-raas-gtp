@@ -11,7 +11,7 @@ import { Cron, Interval } from '@nestjs/schedule';
 import { first, firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { BaseOpsLocationManagerService } from './location_manager.service';
-import { OperationType, Robot } from 'src/entities/robot.entity';
+import { OperationType, RobotCount } from 'src/entities/robot-count.entity';
 import { ActivityType, BaseopsTaskActivity } from './dto/baseops-task-activity';
 
 @Injectable()
@@ -24,8 +24,8 @@ export class BaseopsTaskService {
     private readonly taskRepository: Repository<Task>,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
-    @InjectRepository(Robot)
-    private readonly robotRepository: Repository<Robot>,
+    @InjectRepository(RobotCount)
+    private readonly robotcountrepository: Repository<RobotCount>,
   ) {}
 
   create(createBaseopsTaskDto: CreateBaseopsTaskDto) {
@@ -842,7 +842,7 @@ export class BaseopsTaskService {
   }
 
   async isRobotAvailable(): Promise<boolean> {
-    const robots = await this.robotRepository.find({where:{operation_type: OperationType.BASEOPS}});
+    const robots = await this.robotcountrepository.find({where:{operation_type: OperationType.BASEOPS}});
     if (robots.length === 0){
       return false;
     }
@@ -851,7 +851,7 @@ export class BaseopsTaskService {
   }
   async incrementRobotInUse(): Promise<void> {
     console.log('increment robot in use count');
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotcountrepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -859,7 +859,7 @@ export class BaseopsTaskService {
         // Atomic increment - no race condition possible
         const result = await queryRunner.manager
             .createQueryBuilder()
-            .update(Robot)
+            .update(RobotCount)
             .set({ 
                 robot_in_use: () => "robot_in_use + 1" 
             })
@@ -881,7 +881,7 @@ export class BaseopsTaskService {
   }
 
   async decrementRobotInUse(): Promise<void> {
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotcountrepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -889,7 +889,7 @@ export class BaseopsTaskService {
         // Atomic decrement with safety check to prevent negative values
         const result = await queryRunner.manager
             .createQueryBuilder()
-            .update(Robot)
+            .update(RobotCount)
             .set({ 
                 robot_in_use: () => "GREATEST(robot_in_use - 1, 0)" 
             })
@@ -909,7 +909,7 @@ export class BaseopsTaskService {
   }
 
   async checkIfSystemIsInWaitingState(): Promise<boolean> {
-    const robots = await this.robotRepository.find({where: {operation_type: OperationType.BASEOPS}});
+    const robots = await this.robotcountrepository.find({where: {operation_type: OperationType.BASEOPS}});
     if (robots.length === 0){
       return false;
     }
@@ -918,17 +918,17 @@ export class BaseopsTaskService {
   }
 
   async markSystemAsWaiting(): Promise<void> {
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotcountrepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
     
     try {
-      const robots = await queryRunner.manager.find(Robot);
+      const robots = await queryRunner.manager.find(RobotCount);
       if (robots.length === 0) {
       throw new Error('No Robot Entry Found');
       }
       await queryRunner.manager.update(
-        Robot,
+        RobotCount,
         { id: robots[0].id, operation_type: OperationType.BASEOPS },
         { is_waiting: true }
       );
@@ -942,16 +942,16 @@ export class BaseopsTaskService {
   }
 
   async unmarkSystemAsWaiting(): Promise<void> {
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotcountrepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const robots = await queryRunner.manager.find(Robot);
+      const robots = await queryRunner.manager.find(RobotCount);
       if (robots.length === 0) {
         throw new Error('No Robot Entry Found');
       }
-      await queryRunner.manager.update(Robot, { id: robots[0].id, operation_type: OperationType.BASEOPS }, { is_waiting: false });
+      await queryRunner.manager.update(RobotCount, { id: robots[0].id, operation_type: OperationType.BASEOPS }, { is_waiting: false });
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -962,15 +962,16 @@ export class BaseopsTaskService {
   }
 
   async setInitialConfiguration(): Promise<void> {
-    const robots = await this.robotRepository.find({where: {operation_type: OperationType.BASEOPS}});
+    const robots = await this.robotcountrepository.find({where: {operation_type: OperationType.BASEOPS}});
     console.log(`Current BaseOps robot configurations: ${robots.length}`);
     if (robots.length === 0){
-      const newRobotConfig = new Robot();
+      const newRobotConfig = new RobotCount();
+      newRobotConfig.id = "4cb4f7ed-c36e-4301-8f53-dca08e199a9f";
       newRobotConfig.operation_type = OperationType.BASEOPS;
       newRobotConfig.total_robots = 1;
       newRobotConfig.robot_in_use = 0;
       newRobotConfig.is_waiting = false;
-      await this.robotRepository.save(newRobotConfig);
+      await this.robotcountrepository.save(newRobotConfig);
     }
 
     // await this.BaseOpsLocationManagerService.syncFMSLocations();  

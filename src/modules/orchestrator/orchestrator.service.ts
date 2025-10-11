@@ -22,9 +22,10 @@ import { StationsService } from '../stations/stations.service';
 import {config} from 'dotenv';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
-import { Robot } from 'src/entities';
-import { OperationType } from 'src/entities/robot.entity';
+import { RobotCount } from 'src/entities';
+import { OperationType } from 'src/entities/robot-count.entity';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
+import { Robot, RobotStatus } from 'src/entities/robots.entity';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -100,6 +101,8 @@ export class OrchestratorService {
     private readonly productRequirementRepository: Repository<ProductRequirementEntity>,
     @InjectRepository(ScheduleMapping)
     private readonly scheduleMappingRepository: Repository<ScheduleMapping>,
+    @InjectRepository(RobotCount)
+    private readonly robotcountrepository: Repository<RobotCount>,
     @InjectRepository(Robot)
     private readonly robotRepository: Repository<Robot>,
     private readonly inventoryService: InventoryService,
@@ -243,7 +246,7 @@ export class OrchestratorService {
   }
 
   async isRobotAvailable(): Promise<boolean> {
-    const robots = await this.robotRepository.find({where:{operation_type: OperationType.FLOWOPS}});
+    const robots = await this.robotcountrepository.find({where:{operation_type: OperationType.FLOWOPS}});
     if (robots.length === 0){
       return false;
     }
@@ -252,7 +255,7 @@ export class OrchestratorService {
   }
   async incrementRobotInUse(): Promise<void> {
     console.log('increment robot in use count');
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotcountrepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -260,7 +263,7 @@ export class OrchestratorService {
         // Atomic increment - no race condition possible
         const result = await queryRunner.manager
             .createQueryBuilder()
-            .update(Robot)
+            .update(RobotCount)
             .set({ 
                 robot_in_use: () => "robot_in_use + 1" 
             })
@@ -281,7 +284,7 @@ export class OrchestratorService {
   }
 
   async decrementRobotInUse(): Promise<void> {
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotcountrepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -289,7 +292,7 @@ export class OrchestratorService {
         // Atomic decrement with safety check to prevent negative values
         const result = await queryRunner.manager
             .createQueryBuilder()
-            .update(Robot)
+            .update(RobotCount)
             .set({ 
                 robot_in_use: () => "GREATEST(robot_in_use - 1, 0)" 
             })
@@ -310,7 +313,7 @@ export class OrchestratorService {
 
 
   async checkIfSystemIsInWaitingState(): Promise<boolean> {
-    const robots = await this.robotRepository.find({where: {operation_type: OperationType.FLOWOPS}});
+    const robots = await this.robotcountrepository.find({where: {operation_type: OperationType.FLOWOPS}});
     if (robots.length === 0){
       return false;
     }
@@ -319,19 +322,19 @@ export class OrchestratorService {
   }
 
   async markSystemAsWaiting(): Promise<void> {
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotcountrepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
     
     try {
-      const robots = await queryRunner.manager.find(Robot, {
+      const robots = await queryRunner.manager.find(RobotCount, {
         where: { operation_type: OperationType.FLOWOPS }
       });
       if (robots.length === 0) {
       throw new Error('No Robot Entry Found');
       }
       await queryRunner.manager.update(
-        Robot,
+        RobotCount,
         { id: robots[0].id, operation_type: OperationType.FLOWOPS },
         { is_waiting: true }
       );
@@ -345,18 +348,18 @@ export class OrchestratorService {
   }
 
   public async unmarkSystemAsWaiting(): Promise<void> {
-    const queryRunner = this.robotRepository.manager.connection.createQueryRunner();
+    const queryRunner = this.robotcountrepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      const robots = await queryRunner.manager.find(Robot, {
+      const robots = await queryRunner.manager.find(RobotCount, {
         where: { operation_type: OperationType.FLOWOPS }
       });
       if (robots.length === 0) {
         throw new Error('No Robot Entry Found');
       }
-      await queryRunner.manager.update(Robot, 
+      await queryRunner.manager.update(RobotCount, 
         { id: robots[0].id, operation_type: OperationType.FLOWOPS }, 
         { is_waiting: false }
       );
@@ -748,14 +751,14 @@ export class OrchestratorService {
   async setInitialConfiguration(){
     await this.stationService.findAll();
     await this.waitingLocationService.findAll();
-    const robots = await this.robotRepository.find({
+    const robots = await this.robotcountrepository.find({
       where:{operation_type: OperationType.FLOWOPS}
     });
     if (robots.length === 0){
-      await this.robotRepository.save({id: crypto.randomUUID(), operation_type: OperationType.FLOWOPS, is_waiting: false, total_robots: 1, robot_in_use: 0 });
+      await this.robotcountrepository.save({id: "13245a22-8204-4489-8dbc-b191a642826b", operation_type: OperationType.FLOWOPS, is_waiting: false, total_robots: 1, robot_in_use: 0 });
     }
     // else{
-    //   await this.robotRepository.updateAll({ is_waiting: false, total_robots: 4, robot_in_use: 0 });
+    //   await this.robotcountrepository.updateAll({ is_waiting: false, total_robots: 4, robot_in_use: 0 });
     // }
   }
 
@@ -1923,6 +1926,224 @@ export class OrchestratorService {
     }
   }
 
+  
+  async getRobotReport(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps") {
+    console.log(`Generating robot report from ${startDate} to ${endDate} for module ${module}`);
+    const whereCondition: any = {
+      task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
+    };
+    if (startDate && endDate) {
+      whereCondition.created_at = Between(startDate, endDate);
+    }
+    else if (startDate){
+      whereCondition.created_at = MoreThanOrEqual(startDate);
+    }
+    else if (endDate){
+      whereCondition.created_at = LessThanOrEqual(endDate);
+    }
+    console.log(whereCondition);
+    const allTasks = await this.taskRepository.find({
+      where: whereCondition,
+    });
+
+    const allRobots = await this.robotRepository.find();
+    // keep a set of all the robot IDs used in allTasks
+    const robotIds = new Set<string>();
+    allRobots.forEach(robot => {
+      if (robot.robot_id) {
+        robotIds.add(robot.robot_id);
+      }
+    });
+    const allRobotIds = Array.from(robotIds);
+    const res = {};
+    for (const robotId of allRobotIds){
+      const repoRobot = await this.robotRepository.findOne({where: { robot_id: robotId }});
+      if (!repoRobot) continue;
+      const filteredTasks = allTasks.filter(task => task.robot_id === robotId);
+      // if (filteredTasks.length == 0) continue;
+      if (!res[robotId]) {
+        res[robotId] = {
+          totalTasks: filteredTasks.length,
+          travel_time: [],
+          wait_time: [],
+          unloading_time: {},
+          completedTasks: 0,
+          canceledTasks: 0,
+          move_types: {
+            [MOVE_TYPE.INVENTORY_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
+            [MOVE_TYPE.STATION_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
+            [MOVE_TYPE.STATION_TO_INVENTORY]: {'total_tasks': 0, 'travel_times': []},
+            [MOVE_TYPE.STATION_TO_WAITING_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.WAITING_LOCATION_TO_STATION]: {'total_tasks': 0, 'travel_times': [] },
+          }
+        };
+      }
+      // get travel_time
+      for (const task of filteredTasks){
+        if (task.processing && task.completed){
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res[robotId].travel_time.push(travelTime);
+        }
+
+        if (task.end_location.location_attribute?.attribute_value === 'station' && task.completed && task.triggered){
+          const unloadingTime = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
+          // res[robotId].unloading_time.push(unloadingTime);
+          if (task.end_location.location_id in res[robotId].unloading_time){
+            res[robotId].unloading_time[task.end_location.location_id].push(unloadingTime);
+          } else {
+            res[robotId].unloading_time[task.end_location.location_id] = [unloadingTime];
+          }
+        }
+
+        if (task.end_location.location_attribute?.attribute_value === 'waiting_location' && task.completed && task.status !== TaskStatus.CANCELLED){
+          // Find the next task in the same batch with sequence order + 1
+          const nextTask = await this.taskRepository.findOne({
+            where: {
+              batch_id: task.batch_id,
+              sequence_order: task.sequence_order + 1
+            }
+          });
+
+          if (nextTask && nextTask.processing && task.completed) {
+            const waitTime = Math.floor((Number(nextTask.processing) - Number(task.completed)) / 1000);
+            res[robotId].wait_time.push(waitTime);
+          }
+        }
+        if (task.status === TaskStatus.COMPLETED || task.status===TaskStatus.TRIGERRED){
+          res[robotId].completedTasks += 1;
+        }
+        if (task.status === TaskStatus.CANCELLED){
+          res[robotId].canceledTasks += 1;
+        }
+        if (task.move_type in res[robotId].move_types){
+          res[robotId].move_types[task.move_type].total_tasks += 1;
+          if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || task.move_type === MOVE_TYPE.STATION_TO_STATION){
+            if (task.completed && task.triggered){
+              const pickingTime = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
+              res[robotId].move_types[task.move_type].picking_times.push(pickingTime);
+            }
+          }
+          if (task.processing && task.completed){
+            const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+            res[robotId].move_types[task.move_type].travel_times.push(travelTime);
+          }
+        }
+      }
+      if (!repoRobot.logs) continue;
+      const requiredLogs = repoRobot.logs.filter(log => {
+        const logDate = new Date(log.timestamp);
+        if (startDate && endDate) {
+          return logDate >= startDate && logDate <= endDate;
+        }
+        else if (startDate){
+          return logDate >= startDate;
+        }
+        else if (endDate){
+          return logDate <= endDate;
+        }
+        return true;
+      });
+      res[robotId].maintenance_time = 0;
+      res[robotId].charging_time = 0;
+      res[robotId].online_time = 0;
+      res[robotId].error_time = 0;
+      res[robotId].inUse_time = 0;
+      if (requiredLogs.length === 0){
+        // find the log just before the start date
+        if (startDate){
+          const previousLog = repoRobot.logs
+            .filter(log => new Date(log.timestamp) < startDate)
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+          if (previousLog){
+            const timeDiff = (Date.now() - startDate.getTime()) / 1000;
+            if (previousLog.new_status === RobotStatus.INUSE) {
+              res[robotId].inUse_time += timeDiff;
+            }
+            else if (previousLog.new_status === RobotStatus.CHARGING) {
+              res[robotId].charging_time += timeDiff;
+            }
+            else if (previousLog.new_status === RobotStatus.MAINTENANCE) {
+              res[robotId].maintenance_time += timeDiff;
+            }
+            else if (previousLog.new_status === RobotStatus.ONLINE) {
+              res[robotId].online_time += timeDiff;
+            }
+            else if (previousLog.new_status === RobotStatus.ERROR) {
+              res[robotId].error_time += timeDiff;
+            }
+          }
+        }
+        continue;
+      }
+      requiredLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      let previousTime = 0;
+      const firstLogIndex = repoRobot.logs.findIndex(log => log.timestamp === requiredLogs[0].timestamp);
+      if (firstLogIndex > 0) {
+        previousTime = startDate ? startDate.getTime() : new Date(repoRobot.logs[firstLogIndex - 1].timestamp).getTime();
+      } else {
+        previousTime = new Date(requiredLogs[0].timestamp).getTime();
+      }
+      console.log(`Robot ${robotId} - First log time: ${new Date(requiredLogs[0].timestamp)} Previous log time: ${new Date(previousTime)}`);
+      // Handle the time before the first required log
+      if (requiredLogs[0].previous_status === RobotStatus.INUSE) {
+        res[robotId].inUse_time += (new Date(requiredLogs[0].timestamp).getTime() - previousTime) / 1000;
+      }
+      else if (requiredLogs[0].previous_status === RobotStatus.CHARGING) {
+        res[robotId].charging_time += (new Date(requiredLogs[0].timestamp).getTime() - previousTime) / 1000;
+      }
+      else if (requiredLogs[0].previous_status === RobotStatus.MAINTENANCE) {
+        res[robotId].maintenance_time += (new Date(requiredLogs[0].timestamp).getTime() - previousTime) / 1000;
+      }
+      else if (requiredLogs[0].previous_status === RobotStatus.ONLINE) {
+        res[robotId].online_time += (new Date(requiredLogs[0].timestamp).getTime() - previousTime) / 1000;
+      }
+      else if (requiredLogs[0].previous_status === RobotStatus.ERROR) {
+        res[robotId].error_time += (new Date(requiredLogs[0].timestamp).getTime() - previousTime) / 1000;
+      }
+      // iterate through the logs and calculate the time spent in each status
+      let currentStatus: RobotStatus = requiredLogs[0].new_status;
+      let currentTime = new Date(requiredLogs[0].timestamp).getTime();
+      for (let i = 1; i < requiredLogs.length; i++) {
+        const log = requiredLogs[i];
+        if (currentStatus === RobotStatus.INUSE) {
+          res[robotId].inUse_time += (new Date(log.timestamp).getTime() - currentTime) / 1000;
+        }
+        else if (currentStatus === RobotStatus.CHARGING) {
+          res[robotId].charging_time += (new Date(log.timestamp).getTime() - currentTime) / 1000;
+        }
+        else if (currentStatus === RobotStatus.MAINTENANCE) {
+          res[robotId].maintenance_time += (new Date(log.timestamp).getTime() - currentTime) / 1000;
+        }
+        else if (currentStatus === RobotStatus.ONLINE) {
+          res[robotId].online_time += (new Date(log.timestamp).getTime() - currentTime) / 1000;
+        }
+        else if (currentStatus === RobotStatus.ERROR) {
+          res[robotId].error_time += (new Date(log.timestamp).getTime() - currentTime) / 1000;
+        }
+        currentStatus = log.new_status;
+        currentTime = new Date(log.timestamp).getTime();
+      }
+      // last log, calculate time till now
+      if (currentStatus === RobotStatus.INUSE) {
+        res[robotId].inUse_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.CHARGING) {
+        res[robotId].charging_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.MAINTENANCE) {
+        res[robotId].maintenance_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.ONLINE) {
+        res[robotId].online_time += (Date.now() - currentTime) / 1000;
+      }
+      else if (currentStatus === RobotStatus.ERROR) {
+        res[robotId].error_time += (Date.now() - currentTime) / 1000;
+      }
+    }
+    return res;
+
+  }
+
   /**
    * Handle task completion when returning to inventory - update inventory quantities
    */
@@ -2390,82 +2611,6 @@ export class OrchestratorService {
     return res;
   }
 
-  async getRobotReport(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps") {
-    console.log(`Generating robot report from ${startDate} to ${endDate} for module ${module}`);
-    const whereCondition: any = {
-      task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
-    };
-    if (startDate && endDate) {
-      whereCondition.created_at = Between(startDate, endDate);
-    }
-    else if (startDate){
-      whereCondition.created_at = MoreThanOrEqual(startDate);
-    }
-    else if (endDate){
-      whereCondition.created_at = LessThanOrEqual(endDate);
-    }
-    console.log(whereCondition);
-    const allTasks = await this.taskRepository.find({
-      where: whereCondition,
-    });
-    // keep a set of all the robot IDs used in allTasks
-    const robotIds = new Set<string>();
-    allTasks.forEach(task => {
-      if (task.robot_id) {
-        robotIds.add(task.robot_id);
-      }
-    });
-    const allRobotIds = Array.from(robotIds);
-    const res = {};
-    for (const robotId of allRobotIds){
-      const filteredTasks = allTasks.filter(task => task.robot_id === robotId);
-      if (filteredTasks.length == 0) continue;
-      if (!res[robotId]) {
-        res[robotId] = {
-          totalTasks: filteredTasks.length,
-          travel_time: [],
-          wait_time: [],
-          unloading_time: []
-        };
-      }
-      // get travel_time
-      for (const task of filteredTasks){
-        if (task.processing && task.completed){
-          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
-          res[robotId].travel_time.push(travelTime);
-        }
-      }
-
-      // get unloading time
-      for (const task of filteredTasks){
-        if (task.end_location.location_attribute?.attribute_value === 'station' && task.completed && task.triggered){
-          const unloadingTime = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
-          res[robotId].unloading_time.push(unloadingTime);
-        }
-      }
-
-      // get waiting time
-      for (const task of filteredTasks){
-        if (task.end_location.location_attribute?.attribute_value === 'waiting_location' && task.completed && task.status !== TaskStatus.CANCELLED){
-          // Find the next task in the same batch with sequence order + 1
-          const nextTask = await this.taskRepository.findOne({
-            where: {
-              batch_id: task.batch_id,
-              sequence_order: task.sequence_order + 1
-            }
-          });
-
-          if (nextTask && nextTask.processing && task.completed) {
-            const waitTime = Math.floor((Number(nextTask.processing) - Number(task.completed)) / 1000);
-            res[robotId].wait_time.push(waitTime);
-          }
-        }
-      }
-    }
-    return res;
-
-  }
-
   async getMovementReport(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps") {
     const whereCondition: any = {};
     if (startDate && endDate) {
@@ -2694,14 +2839,14 @@ export class OrchestratorService {
   }
 
   async updateTotalRobots(totalRobots: number, module: "FlowOps" | "BaseOps") {
-    const result = await this.robotRepository
+    const result = await this.robotcountrepository
       .createQueryBuilder()
       .select('COUNT(*)', 'count')
       .where({ operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS })
       .getRawOne();
 
     if (result.count === 0) {
-      await this.robotRepository.save({
+      await this.robotcountrepository.save({
         id: crypto.randomUUID(),
         is_waiting: false,
         operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS,
@@ -2719,13 +2864,13 @@ export class OrchestratorService {
     if (inProgressOrders) {
       throw new BadRequestException('Cannot update total robots while orders are in progress');
     }
-    const robotRecord = (await this.robotRepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}}))[0];
+    const robotRecord = (await this.robotcountrepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}}))[0];
 
-    await this.robotRepository.update({ id: robotRecord.id, operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS }, { total_robots: totalRobots });
+    await this.robotcountrepository.update({ id: robotRecord.id, operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS }, { total_robots: totalRobots });
   }
 
   async getTotalRobots(module: "FlowOps" | "BaseOps") {
-    const result = await this.robotRepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}});
+    const result = await this.robotcountrepository.find({where: {operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS}});
     if (result.length === 0) {
       return 0;
     }

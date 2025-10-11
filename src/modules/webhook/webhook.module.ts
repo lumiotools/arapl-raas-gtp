@@ -11,14 +11,15 @@ import { WaitingLocation } from 'src/entities/waiting-location.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { LoggingModule } from '../logging/logging.module';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
-import { Robot } from 'src/entities';
+import { RobotCount } from 'src/entities';
 import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 import { LocationEntity } from 'src/entities/location.entity';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
+import { Robot } from 'src/entities/robots.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation, Robot, LocationEntity]),
+    TypeOrmModule.forFeature([Batch, Task, Inventory, Station, WaitingLocation, Robot, RobotCount, LocationEntity]),
     HttpModule,
     forwardRef(() => OrchestratorModule),
     LoggingModule,

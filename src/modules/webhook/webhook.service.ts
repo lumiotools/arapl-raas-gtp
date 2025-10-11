@@ -11,10 +11,11 @@ import { WebhookRequestDto } from './dto/webhook-request.dto';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { LoggingService } from '../../services/logging.service';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
-import { Robot } from 'src/entities';
+import { LocationAction, RobotCount } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
 import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
+import { Robot, RobotStatus } from 'src/entities/robots.entity';
 
 @Injectable()
 export class WebhookService {
@@ -31,6 +32,8 @@ export class WebhookService {
     private readonly stationRepository: Repository<Station>,
     @InjectRepository(WaitingLocation)
     private readonly waitingLocationRepository: Repository<WaitingLocation>,
+    @InjectRepository(Robot)
+    private readonly robotRepository: Repository<Robot>,
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
@@ -92,6 +95,15 @@ export class WebhookService {
     task.status = mappedStatus;
     task.robot_id = taskStatusData.robot_id || null;
     task.fms_batch_id = fms_batch_id;
+    if (task.robot_id){
+      await this.addRobotIfNotExists(task.robot_id, task.task_type);
+      this.logger.log(`Task ${task.task_id} assigned to robot ${task.robot_id}`);
+      if (task.end_location.location_action === LocationAction.DROP && mappedStatus === TaskStatus.COMPLETED) {
+        await this.updateRobotUsage(task.robot_id, false);
+      }
+      else{ this.updateRobotUsage(task.robot_id, true); }
+    }
+    
     const currentTime = new Date();
     if (mappedStatus === TaskStatus.INQUEUE) {
       task.inqueue = currentTime;
@@ -473,26 +485,44 @@ export class WebhookService {
     }
   }
 
-  // Method to free robot by calling the external endpoint
-  // private async freeRobot(robotId: string): Promise<void> {
-  //   if (!robotId) {
-  //     // await this.loggingService.log('Cannot free robot: robot_id is null or empty');
-  //     return;
-  //   }
+  private async addRobotIfNotExists(robotId: string, taskType: TaskType): Promise<void> {
+    try {
+      const existingRobot = await this.robotRepository.findOne({ where: { robot_id: robotId } });
+      this.logger.log(`Checking existence of robot ${robotId} in the system.`);
+      if (!existingRobot) {
+        const newRobot = new Robot();
+        newRobot.robot_id = robotId;
+        newRobot.task_type = taskType;
+        await this.robotRepository.save(newRobot);
+        this.logger.log(`Added new robot ${robotId} of type ${taskType} to the system.`);
+        // await this.loggingService.log(`Added new robot ${robotId} of type ${taskType} to the system.`, taskType, null, null);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to add robot ${robotId}: ${error.message}`);
+    }
+  }
 
-  //   try {
-  //     const response = await this.httpService.post(`${process.env.WMS_BASE_URL}/orchestrator/robot/set-available`, {
-  //       robot_id: robotId
-  //     }).toPromise();
-
-  //     if (response && response.data) {
-  //       // await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
-  //     } else {
-  //       // await this.loggingService.log(`Robot ${robotId} freed successfully`);
-  //     }
-  //   } catch (error) {
-  //     // await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
-  //     // Don't throw error to avoid breaking the main process
-  //   }
-  // }
+  private async updateRobotUsage(robotId: string, inUse: boolean): Promise<void> {
+    try {
+      if (!robotId) { return; }
+      const robot = await this.robotRepository.findOne({ where: { robot_id: robotId } });
+      if (robot) {
+        if (robot.status === (inUse ? RobotStatus.INUSE : RobotStatus.ONLINE)) { return; } // No change needed
+        if (!robot.logs){
+          robot.logs = [];
+        }
+        robot.logs.push({
+          timestamp: new Date(),
+          previous_status: robot.status,
+          new_status: inUse ? RobotStatus.INUSE : RobotStatus.ONLINE,
+        });
+        robot.status = inUse ? RobotStatus.INUSE : RobotStatus.ONLINE;
+        await this.robotRepository.save(robot);
+        this.logger.log(`Robot ${robotId} status set to ${robot.status}`);
+        // await this.loggingService.log(`Robot ${robotId} status set to ${robot.status}`, robot.task_type, null, null);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to update robot ${robotId} status: ${error.message}`);
+    }
+  }
 }

@@ -25,10 +25,11 @@ export class DatabaseResetService {
         'DELETE FROM tasks',
         'DELETE FROM batches',
         'DELETE FROM inventory',
+        'DELETE FROM robots',
         "UPDATE stations SET status = 'AVAILABLE', holded_by = NULL",
         "UPDATE waiting_locations SET status = 'AVAILABLE', holded_by = NULL",
-        "UPDATE robots SET total_robots = 1, robot_in_use = 0, is_waiting = false"
-      ];
+        "UPDATE robot_counts SET total_robots = 1, robot_in_use = 0, is_waiting = false"
+      ];  
 
       for (const query of queries) {
         this.logger.log(`Executing: ${query}`);

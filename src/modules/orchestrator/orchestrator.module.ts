@@ -16,11 +16,12 @@ import { User } from 'src/entities/user.entity';
 import { StationsService } from '../stations/stations.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
-import { Robot } from 'src/entities';
+import { RobotCount } from 'src/entities';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { LocationEntity } from 'src/entities/location.entity';
 import { BaseopsTaskModule } from '../baseops_task/baseops_task.module';
 import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
+import { Robot } from 'src/entities/robots.entity';
 
 @Module({
   imports: [
@@ -35,9 +36,10 @@ import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.
       ProductRequirement,
       User,
       Station,
-      Robot,
+      RobotCount,
       ScheduleMapping,
       LocationEntity,
+      Robot
     ]),
     HttpModule,
     InventoryModule,

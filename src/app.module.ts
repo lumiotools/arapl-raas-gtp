@@ -18,6 +18,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { BotModule } from './modules/bot/bot.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { BaseopsTaskModule } from './modules/baseops_task/baseops_task.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -42,7 +43,8 @@ import { BaseopsTaskModule } from './modules/baseops_task/baseops_task.module';
     AuthModule,
     BotModule,
     LocationsModule,
-    BaseopsTaskModule
+    BaseopsTaskModule,
+    SettingsModule
   ],
   controllers: [],
   providers: [],
