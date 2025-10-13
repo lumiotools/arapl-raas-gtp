@@ -12,7 +12,7 @@ import {
   ProcessedOrderItemDto,
   UploadResponseDto,
 } from './dto/upload-order.dto';
-import { Log, Task } from 'src/entities';
+import { Log, Task, TaskType } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 
@@ -209,7 +209,7 @@ export class OrdersService {
           throw new BadRequestException('Invalid Order ID found in data');
         }
 
-        await this.loggingService.log(`Order ${orderId}: Creating new Order.`);
+        await this.loggingService.log(`Order ${orderId}: Creating new Order.`, TaskType.GOODS_TO_PERSON, null, orderId, false);
         for (const item of items) {
           if (
             !item['Product Id'] ||
@@ -242,7 +242,9 @@ export class OrdersService {
               `Product ${item['Product Id']} not found`,
             );
           }
-          await this.loggingService.log(`Order ${orderId}: Creating new OrderItem for product ${item['Product Id']}, quantity ${item['Qty']}.`);
+          await this.loggingService.log(`Order ${orderId}: Creating new OrderItem for product ${item['Product Id']}, quantity ${item['Qty']}.`
+            , TaskType.GOODS_TO_PERSON, null, orderId, false
+          );
           const orderItem = this.orderItemRepository.create({
             order_id: orderId,
             product_id: item['Product Id'],

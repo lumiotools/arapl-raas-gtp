@@ -90,7 +90,9 @@ export class WebhookService {
     }
     
     // Log webhook received after duplicate check
-    await this.loggingService.log(`Task ${taskStatusData.task_id}: Webhook Received - status from ${oldStatus} to ${mappedStatus} (robot: ${taskStatusData.robot_id || 'none'})`);
+    await this.loggingService.log(`Task ${taskStatusData.task_id}: Update Status from ${oldStatus} to ${mappedStatus} (robot: ${taskStatusData.robot_id || 'none'})`,
+      task.task_type, taskStatusData.task_id, null
+    );
   
     task.status = mappedStatus;
     task.robot_id = taskStatusData.robot_id || null;
@@ -137,27 +139,7 @@ export class WebhookService {
     // Handle waiting location updates
     await this.handleWaitingLocationStatusUpdates(task, mappedStatus);
 
-    if (mappedStatus === TaskStatus.CANCELLED){
-      if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION){
-        console.log(`releasing destination waiting location for cancelled task ${task.task_id}`);
-        const destinationWaitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
-        if (destinationWaitingLocation){
-          await this.waitingLocationRepository.update({ location_id: destinationWaitingLocation.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
-        }
-      }
-      else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY){
-        const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id, product_id: task.product_id } });
-        if (destinationInventoryLocation){
-          await this.inventoryRepository.update({ id: destinationInventoryLocation.id }, { status: LocationStatus.AVAILABLE });
-        }
-      }
-      else if (task.move_type === MOVE_TYPE.STATION_TO_INVENTORY){
-        const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id, product_id: task.product_id } });
-        if (destinationInventoryLocation){
-         await this.inventoryRepository.update({ id: destinationInventoryLocation.id }, { status: LocationStatus.AVAILABLE });
-        }
-      }
-    }
+    await this.handleCancelledUpdateds(task, mappedStatus);
 
     // Handle task completion based on destination type
     if (mappedStatus === TaskStatus.COMPLETED) {
@@ -166,12 +148,14 @@ export class WebhookService {
         const destinationType = task.end_location?.location_attribute.attribute_value;
         if (sourceType === 'station' && task.start_location.location_id !== task.end_location.location_id){
           // free the source station
+          await this.loggingService.log(`Task ${task.task_id}: Freeing source station ${task.start_location.location_id} (task completed).`, task.task_type, task.task_id, null);
           await this.stationRepository.update(
             { station_id: task.start_location.location_id, holded_by: task.task_id },
             { status: LocationStatus.AVAILABLE, holded_by: null }
           );
         } else if (sourceType === 'waiting_location' && task.start_location.location_id !== task.end_location.location_id){
           // free the source waiting location
+          await this.loggingService.log(`Task ${task.task_id}: Freeing source waiting location ${task.start_location.location_id} (task completed).`, task.task_type, task.task_id, null);
           await this.waitingLocationRepository.update(
             { location_id: task.start_location.location_id, holded_by: task.task_id },
             { status: LocationStatus.AVAILABLE, holded_by: null }
@@ -180,7 +164,56 @@ export class WebhookService {
 
         if (destinationType === 'inventory'){
           await this.orchestratorService.decrementRobotInUse();
+          await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
         }
+      }
+    }
+  }
+
+  private async handleCancelledUpdateds(task: Task, mappedStatus: TaskStatus): Promise<void> {
+    if (mappedStatus !== TaskStatus.CANCELLED){ return; }
+    await this.loggingService.log(`Task ${task.task_id}: Task Cancelled`, task.task_type, task.task_id, null);
+    if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION || task.move_type === MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION){
+      const destinationWaitingLocation = await this.waitingLocationRepository.findOne({ where: { location_id: task.end_location.location_id } });
+      if (destinationWaitingLocation){
+        destinationWaitingLocation.status = LocationStatus.AVAILABLE;
+        destinationWaitingLocation.holded_by = null;
+        await this.loggingService.log(`Task ${task.task_id}: Marking waiting location ${destinationWaitingLocation.location_id} as AVAILABLE (task cancelled).`, task.task_type, task.task_id, null);
+        await this.waitingLocationRepository.save(destinationWaitingLocation);
+      }
+    }
+    else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY || task.move_type === MOVE_TYPE.STATION_TO_INVENTORY || task.move_type === MOVE_TYPE.INVENTORY_TO_INVENTORY){
+      const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id } });
+      if (destinationInventoryLocation){
+        destinationInventoryLocation.status = LocationStatus.AVAILABLE;
+        await this.inventoryRepository.save(destinationInventoryLocation);
+      }
+    }
+    else if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION){
+      const destinationStation = await this.stationRepository.findOne({ where: { station_id: task.end_location.location_id } });
+      if (destinationStation){
+        destinationStation.status = LocationStatus.AVAILABLE;
+        destinationStation.holded_by = null;
+        await this.loggingService.log(`Task ${task.task_id}: Marking station ${destinationStation.station_id} as AVAILABLE (task cancelled).`, task.task_type, task.task_id, null);
+        await this.stationRepository.save(destinationStation);
+      }
+    }
+    else if (task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_STATION){
+      const destinationStation = await this.stationRepository.findOne({ where: { station_id: task.end_location.location_id } });
+      if (destinationStation){
+        destinationStation.status = LocationStatus.AVAILABLE;
+        destinationStation.holded_by = null;
+        await this.loggingService.log(`Task ${task.task_id}: Marking station ${destinationStation.station_id} as AVAILABLE (task cancelled).`, task.task_type, task.task_id, null);
+        await this.stationRepository.save(destinationStation);
+      }
+    }
+    else if (task.move_type === MOVE_TYPE.STATION_TO_STATION){
+      const destinationStation = await this.stationRepository.findOne({ where: { station_id: task.end_location.location_id } });
+      if (destinationStation){
+        destinationStation.status = LocationStatus.AVAILABLE;
+        destinationStation.holded_by = null;
+        await this.loggingService.log(`Task ${task.task_id}: Marking station ${destinationStation.station_id} as AVAILABLE (task cancelled).`, task.task_type, task.task_id, null);
+        await this.stationRepository.save(destinationStation);
       }
     }
   }
@@ -238,31 +271,6 @@ export class WebhookService {
     );
   }
 
-  private async releaseCompleteInventory(inventoryLocationId: any, productId: any, task_qty: any): Promise<void> {
-    this.logger.log(`Releasing inventory for product ${productId} at location ${inventoryLocationId}`);
-    const inventory = await this.inventoryRepository.findOne({
-      where: { 
-        id: inventoryLocationId,
-        product_id: productId 
-      }
-    });
-    if (!inventory) {
-      this.logger.warn(`Inventory location ${inventoryLocationId} for product ${productId} not found`);
-      return;
-    }
-    await this.inventoryRepository.update(
-      { 
-        id: inventoryLocationId,
-        product_id: productId 
-      },
-      {
-        status: LocationStatus.AVAILABLE,
-        isProcessing: false,
-        quantity_in_system: inventory?.quantity_in_system - task_qty
-      }
-    );
-  }
-
   private async handleInventoryUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus, batchId: string): Promise<void> {
     try {
       // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
@@ -289,19 +297,7 @@ export class WebhookService {
     // Check if end_location has inventory attribute
     return task.end_location?.location_attribute?.attribute_value === 'inventory';
   }
-
-  private async isLastTaskInBatch(task: Task, batchId: string): Promise<boolean> {
-    // Find the task with highest sequence_order that has inventory as end_location in this batch
-    const lastTask = await this.taskRepository.findOne({
-      where: { batch_id: batchId },
-      order: { sequence_order: 'DESC' }
-    });
-
-    return !!(lastTask && 
-           lastTask.task_id === task.task_id && 
-           this.isTaskToInventory(lastTask));
-  }
-
+  
   private async updateInventoryWithTaskQuantity(task: Task): Promise<void> {
     const inventoryLocationId = task.end_location.location_id;
     const productId = task.product_id;
@@ -337,6 +333,7 @@ export class WebhookService {
       // When task status becomes PROCESSING and source is station - mark station as OCCUPIED
       const stationId = task.start_location.location_id;
       await this.orchestratorService.releaseStation(stationId);
+      await this.loggingService.log(`Task ${task.task_id}: Marking station ${stationId} as AVAILABLE.`, TaskType.GOODS_TO_PERSON, task.task_id, null);
     }
 
     // When task status becomes COMPLETED and destination is station - mark station as OCCUPIED
@@ -344,6 +341,7 @@ export class WebhookService {
         task.end_location?.location_attribute?.attribute_value === 'station') {
 
       const stationId = task.end_location.location_id;
+      await this.loggingService.log(`Task ${task.task_id}: Marking station ${stationId} as OCCUPIED.`, TaskType.GOODS_TO_PERSON, task.task_id, null);
       this.logger.log(`Marking station ${stationId} as OCCUPIED (task ${task.task_id} completed)`);
       
       await this.stationRepository.update(
@@ -373,6 +371,7 @@ export class WebhookService {
           holded_by: null
         }
       )
+      await this.loggingService.log(`Task ${task.task_id}: Marking waiting location ${waitingLocationId} as AVAILABLE.`, TaskType.GOODS_TO_PERSON, task.task_id, null);
     }
 
     // When task status becomes COMPLETED and destination is waiting_location - mark waiting location as OCCUPIED
@@ -381,6 +380,7 @@ export class WebhookService {
       
       const waitingLocationId = task.end_location.location_id;
       this.logger.log(`Marking waiting location ${waitingLocationId} as OCCUPIED (task ${task.task_id} completed)`);
+      await this.loggingService.log(`Task ${task.task_id}: Marking waiting location ${waitingLocationId} as OCCUPIED.`, TaskType.GOODS_TO_PERSON, task.task_id, null);
       
       await this.waitingLocationRepository.update(
         { location_id: waitingLocationId },
@@ -453,7 +453,7 @@ export class WebhookService {
         newRobot.task_type = taskType;
         await this.robotRepository.save(newRobot);
         this.logger.log(`Added new robot ${robotId} of type ${taskType} to the system.`);
-        // await this.loggingService.log(`Added new robot ${robotId} of type ${taskType} to the system.`, taskType, null, null);
+        await this.loggingService.log(`Added new robot ${robotId} of type ${taskType} to the system.`, taskType, null, null);
       }
     } catch (error) {
       this.logger.error(`Failed to add robot ${robotId}: ${error.message}`);
@@ -477,7 +477,7 @@ export class WebhookService {
         robot.status = inUse ? RobotStatus.INUSE : RobotStatus.ONLINE;
         await this.robotRepository.save(robot);
         this.logger.log(`Robot ${robotId} status set to ${robot.status}`);
-        // await this.loggingService.log(`Robot ${robotId} status set to ${robot.status}`, robot.task_type, null, null);
+        await this.loggingService.log(`Robot ${robotId} status set to ${robot.status}`, robot.task_type, null, null);
       }
     } catch (error) {
       this.logger.error(`Failed to update robot ${robotId} status: ${error.message}`);

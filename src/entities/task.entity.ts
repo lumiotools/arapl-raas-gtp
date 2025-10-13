@@ -26,7 +26,6 @@ export enum TaskType {
   GOODS_TO_PERSON = 'GoodsToPerson',
   NOP = "NOP"
 }
-
 export  enum MOVE_TYPE {
   INVENTORY_TO_STATION = 'InventoryToStation',
   STATION_TO_INVENTORY = 'StationToInventory',
@@ -35,9 +34,11 @@ export  enum MOVE_TYPE {
   WAITING_LOCATION_TO_STATION = 'WaitingLocationToStation',
   INVENTORY_TO_WAITING_LOCATION = 'InventoryToWaitingLocation',
   WAITING_LOCATION_TO_INVENTORY = 'WaitingLocationToInventory',
+  INVENTORY_TO_INVENTORY = 'InventoryToInventory',
   ZONE_TO_ZONE = 'ZoneToZone',
   ZONE_TO_WAIT='ZoneToWait',
   WAIT_TO_ZONE='WaitToZone',
+  WAITING_TO_WAITING_LOCATION = 'WaitingToWaitingLocation',
 }
 
 
