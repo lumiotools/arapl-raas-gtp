@@ -155,6 +155,13 @@ export class OrchestratorService {
           const task = await this.taskRepository.findOne({where: { task_id: taskId }});
           if (!task){continue;}
 
+          const nextTaskOfSequence = await this.taskRepository.findOne({where: { batch_id: task.batch_id, task_dependency: task.task_id }});
+          if (nextTaskOfSequence) {
+            // there is already a next task created for this batch - skip
+            console.log(`There is already a next task created for this batch - skipping`);
+            continue;
+          }
+
           // Check if this task's product is in the current requirements
           const hasRequirement = productRequirements.has(task.origin_location);
 
@@ -173,12 +180,6 @@ export class OrchestratorService {
               where : { source_location_id: task.origin_location, isPaused: false},
               order: { station_id: 'ASC' }
             });
-            const nextTaskOfSequence = await this.taskRepository.findOne({where: { batch_id: task.batch_id, task_dependency: task.task_id }});
-            if (nextTaskOfSequence) {
-              // there is already a next task created for this batch - skip
-              console.log(`There is already a next task created for this batch - skipping`);
-              continue;
-            }
             const stationIds = databaseRequirement.map(pr => pr.station_id);// get all station IDs from the requirements
             const sortedStations = await this.getStationsSortedByPriority(stationIds);// sort stations by priority
             console.log(`sorted stations: ${JSON.stringify(sortedStations)}`)
