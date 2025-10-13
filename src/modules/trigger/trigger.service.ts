@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { Station, LocationStatus } from '../../entities/station.entity';
-import { Task, TaskStatus } from '../../entities/task.entity';
+import { Task, TaskStatus, TaskType } from '../../entities/task.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { LoggingService } from '../../services/logging.service';
 import { MessageCode } from './trigger.controller';
@@ -60,7 +60,9 @@ export class TriggerService {
     currentTask.status = TaskStatus.TRIGERRED;
 
     // Log trigger action
-    await this.loggingService.log(`Station ${stationId} triggered - Task ${currentTask.task_id} status updated to TRIGGERED`);
+    await this.loggingService.log(`Station ${stationId} triggered - Task ${currentTask.task_id} status updated to TRIGGERED`,
+      TaskType.GOODS_TO_PERSON, currentTask.task_id, null
+    );
 
     await this.processNextTask(currentTask, dropped_quantity, message_code);
 
