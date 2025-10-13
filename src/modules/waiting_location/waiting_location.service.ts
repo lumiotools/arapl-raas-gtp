@@ -197,12 +197,10 @@ export class WaitingLocationService {
         await queryRunner.release();
     }
   }
-  
+
   async getActiveRobotAtWaiting(waiting_location_id: string){
     const tasks = await this.taskRepository.find({
-      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE])
-        ,task_type: TaskType.GOODS_TO_PERSON
-       },
+      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]) },
       order: { created_at: 'DESC' }
     });
 
@@ -247,7 +245,8 @@ export class WaitingLocationService {
     return {
       robot_id: robot_id,
       source: robot_task?.start_location.location_id || null,
-      status: status
+      status: status,
+      completed_time: robot_task?.completed || null
     }
   }
 }
