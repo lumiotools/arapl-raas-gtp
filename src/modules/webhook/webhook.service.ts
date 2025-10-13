@@ -391,48 +391,6 @@ export class WebhookService {
       );
     }
   }
-
-  private async handleWaitingLocationCompletion(completedTask: Task): Promise<void> {
-    try {
-      // Safety check: Only process completion for tasks that are actually COMPLETED
-      if (completedTask.status !== TaskStatus.COMPLETED) {
-        this.logger.warn(`Waiting location task ${completedTask.task_id} completion handler called but task status is ${completedTask.status} - skipping`);
-        return;
-      }
-
-      this.logger.log(`Handling completion of task ${completedTask.task_id} at waiting location`);
-      
-      // Call orchestrator to handle waiting location task completion according to requirement 2
-      await this.orchestratorService.handleWaitingLocationTaskCompletion(completedTask);
-    } catch (error) {
-      this.logger.error(`Error handling waiting location task completion for task ${completedTask.task_id}:`, error.message);
-    }
-  }
-
-  private async handleInventoryReturnCompletion(completedTask: Task): Promise<void> {
-    try {
-      this.logger.log(`Handling completion of return task ${completedTask.task_id} at inventory`);
-      
-      // Call orchestrator to handle inventory return task completion
-      await this.orchestratorService.handleInventoryReturnTaskCompletion(completedTask);
-    } catch (error) {
-      this.logger.error(`Error handling inventory return completion for task ${completedTask.task_id}:`, error.message);
-    }
-  }
-
-  private async markBatchAsCompleted(batchId: string): Promise<void> {
-    try {
-      await this.batchRepository.update(
-        { batch_id: batchId },
-        { status: BatchStatus.COMPLETED }
-      );
-      
-      this.logger.log(`✅ Batch ${batchId} marked as COMPLETED - all tasks finished!`);
-    } catch (error) {
-      this.logger.error(`Error marking batch ${batchId} as completed:`, error.message);
-    }
-  }
-
   // Compute and persist BaseOps batch status and aggregates so findAllBatches can avoid recalculation
   private async updateBaseOpsBatchStatus(batchId: string): Promise<void> {
     try {

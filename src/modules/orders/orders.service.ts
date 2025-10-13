@@ -510,10 +510,10 @@ export class OrdersService {
       }
 
       // Check if all items with GTP location are in ASSIGNED status
-      const nonAssignedItems = itemsWithGtpLocation.filter(item => item.status !== OrderItemStatus.ASSIGNED);
-      if (nonAssignedItems.length > 0) {
-        throw new BadRequestException(`Cannot remove mapping: Order items with license plate ${licensePlateId} are not in ASSIGNED status`);
-      }
+      // const nonAssignedItems = itemsWithGtpLocation.filter(item => item.status !== OrderItemStatus.ASSIGNED);
+      // if (nonAssignedItems.length > 0) {
+      //   throw new BadRequestException(`Cannot remove mapping: Order items with license plate ${licensePlateId} are not in ASSIGNED status`);
+      // }
 
       // Store the previous GTP location for response
       const previousGtpLocationId = itemsWithGtpLocation[0].assigned_gtp_location;
@@ -861,5 +861,21 @@ export class OrdersService {
       }
     }
     return res;
+  }
+
+  async cancelOrderItemsByLicensePlate(licensePlateId: string, is_group?: boolean){
+    if (is_group){
+      const orderItems = await this.orderItemRepository.find({
+        where: { license_plate_id: licensePlateId, status: In([OrderItemStatus.PENDING, OrderItemStatus.ASSIGNED]) }
+      });
+      if (orderItems.length === 0){
+        throw new NotFoundException(`No PENDING or ASSIGNED order items found with license plate ${licensePlateId}`);
+      }
+      for (const orderItem of orderItems) {
+        orderItem.status = OrderItemStatus.CANCELLED;
+        await this.orderItemRepository.save(orderItem);
+      }
+      return { success: true, message: `Cancelled ${orderItems.length} order items with license plate ${licensePlateId}` };
+    }
   }
 }

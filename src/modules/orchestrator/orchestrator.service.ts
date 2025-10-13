@@ -188,6 +188,12 @@ export class OrchestratorService {
               where : { product_id: productId , isPaused: false},
               order: { station_id: 'ASC' }
             });
+            const nextTaskOfSequence = await this.taskRepository.findOne({where: { batch_id: task.batch_id, task_dependency: task.task_id }});
+            if (nextTaskOfSequence) {
+              // there is already a next task created for this batch - skip
+              console.log(`There is already a next task created for this batch - skipping`);
+              continue;
+            }
             const stationIds = databaseRequirement.map(pr => pr.station_id);// get all station IDs from the requirements
             const sortedStations = await this.getStationsSortedByPriority(stationIds);// sort stations by priority
             console.log(`sorted stations: ${JSON.stringify(sortedStations)}`)
@@ -221,7 +227,7 @@ export class OrchestratorService {
                 await this.reserveStationAndSendTask(returnTask, station); // Reserve the station and send task to WMS
                 this.logger.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
                 await this.loggingService.log(`New Task: ${returnTaskId}, Product ID: ${productId}, quantity: ${task.quantity}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
-                break; // Exit loop after processing first available station
+                break;
               }
             }
           }
@@ -1564,7 +1570,7 @@ export class OrchestratorService {
         // add a function that sends a task again
         await this.resendPendingTasks();
 
-        await this.scheduleLPtoPickLocation();
+        // await this.scheduleLPtoPickLocation();
         // check if a there is lp plate waiting for a pick location
 
         const stations = await this.stationRepository.find();

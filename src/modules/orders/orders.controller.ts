@@ -13,6 +13,7 @@ import {
   Body,
   UseGuards,
   Query,
+  Patch,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -648,5 +649,13 @@ export class OrdersController {
       throw new BadRequestException('start_time must be before end_time');
     }
     return await this.ordersService.getStationReportSummary(startDate, endDate);
+  }
+
+  @Patch('order-item/cancel/:lp')
+  async cancelOrderItemsByLicensePlate(
+    @Param('lp') licensePlateId: string,
+    @Query('is_group') is_group?: boolean
+  ) {
+    return await this.ordersService.cancelOrderItemsByLicensePlate(licensePlateId, is_group);
   }
 }
