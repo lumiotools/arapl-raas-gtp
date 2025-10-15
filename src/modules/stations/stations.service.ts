@@ -110,16 +110,16 @@ export class StationsService {
         }
       }
       // find intersecting location IDs
-      const intersectingLocationIds = bin_ids.filter(id => existingStationIds.includes(id));
-      for (const id of intersectingLocationIds) {
-        const station = allStations.filter(station => station.station_id === id)[0];
-        if (station.is_active === false) {
-          await this.stationRepository.update(
-            { station_id: id },
-            { is_active: true }
-          );
-        }
-      }
+      // const intersectingLocationIds = bin_ids.filter(id => existingStationIds.includes(id));
+      // for (const id of intersectingLocationIds) {
+      //   const station = allStations.filter(station => station.station_id === id)[0];
+      //   if (station.is_active === false) {
+      //     await this.stationRepository.update(
+      //       { station_id: id },
+      //       { is_active: true }
+      //     );
+      //   }
+      // }
       return await this.stationRepository.find({ relations: ['gtpLocations'] });
     }catch{
       throw new BadRequestException('Failed to fetch WMS stations');
