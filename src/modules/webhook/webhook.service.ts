@@ -170,14 +170,14 @@ export class WebhookService {
           // free the source station
           await this.loggingService.log(`Task ${task.task_id}: Freeing source station ${task.start_location.location_id} (task completed).`, task.task_type, task.task_id, null);
           await this.stationRepository.update(
-            { station_id: task.start_location.location_id, holded_by: task.task_id },
+            { station_id: task.start_location.location_id, holded_by: task.task_dependency },
             { status: LocationStatus.AVAILABLE, holded_by: null }
           );
         } else if (sourceType === 'waiting_location' && task.start_location.location_id !== task.end_location.location_id){
           // free the source waiting location
           await this.loggingService.log(`Task ${task.task_id}: Freeing source waiting location ${task.start_location.location_id} (task completed).`, task.task_type, task.task_id, null);
           await this.waitingLocationRepository.update(
-            { location_id: task.start_location.location_id, holded_by: task.task_id },
+            { location_id: task.start_location.location_id, holded_by: task.task_dependency },
             { status: LocationStatus.AVAILABLE, holded_by: null }
           );
         }
