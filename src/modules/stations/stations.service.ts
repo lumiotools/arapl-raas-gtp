@@ -313,9 +313,10 @@ export class StationsService {
             .createQueryBuilder()
             .update(Station)
             .set({ status: LocationStatus.RESERVED })
-            .where("station_id = :station_id AND status = :status", {
+            .where("station_id = :station_id AND status = :status AND active = :active", {
                 station_id: station_id,
-                status: LocationStatus.AVAILABLE
+                status: LocationStatus.AVAILABLE,
+                active: true
             })
             .execute();
 
