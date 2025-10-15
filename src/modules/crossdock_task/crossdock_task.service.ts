@@ -64,13 +64,6 @@ export class CrossdockTaskService {
         }
       }
 
-      const priorityValue = task['priority'];
-      if (priorityValue !== 'HIGH' && priorityValue !== 'MEDIUM' && priorityValue !== 'LOW') {
-        validationErrors.push(`Row ${rowNum-1}: priority must be 'HIGH', 'MEDIUM', or 'LOW', found '${priorityValue}'`);
-      }
-
-      task['priority'] = task['priority'] === 'HIGH' ? 1 : task['priority'] === 'MEDIUM' ? 2 : 3;
-
       // 7. Check if the start and end location ids exist in the system and they are available
       const startLocationValid = await this.taskService.LocationManagerService.isValidLocationId(startLocationId, true);
       if (!startLocationValid) {
@@ -91,7 +84,112 @@ export class CrossdockTaskService {
     // Remove the temporary row number field before processing
     tasks.forEach(task => delete task._rowNumber);
 
-   return this.taskService.processTasks(tasks, priority);
+    // Resolve all pick/drop priorities first (cannot use async comparator in Array.sort)
+    const pickPriorities = await Promise.all(
+      tasks.map(t => this.taskService.LocationManagerService.getPickPriority(t['start_location_location_id']))
+    );
+    const dropPriorities = await Promise.all(
+      tasks.map(t => t['end_location_location_type'] === "PALLET" ? this.taskService.LocationManagerService.getDropPriority(t['end_location_location_id']) : undefined)
+    );
+
+    // Assign pick/drop priority to each task for sorting/validation
+    tasks.forEach((t, i) => {
+      (t as any)._pickPriority = pickPriorities[i];
+      (t as any)._dropPriority = dropPriorities[i];
+    });
+
+    const pickPriorityValues = pickPriorities.filter(p => p != null);
+    if (pickPriorityValues.length > 0) {
+      const maxPick = Math.max(...pickPriorityValues);
+      // Ensure all start locations are in the same zone (parent_id)
+      const startLocationIdsForExclusion = tasks.map(t => t['start_location_location_id']).filter(Boolean);
+      const startLocations = await Promise.all(startLocationIdsForExclusion.map(id => this.taskService.LocationManagerService.getLocation(id)));
+      const parentIds = Array.from(new Set(startLocations.map(s => s?.parent_id).filter(Boolean)));
+      if (parentIds.length > 1) {
+        // clean up temporary fields
+        tasks.forEach(t => {
+          delete (t as any)._pickPriority;
+          delete (t as any)._dropPriority;
+        });
+        throw new BadRequestException('All start locations must belong to the same zone');
+      }
+
+      const baselineMinPick = 1; // P1 is always the baseline
+      const zoneIdToCheck = parentIds.length === 1 ? parentIds[0] : undefined;
+        // Use simple column-based check: ensure lower rows in same column are available
+        const blockedByColumn = await this.taskService.LocationManagerService.findInaccessibleStartLocations(startLocationIdsForExclusion, baselineMinPick, maxPick, zoneIdToCheck);
+        if (blockedByColumn && blockedByColumn.length > 0) {
+          const blockedIds = blockedByColumn.map(b => b.location_id);
+          // clean up temporary fields
+          tasks.forEach(t => {
+            delete (t as any)._pickPriority;
+            delete (t as any)._dropPriority;
+          });
+          throw new BadRequestException(`Pick locations (${blockedIds.join(', ')}) not directly accessible`);
+        }
+    }
+
+    // Sort by pick priority (ascending). If pick priorities are equal, tie-break by drop priority (ascending).
+    // For tasks whose end location is not a PALLET or drop priority is undefined, treat drop priority as Infinity
+    // so they come after tasks with defined (lower) drop priorities.
+    tasks.sort((a, b) => {
+      const pa = (a as any)._pickPriority || 0;
+      const pb = (b as any)._pickPriority || 0;
+      if (pa !== pb) return pa - pb;
+
+      const aIsPallet = a['end_location_location_type'] === 'PALLET';
+      const bIsPallet = b['end_location_location_type'] === 'PALLET';
+
+      const da = aIsPallet ? ((a as any)._dropPriority ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY;
+      const db = bIsPallet ? ((b as any)._dropPriority ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY;
+
+      return da - db;
+    });
+
+    // assign ascending priority starting at 1
+    tasks.forEach((t, i) => {
+      (t as any).priority = i + 1;
+    });
+
+    // Validate that drop priorities (for PALLET drops) are non-decreasing in the pick-sorted order.
+    // If they are not, some drop locations may not be directly accessible from the chosen sequence.
+    const dropOrderErrors: string[] = [];
+    let lastDropPriority: number | undefined = undefined;
+    for (const t of tasks) {
+      if (t['end_location_location_type'] === 'PALLET') {
+        const dp = (t as any)._dropPriority;
+        if (dp === undefined || dp === null) {
+          dropOrderErrors.push(t['end_location_location_id']);
+        } else {
+          if (lastDropPriority === undefined) {
+            lastDropPriority = dp;
+          } else {
+            if (dp < lastDropPriority) {
+              dropOrderErrors.push(t['end_location_location_id']);
+            } else {
+              lastDropPriority = dp;
+            }
+          }
+        }
+      }
+    }
+
+    if (dropOrderErrors.length > 0) {
+      // clean up temporary fields before throwing
+      tasks.forEach(t => {
+        delete (t as any)._pickPriority;
+        delete (t as any)._dropPriority;
+      });
+      throw new BadRequestException(`Drop locations (${dropOrderErrors.join(', ')}) will not be directly accessible`);
+    }
+
+    // clean up temporary priority fields
+    tasks.forEach(t => {
+      delete (t as any)._pickPriority;
+      delete (t as any)._dropPriority;
+    });
+
+  //  return this.taskService.processTasks(tasks, priority);
   }
 
   async setInitialConfiguration(): Promise<void> {

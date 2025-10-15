@@ -246,9 +246,55 @@ export class LocationManagerService {
         return location?.display_name || location_id;
     }
 
+    async getPickPriority(location_id: string): Promise<number> {
+        const location = await this.locationRepository.findOne({ where: { location_id: location_id } });
+        return location!.pick_priority;
+    }
+
+    async getDropPriority(location_id: string): Promise<number> {
+        const location = await this.locationRepository.findOne({ where: { location_id: location_id } });
+        return location!.drop_priority;
+    }
+
     async getLocation(location_id: string): Promise<LocationEntity | null> {
         const location = await this.locationRepository.findOne({ where: { location_id: location_id } });
         return location || null;
+    }
+
+    async findInaccessibleStartLocations(startLocationIds: string[], minPriority: number, maxPriority: number, zoneId?: string): Promise<LocationEntity[]> {
+        if (!startLocationIds || startLocationIds.length === 0) return [];
+
+        const blocked: LocationEntity[] = [];
+
+        const colQb = this.locationRepository.createQueryBuilder('c')
+            .select('DISTINCT c.column', 'col')
+            .where('c.location_type = :locationType', { locationType: LocationType.PALLET })
+            .andWhere('c.column IS NOT NULL');
+        if (zoneId) colQb.andWhere('c.parent_id = :zoneId', { zoneId });
+        const cols = await colQb.getRawMany();
+        if (cols.length <= 2) return [];
+
+        for (const sid of startLocationIds) {
+            const loc = await this.getLocation(sid);
+            if (!loc) continue;
+            if (loc.column == null) continue;
+
+            // Query for any non-AVAILABLE slot in same column with pick_priority less than maxPriority
+            const qb = this.locationRepository.createQueryBuilder('l')
+                .where('l.location_type = :locationType', { locationType: LocationType.PALLET })
+                .andWhere('l.column = :col', { col: loc.column })
+                .andWhere('l.location_status != :available', { available: LocationStatus.AVAILABLE })
+                .andWhere('l.pick_priority < :maxPriority', { maxPriority });
+
+            if (zoneId) qb.andWhere('l.parent_id = :zoneId', { zoneId });
+            // exclude the current batch's start locations from blocking
+            if (startLocationIds && startLocationIds.length > 0) qb.andWhere('l.location_id NOT IN (:...excluded)', { excluded: startLocationIds });
+
+            const blocker = await qb.getOne();
+            if (blocker) blocked.push(loc);
+        }
+
+        return blocked;
     }
 
     async syncFMSLocations() {
