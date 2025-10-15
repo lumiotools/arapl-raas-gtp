@@ -108,16 +108,16 @@ export class StationsService {
         }
       }
       // find intersecting location IDs
-      const intersectingLocationIds = bin_ids.filter(id => existingStationIds.includes(id));
-      for (const id of intersectingLocationIds) {
-        const station = allStations.filter(station => station.station_id === id)[0];
-        if (station.is_active === false) {
-          await this.stationRepository.update(
-            { station_id: id },
-            { is_active: true }
-          );
-        }
-      }
+      // const intersectingLocationIds = bin_ids.filter(id => existingStationIds.includes(id));
+      // for (const id of intersectingLocationIds) {
+      //   const station = allStations.filter(station => station.station_id === id)[0];
+      //   if (station.is_active === false) {
+      //     await this.stationRepository.update(
+      //       { station_id: id },
+      //       { is_active: true }
+      //     );
+      //   }
+      // }
       return await this.stationRepository.find({ relations: ['gtpLocations'] });
     }catch{
       throw new BadRequestException('Failed to fetch WMS stations');
@@ -311,9 +311,10 @@ export class StationsService {
             .createQueryBuilder()
             .update(Station)
             .set({ status: LocationStatus.RESERVED })
-            .where("station_id = :station_id AND status = :status", {
+            .where("station_id = :station_id AND status = :status AND is_active = :is_active", {
                 station_id: station_id,
-                status: LocationStatus.AVAILABLE
+                status: LocationStatus.AVAILABLE,
+                is_active: true
             })
             .execute();
 

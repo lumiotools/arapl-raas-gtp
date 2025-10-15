@@ -81,16 +81,16 @@ export class WaitingLocationService {
     }
 
     // find intersecting location IDs
-      const intersectingLocationIds = bin_ids.filter(id => existingWaitingLocationIds.includes(id));
-      for (const id of intersectingLocationIds) {
-        const waitLocation = allWaitingLocations.filter(location => location.location_id === id)[0];
-        if (waitLocation.is_active === false) {
-          await this.waitingLocationRepository.update(
-            { location_id: id },
-            { is_active: true }
-          );
-        }
-      }
+      // const intersectingLocationIds = bin_ids.filter(id => existingWaitingLocationIds.includes(id));
+      // for (const id of intersectingLocationIds) {
+      //   const waitLocation = allWaitingLocations.filter(location => location.location_id === id)[0];
+      //   if (waitLocation.is_active === false) {
+      //     await this.waitingLocationRepository.update(
+      //       { location_id: id },
+      //       { is_active: true }
+      //     );
+      //   }
+      // }
     return await this.waitingLocationRepository.find();
   }
 
@@ -175,9 +175,10 @@ export class WaitingLocationService {
             .createQueryBuilder()
             .update(WaitingLocation)
             .set({ status: LocationStatus.RESERVED })
-            .where("location_id = :location_id AND status = :status", {
+            .where("location_id = :location_id AND status = :status AND is_active = :is_active", {
                 location_id: location_id,
-                status: LocationStatus.AVAILABLE
+                status: LocationStatus.AVAILABLE,
+                is_active: true
             })
             .execute();
 
