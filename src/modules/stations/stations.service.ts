@@ -309,17 +309,18 @@ export class StationsService {
 
     try {
         // Single atomic operation: Update only if status is AVAILABLE
+        console.log(`Reserving station ${station_id}`);
         const result = await queryRunner.manager
             .createQueryBuilder()
             .update(Station)
             .set({ status: LocationStatus.RESERVED })
-            .where("station_id = :station_id AND status = :status AND active = :active", {
+            .where("station_id = :station_id AND status = :status AND is_active = :active", {
                 station_id: station_id,
                 status: LocationStatus.AVAILABLE,
                 active: true
             })
             .execute();
-
+          console.log(`result: ${JSON.stringify(result)}`);
         // If no rows were affected, station was either not found or not available
         if (result.affected === 0) {
             await queryRunner.rollbackTransaction();

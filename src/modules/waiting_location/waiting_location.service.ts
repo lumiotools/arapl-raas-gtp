@@ -175,7 +175,7 @@ export class WaitingLocationService {
             .createQueryBuilder()
             .update(WaitingLocation)
             .set({ status: LocationStatus.RESERVED })
-            .where("location_id = :location_id AND status = :status AND active = :active", {
+            .where("location_id = :location_id AND status = :status AND is_active = :active", {
                 location_id: location_id,
                 status: LocationStatus.AVAILABLE,
                 active: true
