@@ -43,7 +43,7 @@ export class OrderItem {
   status: OrderItemStatus;
 
   @Column({ type: 'int', default: null, nullable: true })
-  merged_order_item_id: number;
+  merged_order_item_id: number | null;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
