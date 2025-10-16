@@ -38,5 +38,11 @@ export class SettingsController {
   async makeRobotOffline(@Param('robot_id') robotId: string, @Body() body: { status: RobotStatus, reason: string|null }) {
     return await this.settingsService.updateRobot(robotId, body.status, body.reason);
   }
+
+  @Get('robots/InUse')
+  async getAllRobotsInUse(@Query() task_type: TaskType) {
+    return await this.settingsService.getAllRobotsInUse(task_type);
+  }
+
   
 }

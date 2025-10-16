@@ -2106,7 +2106,7 @@ export class OrchestratorService {
       where: whereCondition,
     });
 
-    const allRobots = await this.robotRepository.find();
+    const allRobots = await this.robotRepository.find({ where: { task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS } });
     // keep a set of all the robot IDs used in allTasks
     const robotIds = new Set<string>();
     allRobots.forEach(robot => {
