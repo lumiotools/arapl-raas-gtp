@@ -49,6 +49,8 @@ export class EmptyLocationsController {
       allocationType
     );
   }
+
+  
   @Get(':id/active-robot')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
