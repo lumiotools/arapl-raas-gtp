@@ -7,9 +7,10 @@ import { Inventory, Task } from 'src/entities';
 import { InventoryModule } from '../inventory/inventory.module';
 import { InventoryService } from '../inventory/inventory.service';
 import { Settings } from 'src/entities/settings.entity';
+import { User } from 'src/entities/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([EmptyLocation, Inventory, Task, Settings]), InventoryModule],
+  imports: [TypeOrmModule.forFeature([EmptyLocation, Inventory, Task, Settings, User]), InventoryModule],
   controllers: [EmptyLocationsController],
   providers: [EmptyLocationsService, InventoryService],
 })
