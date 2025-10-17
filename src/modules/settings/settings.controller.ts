@@ -19,6 +19,11 @@ export class SettingsController {
     return await this.settingsService.getAllRobots(task_type);
   }
 
+  @Get('robots/InUse')
+  async getAllRobotsInUse(@Query() task_type: TaskType) {
+    return await this.settingsService.getAllRobotsInUse(task_type);
+  }
+
   @Get()
   async findAll() {
     return await this.settingsService.findAll();

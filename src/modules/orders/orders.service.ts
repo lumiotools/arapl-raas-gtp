@@ -159,7 +159,7 @@ export class OrdersService {
               if (existingOrderItem.status === OrderItemStatus.IN_PROGRESS){
                 orderItem.status = OrderItemStatus.IN_PROGRESS;
               }
-              orderItem.merged_order_item_id = existingOrderItem.order_item_id;
+              orderItem.merged_order_item_id = existingOrderItem.merged_order_item_id ? existingOrderItem.merged_order_item_id : existingOrderItem.order_item_id;
             }
             
           }
