@@ -2203,7 +2203,11 @@ export class OrchestratorService {
       where: whereCondition,
     });
 
-    const allRobots = await this.robotRepository.find();
+    const allRobots = await this.robotRepository.find({
+      where: {
+        task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
+      }
+    });
     // keep a set of all the robot IDs used in allTasks
     const robotIds = new Set<string>();
     allRobots.forEach(robot => {
@@ -2226,13 +2230,17 @@ export class OrchestratorService {
           unloading_time: {},
           completedTasks: 0,
           canceledTasks: 0,
-          move_types: {
+          move_types: module === "FlowOps" ? {
             [MOVE_TYPE.INVENTORY_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
             [MOVE_TYPE.STATION_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
             [MOVE_TYPE.STATION_TO_INVENTORY]: {'total_tasks': 0, 'travel_times': []},
             [MOVE_TYPE.STATION_TO_WAITING_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
             [MOVE_TYPE.WAITING_LOCATION_TO_STATION]: {'total_tasks': 0, 'travel_times': [] },
             [MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
+          }: {
+            [MOVE_TYPE.ZONE_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.ZONE_TO_WAIT]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.WAIT_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
           }
         };
       }
