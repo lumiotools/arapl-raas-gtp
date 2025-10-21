@@ -106,7 +106,7 @@ export class EmptyLocationsService {
     for (let i = 0; i < currentEmptyLocations.length; i++) {
       currentEmptyLocations[i].current_pallet = null;
       const requiredTask = recentTasks.find(task => task.end_location.location_id === currentEmptyLocations[i].location_id);
-      if (!requiredTask) {
+      if (!requiredTask || currentEmptyLocations[i].status === LocationStatus.AVAILABLE) {
         continue;
       }
       currentEmptyLocations[i].current_pallet = requiredTask.cargos ? requiredTask?.cargos[0]?.cargo_code : null;

@@ -3,11 +3,14 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Inventory, OrderItem, Product, Station, GtpLocation, WaitingLocation } from "src/entities";
 import { Repository } from "typeorm";
 import { ChatCompletionTool } from 'openai/resources/chat/completions';
+import { EmptyLocation } from "src/entities/empty-location.entity";
+import { EmptyLocationsService } from "../empty_locations/empty_locations.service";
 
 enum ContextParams {
     ORDER_ITEMS = 'order_items',
     GTP_LOCATIONS = 'gtp_locations',
-    STATIONS = 'stations'
+    STATIONS = 'stations',
+    EMPTY_LOCATIONS = 'empty_locations'
 }
 
 @Injectable()
@@ -25,6 +28,10 @@ export class ToolService {
         private readonly gtpLocationRepository: Repository<GtpLocation>,
         @InjectRepository(WaitingLocation)
         private readonly waitingLocationRepository: Repository<WaitingLocation>,
+        @InjectRepository(EmptyLocation)
+        private readonly emptyLocationRepository: Repository<EmptyLocation>,
+
+        private readonly emptyLocationService: EmptyLocationsService,
     ) {}
 
     async getOrderItems(): Promise<OrderItem[]> {
@@ -63,6 +70,12 @@ export class ToolService {
         return await this.waitingLocationRepository.find();
     }
 
+    async getEmptyLocations(): Promise<EmptyLocation[]> {
+        const res = await this.emptyLocationService.findAll();
+        console.log(`Empty Locations: ${JSON.stringify(res)}`);
+        return res;
+    }
+
     async getContext(param: ContextParams): Promise<string>{
         const contexts = {
             [ContextParams.ORDER_ITEMS]: `
@@ -74,6 +87,12 @@ export class ToolService {
             2. station_id: ID of the station to which this GTP location is assigned.`,
             [ContextParams.STATIONS]: `
             1. station_id: ID of the station.`,
+            [ContextParams.EMPTY_LOCATIONS]: `
+            1. location_id: ID of the empty location.
+            2. location_description: Description of the empty location.
+            3. status: Status of the empty location (e.g., available, occupied).
+            4. is_active: Indicates if the empty location is active or inactive. If active, need to be included in the response.
+            `
         };
         return contexts[param] || '';
     }
@@ -130,6 +149,18 @@ export const Tools: ChatCompletionTool[] = [
                     }
                 },
                 required: ['gtpLocationId']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'getEmptyLocations',
+            description: 'Get all empty locations in the warehouse system',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
             }
         }
     },

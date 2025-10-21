@@ -13,5 +13,6 @@ import { User } from 'src/entities/user.entity';
   imports: [TypeOrmModule.forFeature([EmptyLocation, Inventory, Task, Settings, User]), InventoryModule],
   controllers: [EmptyLocationsController],
   providers: [EmptyLocationsService, InventoryService],
+  exports: [EmptyLocationsService],
 })
 export class EmptyLocationsModule {}
