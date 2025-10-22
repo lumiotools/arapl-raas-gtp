@@ -10,7 +10,8 @@ enum ContextParams {
     ORDER_ITEMS = 'order_items',
     GTP_LOCATIONS = 'gtp_locations',
     STATIONS = 'stations',
-    EMPTY_LOCATIONS = 'empty_locations'
+    EMPTY_LOCATIONS = 'empty_locations',
+    INVENTORY_LOCATIONS = 'inventory_locations'
 }
 
 @Injectable()
@@ -34,6 +35,9 @@ export class ToolService {
         private readonly emptyLocationService: EmptyLocationsService,
     ) {}
 
+    async getInventories(): Promise<Inventory[]> {
+        return await this.inventoryRepository.find();
+    }
     async getOrderItems(): Promise<OrderItem[]> {
         return await this.orderItemRepository.find();
     }
@@ -92,6 +96,14 @@ export class ToolService {
             2. location_description: Description of the empty location.
             3. status: Status of the empty location (e.g., available, occupied).
             4. is_active: Indicates if the empty location is active or inactive. If active, need to be included in the response.
+            `,
+            [ContextParams.INVENTORY_LOCATIONS]:  `
+            1. location_id: ID of the inventory location.
+            2. location_description: Description of the inventory location.
+            3. status: Status of the inventory location (e.g., available, occupied).
+            4. is_active: Indicates if the inventory location is active or inactive. If active, need to be included in the response.
+            5. is_empty: Indicates if the inventory location is at empty location or not.
+            6. isProcessing: Indicates if the inventory location is being OCCUPIED or not.
             `
         };
         return contexts[param] || '';
@@ -242,6 +254,18 @@ export const Tools: ChatCompletionTool[] = [
                     }
                 },
                 required: ['param']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'getInventories',
+            description: 'Get all inventory locations in the warehouse system',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
             }
         }
     }
