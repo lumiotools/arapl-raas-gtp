@@ -11,6 +11,7 @@ import { MOVE_TYPE } from 'src/entities/task.entity';
 import { isIn } from 'class-validator';
 import { Robot, RobotStatus } from 'src/entities/robots.entity';
 import { LoggingService } from 'src/services/logging.service';
+import { OperationType } from 'src/entities/robot-count.entity';
 
 @Injectable()
 export class SettingsService {
@@ -101,8 +102,9 @@ export class SettingsService {
   }
 
   async getAllRobotsInUse(task_type: TaskType) {
+    const operationType = task_type['task_type'] === TaskType.BASEOPS ? OperationType.BASEOPS : OperationType.FLOWOPS;
     const robots = await this.robotCountRepository.find({
-      where: { operation_type: task_type['task_type'] },
+      where: { operation_type: operationType },
     });
     return {
       "total_robots": robots.length > 0 ? robots[0].total_robots : 0,
