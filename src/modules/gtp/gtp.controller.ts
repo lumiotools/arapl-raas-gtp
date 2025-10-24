@@ -43,7 +43,7 @@ export class GtpController {
     type: ConflictResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN)
+  @Roles(Role.FLOWOPS_ADMIN, Role.ADMIN, Role.FLOWOPS_OPERATOR)
   async create(@Body() createGtpDto: CreateGtpDto) {
     return await this.gtpService.create(createGtpDto as any);
   }
@@ -59,7 +59,7 @@ export class GtpController {
     type: [GtpLocationResponseDto]
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN)
+  @Roles(Role.FLOWOPS_ADMIN, Role.ADMIN, Role.FLOWOPS_OPERATOR)
   findAll() {
     return this.gtpService.findAll();
   }
@@ -81,7 +81,7 @@ export class GtpController {
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN)
+  @Roles(Role.FLOWOPS_ADMIN, Role.ADMIN, Role.FLOWOPS_OPERATOR)
   async findOne(@Param('id') id: string) {
     return await this.gtpService.findOne(id);
   }
@@ -109,7 +109,7 @@ export class GtpController {
     type: ValidationErrorResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN)
+  @Roles(Role.FLOWOPS_ADMIN, Role.ADMIN, Role.FLOWOPS_OPERATOR)
   async update(@Param('id') id: string, @Body() updateGtpDto: UpdateGtpDto) {
     // Validate that URL parameter ID matches DTO ID if provided
     if (updateGtpDto.gtp_location_id && updateGtpDto.gtp_location_id !== id) {
@@ -138,7 +138,7 @@ export class GtpController {
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN)
+  @Roles(Role.FLOWOPS_ADMIN, Role.ADMIN, Role.FLOWOPS_OPERATOR)
   async remove(@Param('id') id: string) {
     return await this.gtpService.remove(id);
   }

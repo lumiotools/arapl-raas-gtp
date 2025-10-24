@@ -43,7 +43,7 @@ export class OrdersController {
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({
     summary: 'Upload orders from CSV/Excel file',
@@ -103,7 +103,7 @@ export class OrdersController {
 
   @Get('order-items')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all order items',
@@ -186,7 +186,7 @@ export class OrdersController {
   @Get('gtp-location-status/:gtpLocationId')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @ApiOperation({
     summary: 'Get GTP location status',
     description: 'Returns the status (boolean) for the specified GTP location.',
@@ -215,7 +215,7 @@ export class OrdersController {
   @Get('by-status')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
     @ApiOperation({
     summary: 'Get orders by status and time range',
     description: 'Retrieve all orders filtered by their status and optionally by time range. Multiple statuses can be provided as comma-separated values.',
@@ -292,7 +292,7 @@ export class OrdersController {
   @Get('station-report/summary')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @ApiOperation({
     summary: 'Get station report summary',
     description: 'Returns a summary report for stations within the specified date range.',
@@ -345,7 +345,7 @@ export class OrdersController {
   @Get('source/gtp-location/:gtp_location_id')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles('admin', 'flowops.operator','flowops.admin')
   @ApiOperation({
     summary: 'Get source by GTP location',
     description: 'Retrieve all source associated with the specified GTP location ID.',
@@ -399,7 +399,7 @@ export class OrdersController {
   @Patch('order-item/cancel/:order_item_id')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @ApiOperation({
     summary: 'Cancel order item',
     description: 'Cancel an order item by its ID. Optionally, specify if the item is a group using the is_group query parameter.',
