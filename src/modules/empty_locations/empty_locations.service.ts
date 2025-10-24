@@ -3,12 +3,12 @@ import { CreateEmptyLocationDto } from './dto/create-empty_location.dto';
 import { UpdateEmptyLocationDto } from './dto/update-empty_location.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { empty } from 'rxjs';
-import { In, Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationStatus } from 'src/entities/station.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { Task } from 'src/entities';
-import { MOVE_TYPE } from 'src/entities/task.entity';
+import { MOVE_TYPE, TaskStatus } from 'src/entities/task.entity';
 import { Settings } from 'src/entities/settings.entity';
 import { OperationType } from 'src/entities/robot-count.entity';
 
@@ -106,7 +106,7 @@ export class EmptyLocationsService {
     for (let i = 0; i < currentEmptyLocations.length; i++) {
       currentEmptyLocations[i].current_pallet = null;
       const requiredTask = recentTasks.find(task => task.end_location.location_id === currentEmptyLocations[i].location_id);
-      if (!requiredTask) {
+      if (!requiredTask || currentEmptyLocations[i].status === LocationStatus.AVAILABLE) {
         continue;
       }
       currentEmptyLocations[i].current_pallet = requiredTask.cargos ? requiredTask?.cargos[0]?.cargo_code : null;
@@ -192,4 +192,57 @@ export class EmptyLocationsService {
     await this.settingsRepository.save(settings);
     return settings;
   }
+
+  async getActiveRobotAtEmptyLocation(empty_location_id: string){
+    const emptyLocation = await this.emptyLocationRepository.findOne({
+        where: { location_id: empty_location_id, status: Not(LocationStatus.AVAILABLE) },
+      });
+      if (!emptyLocation) {
+        throw new BadRequestException("Empty location not found")
+      }
+      const tasks = await this.taskRepository.find({
+        where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]) },
+        order: { created_at: 'DESC' }
+      });
+  
+      // Filter to get only the last task of each batch
+      const lastTasksPerBatch = new Map<string, Task>();
+      for (const task of tasks) {
+        if (task.batch_id) {
+          if (!lastTasksPerBatch.has(task.batch_id) || 
+              task.created_at > lastTasksPerBatch.get(task.batch_id)!.created_at) {
+            lastTasksPerBatch.set(task.batch_id, task);
+          }
+        }
+      }
+      const filteredTasks = Array.from(lastTasksPerBatch.values());
+      let robot_id : string | null = null;
+      let robot_task : Task | null = null;
+      for (const task of filteredTasks){
+        if (task.end_location.location_attribute.attribute_value=='empty_location' && task.end_location.location_id==empty_location_id){
+          robot_id = task.robot_id;
+          robot_task = task;
+          break;
+        }
+      }
+      
+      let status: TaskStatus | null | string = null;
+      if (robot_task) {
+        status = robot_task.status;
+        if (status === TaskStatus.PROCESSING) {
+          status = "COMING";
+        }
+        else if (status === TaskStatus.COMPLETED) {
+          status = "REACHED";
+        }
+      }
+      console.log(`status: ${status}`)
+      if (!robot_id){return {robot_id: null}}
+      return {
+        robot_id: robot_id,
+        source: robot_task?.start_location.location_id || null,
+        status: status,
+        completed_time: robot_task?.completed || null
+      }
+    }
 }
