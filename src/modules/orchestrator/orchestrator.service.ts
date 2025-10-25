@@ -2217,7 +2217,14 @@ export class OrchestratorService {
       where: whereCondition,
     });
 
-    const allRobots = await this.robotRepository.find({ where: { task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS } });
+    const allRobots = await this.robotRepository.find({ 
+      where: { 
+        task_type: module === OperationType.FLOWOPS ? 
+          TaskType.GOODS_TO_PERSON : 
+          module === OperationType.BASEOPS ? 
+          TaskType.BASEOPS : TaskType.CROSSDOCK 
+      } 
+    });
     // keep a set of all the robot IDs used in allTasks
     const robotIds = new Set<string>();
     allRobots.forEach(robot => {
@@ -2240,7 +2247,7 @@ export class OrchestratorService {
           unloading_time: {},
           completedTasks: 0,
           canceledTasks: 0,
-          move_types: module === "FlowOps" ? {
+          move_types: module === OperationType.FLOWOPS ? {
             [MOVE_TYPE.INVENTORY_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
             [MOVE_TYPE.STATION_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
             [MOVE_TYPE.STATION_TO_INVENTORY]: {'total_tasks': 0, 'travel_times': []},
@@ -2511,7 +2518,7 @@ export class OrchestratorService {
     } 
   } else if (module === OperationType.CROSSDOCK){
     for (const task of allTasks){
-      if (task.task_type === TaskType.BASEOPS){
+      if (task.task_type === TaskType.CROSSDOCK){
         if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res.ZoneToZone.push(travelTime);
