@@ -6,11 +6,12 @@ import { Settings } from 'src/entities/settings.entity';
 import { In, Repository } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
-import { LocationAction, Task, TaskStatus, TaskType } from 'src/entities';
+import { LocationAction, RobotCount, Task, TaskStatus, TaskType } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
 import { isIn } from 'class-validator';
 import { Robot, RobotStatus } from 'src/entities/robots.entity';
 import { LoggingService } from 'src/services/logging.service';
+import { OperationType } from 'src/entities/robot-count.entity';
 
 @Injectable()
 export class SettingsService {
@@ -22,6 +23,8 @@ export class SettingsService {
     private taskRepository: Repository<Task>,
     @InjectRepository(Robot)
     private robotRepository: Repository<Robot>,
+    @InjectRepository(RobotCount)
+    private robotCountRepository: Repository<RobotCount>,
     private readonly loggingService: LoggingService,
   ){}
   create(createSettingDto: CreateSettingDto) {
@@ -96,5 +99,17 @@ export class SettingsService {
     } catch (error) {
       throw new Error(`Failed to update robot: ${error.message}`);
     }
+  }
+
+  async getAllRobotsInUse(task_type: TaskType) {
+    const operationType = task_type['task_type'] === TaskType.BASEOPS ? OperationType.BASEOPS : OperationType.FLOWOPS;
+    const robots = await this.robotCountRepository.find({
+      where: { operation_type: operationType },
+    });
+    return {
+      "total_robots": robots.length > 0 ? robots[0].total_robots : 0,
+      "robot_in_use": robots.length > 0 ? robots[0].robot_in_use : 0,
+      "is_waiting": robots.length > 0 ? robots[0].is_waiting : false,
+    };
   }
 }

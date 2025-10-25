@@ -110,16 +110,16 @@ export class StationsService {
         }
       }
       // find intersecting location IDs
-      const intersectingLocationIds = bin_ids.filter(id => existingStationIds.includes(id));
-      for (const id of intersectingLocationIds) {
-        const station = allStations.filter(station => station.station_id === id)[0];
-        if (station.is_active === false) {
-          await this.stationRepository.update(
-            { station_id: id },
-            { is_active: true }
-          );
-        }
-      }
+      // const intersectingLocationIds = bin_ids.filter(id => existingStationIds.includes(id));
+      // for (const id of intersectingLocationIds) {
+      //   const station = allStations.filter(station => station.station_id === id)[0];
+      //   if (station.is_active === false) {
+      //     await this.stationRepository.update(
+      //       { station_id: id },
+      //       { is_active: true }
+      //     );
+      //   }
+      // }
       return await this.stationRepository.find({ relations: ['gtpLocations'] });
     }catch{
       throw new BadRequestException('Failed to fetch WMS stations');
@@ -309,16 +309,18 @@ export class StationsService {
 
     try {
         // Single atomic operation: Update only if status is AVAILABLE
+        console.log(`Reserving station ${station_id}`);
         const result = await queryRunner.manager
             .createQueryBuilder()
             .update(Station)
             .set({ status: LocationStatus.RESERVED })
-            .where("station_id = :station_id AND status = :status", {
+            .where("station_id = :station_id AND status = :status AND is_active = :active", {
                 station_id: station_id,
-                status: LocationStatus.AVAILABLE
+                status: LocationStatus.AVAILABLE,
+                active: true
             })
             .execute();
-
+          console.log(`result: ${JSON.stringify(result)}`);
         // If no rows were affected, station was either not found or not available
         if (result.affected === 0) {
             await queryRunner.rollbackTransaction();

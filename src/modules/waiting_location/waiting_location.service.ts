@@ -81,16 +81,16 @@ export class WaitingLocationService {
     }
 
     // find intersecting location IDs
-      const intersectingLocationIds = bin_ids.filter(id => existingWaitingLocationIds.includes(id));
-      for (const id of intersectingLocationIds) {
-        const waitLocation = allWaitingLocations.filter(location => location.location_id === id)[0];
-        if (waitLocation.is_active === false) {
-          await this.waitingLocationRepository.update(
-            { location_id: id },
-            { is_active: true }
-          );
-        }
-      }
+      // const intersectingLocationIds = bin_ids.filter(id => existingWaitingLocationIds.includes(id));
+      // for (const id of intersectingLocationIds) {
+      //   const waitLocation = allWaitingLocations.filter(location => location.location_id === id)[0];
+      //   if (waitLocation.is_active === false) {
+      //     await this.waitingLocationRepository.update(
+      //       { location_id: id },
+      //       { is_active: true }
+      //     );
+      //   }
+      // }
     return await this.waitingLocationRepository.find();
   }
 
@@ -175,9 +175,10 @@ export class WaitingLocationService {
             .createQueryBuilder()
             .update(WaitingLocation)
             .set({ status: LocationStatus.RESERVED })
-            .where("location_id = :location_id AND status = :status", {
+            .where("location_id = :location_id AND status = :status AND is_active = :active", {
                 location_id: location_id,
-                status: LocationStatus.AVAILABLE
+                status: LocationStatus.AVAILABLE,
+                active: true
             })
             .execute();
 
@@ -197,12 +198,10 @@ export class WaitingLocationService {
         await queryRunner.release();
     }
   }
-  
+
   async getActiveRobotAtWaiting(waiting_location_id: string){
     const tasks = await this.taskRepository.find({
-      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE])
-        ,task_type: TaskType.GOODS_TO_PERSON
-       },
+      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]) },
       order: { created_at: 'DESC' }
     });
 
@@ -247,7 +246,8 @@ export class WaitingLocationService {
     return {
       robot_id: robot_id,
       source: robot_task?.start_location.location_id || null,
-      status: status
+      status: status,
+      completed_time: robot_task?.completed || null
     }
   }
 }

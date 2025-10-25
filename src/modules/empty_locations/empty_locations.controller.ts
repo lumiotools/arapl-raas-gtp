@@ -1,7 +1,11 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
 import { EmptyLocationsService } from './empty_locations.service';
 import { CreateEmptyLocationDto } from './dto/create-empty_location.dto';
 import { UpdateEmptyLocationDto } from './dto/update-empty_location.dto';
+import { JwtAuthGuard } from '../auth/guard/auth.guard';
+import { RolesGuard } from '../auth/guard/roles.guard';
+import { Roles } from '../auth/guard/roles.decorator';
+import { Role } from 'src/entities/user.entity';
 
 @Controller('empty-locations')
 export class EmptyLocationsController {
@@ -44,5 +48,13 @@ export class EmptyLocationsController {
     return await this.emptyLocationsService.updateAllocation(
       allocationType
     );
+  }
+
+  
+  @Get(':id/active-robot')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  async getActiveRobot(@Param('id') id: string) {
+    return await this.emptyLocationsService.getActiveRobotAtEmptyLocation(id);
   }
 }

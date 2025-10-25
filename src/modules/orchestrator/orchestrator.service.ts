@@ -157,6 +157,13 @@ export class OrchestratorService {
           const task = await this.taskRepository.findOne({where: { task_id: taskId }});
           if (!task){continue;}
 
+          const nextTaskOfSequence = await this.taskRepository.findOne({where: { batch_id: task.batch_id, task_dependency: task.task_id }});
+          if (nextTaskOfSequence) {
+            // there is already a next task created for this batch - skip
+            console.log(`There is already a next task created for this batch - skipping`);
+            continue;
+          }
+
           // Check if this task's product is in the current requirements
           const hasRequirement = productRequirements.has(task.origin_location);
 
@@ -495,7 +502,7 @@ export class OrchestratorService {
                 }
               if (!returnTask){
                 await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.AVAILABLE, holded_by: null});
-                await this.stationRepository.update(taskComingToInventory.start_location.location_id, { status: LocationStatus.AVAILABLE, holded_by: null });
+                // await this.stationRepository.update(taskComingToInventory.start_location.location_id, { status: LocationStatus.AVAILABLE, holded_by: null });
               }
             }
           }
@@ -2209,11 +2216,13 @@ export class OrchestratorService {
     const allTasks = await this.taskRepository.find({
       where: whereCondition,
     });
+
+    const allRobots = await this.robotRepository.find({ where: { task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS } });
     // keep a set of all the robot IDs used in allTasks
     const robotIds = new Set<string>();
-    allTasks.forEach(task => {
-      if (task.robot_id) {
-        robotIds.add(task.robot_id);
+    allRobots.forEach(robot => {
+      if (robot.robot_id) {
+        robotIds.add(robot.robot_id);
       }
     });
     const allRobotIds = Array.from(robotIds);
@@ -2222,7 +2231,7 @@ export class OrchestratorService {
       const repoRobot = await this.robotRepository.findOne({where: { robot_id: robotId }});
       if (!repoRobot) continue;
       const filteredTasks = allTasks.filter(task => task.robot_id === robotId);
-      if (filteredTasks.length == 0) continue;
+      // if (filteredTasks.length == 0) continue;
       if (!res[robotId]) {
         res[robotId] = {
           totalTasks: filteredTasks.length,
@@ -2231,13 +2240,17 @@ export class OrchestratorService {
           unloading_time: {},
           completedTasks: 0,
           canceledTasks: 0,
-          move_types: {
+          move_types: module === "FlowOps" ? {
             [MOVE_TYPE.INVENTORY_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
             [MOVE_TYPE.STATION_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
             [MOVE_TYPE.STATION_TO_INVENTORY]: {'total_tasks': 0, 'travel_times': []},
             [MOVE_TYPE.STATION_TO_WAITING_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
             [MOVE_TYPE.WAITING_LOCATION_TO_STATION]: {'total_tasks': 0, 'travel_times': [] },
             [MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
+          }: {
+            [MOVE_TYPE.ZONE_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.ZONE_TO_WAIT]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.WAIT_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
           }
         };
       }
@@ -2306,13 +2319,63 @@ export class OrchestratorService {
         }
         return true;
       });
-      if (requiredLogs.length === 0) continue;
-      requiredLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
       res[robotId].maintenance_time = 0;
       res[robotId].charging_time = 0;
       res[robotId].online_time = 0;
       res[robotId].error_time = 0;
-      res[robotId].inUse_time = (new Date(requiredLogs[0].timestamp).getTime() - new Date(repoRobot.created_at).getTime()) / 1000;
+      res[robotId].inUse_time = 0;
+      if (requiredLogs.length === 0){
+        // find the log just before the start date
+        if (startDate){
+          const previousLog = repoRobot.logs
+            .filter(log => new Date(log.timestamp) < startDate)
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+          if (previousLog){
+            const timeDiff = (Date.now() - startDate.getTime()) / 1000;
+            if (previousLog.new_status === RobotStatus.INUSE) {
+              res[robotId].inUse_time += timeDiff;
+            }
+            else if (previousLog.new_status === RobotStatus.CHARGING) {
+              res[robotId].charging_time += timeDiff;
+            }
+            else if (previousLog.new_status === RobotStatus.MAINTENANCE) {
+              res[robotId].maintenance_time += timeDiff;
+            }
+            else if (previousLog.new_status === RobotStatus.ONLINE) {
+              res[robotId].online_time += timeDiff;
+            }
+            else if (previousLog.new_status === RobotStatus.ERROR) {
+              res[robotId].error_time += timeDiff;
+            }
+          }
+        }
+        continue;
+      }
+      requiredLogs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      let previousTime = 0;
+      const firstLogIndex = repoRobot.logs.findIndex(log => log.timestamp === requiredLogs[0].timestamp);
+      if (firstLogIndex > 0) {
+        previousTime = startDate ? startDate.getTime() : new Date(repoRobot.logs[firstLogIndex - 1].timestamp).getTime();
+      } else {
+        previousTime = new Date(requiredLogs[0].timestamp).getTime();
+      }
+      console.log(`Robot ${robotId} - First log time: ${new Date(requiredLogs[0].timestamp)} Previous log time: ${new Date(previousTime)}`);
+      // Handle the time before the first required log
+      if (requiredLogs[0].previous_status === RobotStatus.INUSE) {
+        res[robotId].inUse_time += (new Date(requiredLogs[0].timestamp).getTime() - previousTime) / 1000;
+      }
+      else if (requiredLogs[0].previous_status === RobotStatus.CHARGING) {
+        res[robotId].charging_time += (new Date(requiredLogs[0].timestamp).getTime() - previousTime) / 1000;
+      }
+      else if (requiredLogs[0].previous_status === RobotStatus.MAINTENANCE) {
+        res[robotId].maintenance_time += (new Date(requiredLogs[0].timestamp).getTime() - previousTime) / 1000;
+      }
+      else if (requiredLogs[0].previous_status === RobotStatus.ONLINE) {
+        res[robotId].online_time += (new Date(requiredLogs[0].timestamp).getTime() - previousTime) / 1000;
+      }
+      else if (requiredLogs[0].previous_status === RobotStatus.ERROR) {
+        res[robotId].error_time += (new Date(requiredLogs[0].timestamp).getTime() - previousTime) / 1000;
+      }
       // iterate through the logs and calculate the time spent in each status
       let currentStatus: RobotStatus = requiredLogs[0].new_status;
       let currentTime = new Date(requiredLogs[0].timestamp).getTime();
@@ -2511,7 +2574,7 @@ export class OrchestratorService {
     }
     if (statusList.includes('completed')) {
       TaskItems.push(...await this.taskRepository.find({
-        where: { ...whereCondition, status: TaskStatus.COMPLETED },
+        where: { ...whereCondition, status: In([TaskStatus.COMPLETED, TaskStatus.TRIGERRED]) },
         order: { created_at: 'DESC', updated_at: 'DESC' },
         relations: ['batch', 'orderItems']
       }));

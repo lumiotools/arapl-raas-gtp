@@ -315,8 +315,8 @@ export class OrdersController {
     type: BadRequestDto,
   })
   async getStationReportSummary(
-    @Query('startDate') startTime?: string,
-    @Query('endDate') endTime?: string
+    @Query('start_time') startTime?: string,
+    @Query('end_time') endTime?: string
   ) {
     // Validate time parameters if provided
     let startDate: Date | undefined;

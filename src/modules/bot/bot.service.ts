@@ -39,7 +39,7 @@ export class BotService {
         
         messages.push({
             role: 'system',
-            content: 'You are a helpful assistant that uses tools to assist users. Info: GTP locations and Pick locations are same.',
+            content: 'You are a helpful assistant that uses tools to assist users. Info: GTP locations and Pick locations are same. Empty Locations (Empty Pallets) has nothing to do with status = Available or Occupied. Empty Locations are just a category of locations that are designated for storing pallets. For finding inventories at empty location/pallet or empty inventories, find all the inventory then check is_empty = true. For finding occupied inventories, check if isProcessing = true. Dont mention is_empty or isProcesssing in the response.',
         });
         
         for (const history of chatHistory) {
@@ -94,6 +94,8 @@ export class BotService {
                 "getPickLocationFromStation": this.toolService.getPickLocationFromStation.bind(this.toolService),
                 "getWaitingLocations": this.toolService.getWaitingLocations.bind(this.toolService),
                 "getContext": this.toolService.getContext.bind(this.toolService),
+                "getEmptyLocations": this.toolService.getEmptyLocations.bind(this.toolService),
+                "getInventories": this.toolService.getInventories.bind(this.toolService),
             };
 
             // Add the assistant's message with tool calls
@@ -118,7 +120,9 @@ export class BotService {
                         'getOrderItems',
                         'getStations', 
                         'getPickLocations',
-                        'getWaitingLocations'
+                        'getWaitingLocations',
+                        'getEmptyLocations',
+                        'getInventories'
                     ];
                     
                     if (functionsWithoutArgs.includes(functionName)) {

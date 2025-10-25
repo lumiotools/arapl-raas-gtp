@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsNumber, Min, IsOptional } from 'class-validator';
+import { LocationStatus } from 'src/entities/station.entity';
 
 export class CreateInventoryDto {
   @ApiProperty({
@@ -76,4 +77,11 @@ export class CreateInventoryDto {
   })
   @IsOptional()
   is_empty?: boolean;
+
+  @ApiProperty({
+    description: 'Current status of the inventory location',
+    example: 'AVAILABLE',
+  })
+  @IsOptional()
+  status?: LocationStatus;
 }

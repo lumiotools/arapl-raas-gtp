@@ -298,6 +298,13 @@ export class LocationManagerService {
     }
 
     async syncFMSLocations() {
+        const existingLocations = await this.locationRepository.find();
+
+        if (existingLocations.length > 0) {
+            console.log("Existing locations found in DB, skipping initial FMS sync to avoid overwriting local data.");
+            return;
+        }
+        
         console.log("Starting FMS location sync...");
         const fmsLocations = await this.fetchFMSLocations();
         console.log("Fetched FMS locations");
