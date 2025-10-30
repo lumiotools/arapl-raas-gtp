@@ -382,7 +382,8 @@ export class OrdersService {
       if (!sourceLocationStats[sourceLocationId]['completed']){sourceLocationStats[sourceLocationId]['completed'] = 0;}
       sourceLocationStats[sourceLocationId][orderItem.order_item_id.toString()] = {
         status: orderItem.status,
-        merged_order_item_id: orderItem.merged_order_item_id
+        merged_order_item_id: orderItem.merged_order_item_id,
+        retry_reassign_attempts: orderItem.retry_reassign_attempts
       };
       if (orderItem.status == OrderItemStatus.COMPLETED){ sourceLocationStats[sourceLocationId]['completed'] += 1; }
       sourceLocationStats[sourceLocationId]['totalOrder'] += 1;

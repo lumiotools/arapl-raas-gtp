@@ -66,7 +66,7 @@ export class SettingsService {
       res.push({
         'id': robot.robot_id,
         'status': robot.status,
-        'travel_status': robot_task ? (robot_task.status === TaskStatus.PROCESSING ? `MOVING TO ${robot_task.end_location.location_id}` : (robot_task.status === TaskStatus.COMPLETED ? `REACHED ${robot_task.end_location.location_id}` : `IDLE`)) : (robot.status === RobotStatus.ONLINE ? '-' : 'INACTIVE'),
+        'travel_status': robot_task ? ((robot_task.status === TaskStatus.PROCESSING || robot_task.status === TaskStatus.INQUEUE) ? `MOVING TO ${robot_task.end_location.location_id}` : (robot_task.status === TaskStatus.COMPLETED ? `REACHED ${robot_task.end_location.location_id}` : `ERROR`)) : (robot.status === RobotStatus.ONLINE ? '-' : 'INACTIVE'),
         'current_status_time': robot.updated_at ? (Date.now() - new Date(robot.updated_at).getTime()) / 1000 : 0,
         'reason': robot.message_code ? robot.message_code : null
       });

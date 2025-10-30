@@ -36,7 +36,7 @@ export class OrderItem {
   destination_pallet_slot_id: string;
 
   @Column({
-    type: 'enum',
+    type: 'enum', 
     enum: OrderItemStatus,
     default: OrderItemStatus.PENDING,
   })
@@ -44,6 +44,9 @@ export class OrderItem {
 
   @Column({ type: 'int', default: null, nullable: true })
   merged_order_item_id: number | null;
+
+  @Column({ type: 'int', default: 0})
+  retry_reassign_attempts: number;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

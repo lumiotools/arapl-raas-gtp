@@ -457,6 +457,25 @@ export class OrdersController {
     if (!taskId) {
       throw new BadRequestException('task_id is required');
     }
-    return await this.ordersCancelService.retryOrderByTaskId(taskId);
+    await this.ordersCancelService.retryOrderByTaskId(taskId);
+    return {
+      success: true,
+      message: 'Erroneous task handled successfully',
+      task_id: taskId
+    };
   }
+
+  @Post('retry-order-item/:order_item_id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
+  async retryOrderItem(
+    @Param('order_item_id') orderItemId: number,
+  ) {
+    if (!orderItemId) {
+      throw new BadRequestException('order_item_id is required');
+    }
+    return await this.ordersCancelService.retryOrderItem(orderItemId);
+  }
+
 }
