@@ -2923,7 +2923,7 @@ export class OrchestratorService {
         batchId: task.batch_id,
         originLocation: task.origin_location,
         sourceInventoryId: task.start_location.location_id,
-        destinationStationId: task.end_location.location_id,
+        destinationInventoryId: task.end_location.location_id,
         taskType: TaskType.GOODS_TO_PERSON,
         move_type: MOVE_TYPE.INVENTORY_TO_INVENTORY,
         sequenceOrder: task.sequence_order+1,

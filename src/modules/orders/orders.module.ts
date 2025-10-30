@@ -13,11 +13,12 @@ import { LoggingService } from 'src/services/logging.service';
 import { Log, ProductRequirement, Task } from 'src/entities';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
+import { OrdersCancelService } from './orders-cancel.service';
 
 @Module({
   imports: [JwtModule.register(jwtConfig),
     TypeOrmModule.forFeature([OrderItem, Product, GtpLocation, User, Log, ScheduleMapping, Task, ProductRequirement]),OrchestratorModule],
   controllers: [OrdersController],
-  providers: [OrdersService, LoggingService],
+  providers: [OrdersService, LoggingService, OrdersCancelService],
 })
 export class OrdersModule {}

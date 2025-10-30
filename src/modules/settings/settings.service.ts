@@ -59,7 +59,7 @@ export class SettingsService {
       let robot_task: Task | null = null;
       if (robot.status === RobotStatus.INUSE){
         robot_task = await this.taskRepository.findOne({
-          where: { robot_id: robot.robot_id, status: In([TaskStatus.PROCESSING, TaskStatus.COMPLETED]) },
+          where: { robot_id: robot.robot_id },
           order: { created_at: 'DESC' }
         });
       }

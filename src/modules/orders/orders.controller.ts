@@ -33,12 +33,15 @@ import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
 import { Role } from 'src/entities/user.entity';
+import { OrdersCancelService } from './orders-cancel.service';
 
 
 @ApiTags('Orders')
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(private readonly ordersService: OrdersService,
+    private readonly ordersCancelService: OrdersCancelService
+  ) {}
 
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
@@ -428,6 +431,32 @@ export class OrdersController {
     if (!orderItemId) {
       throw new BadRequestException('order_item_id is required');
     }
-    return await this.ordersService.cancelOrderItem(orderItemId, isGroup);
+    return await this.ordersCancelService.cancelOrderItem(orderItemId, isGroup);
+  }
+
+  @Patch('cancel/task/:task_id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
+  async cancelOrderByTaskId(
+    @Param('task_id') taskId: string,
+  ) {
+    if (!taskId) {
+      throw new BadRequestException('task_id is required');
+    }
+    return await this.ordersCancelService.cancelOrderByTaskId(taskId);
+  }
+
+  @Post('retry/:task_id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
+  async retryOrderByTaskId(
+    @Param('task_id') taskId: string,
+  ) {
+    if (!taskId) {
+      throw new BadRequestException('task_id is required');
+    }
+    return await this.ordersCancelService.retryOrderByTaskId(taskId);
   }
 }

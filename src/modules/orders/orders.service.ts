@@ -472,4 +472,36 @@ export class OrdersService {
     return { success: true, message: `Order item ID ${orderItemId} cancelled` };
 
   }
+
+  async cancelOrderByTaskId(taskId: string){
+    const task = await this.taskRepository.findOne({ where: { task_id: taskId } });
+    if (!task){
+      throw new NotFoundException(`Task with ID ${taskId} not found`);
+    }
+    if (task.status === TaskStatus.CANCELLED || task.status === TaskStatus.COMPLETED){
+      throw new BadRequestException(`Cannot cancel task with status ${task.status}`);
+    }
+
+    const source_location_id = task?.origin_location;
+    const orderItems = await this.orderItemRepository.find({
+      where: {
+        source_location_id: source_location_id,
+        status: In([OrderItemStatus.IN_PROGRESS])
+      },
+    });
+    for (const orderItem of orderItems){
+      orderItem.status = OrderItemStatus.CANCELLED;
+      await this.orderItemRepository.save(orderItem);
+      await this.loggingService.log(`Order Item ID ${orderItem.order_item_id} cancelled (via task ID ${taskId})`,
+        TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
+    }
+    await this.orchestrationService.decrementRobotInUse();
+    await this.productRequirementRepository.delete({ source_location_id: source_location_id });
+    await this.orchestrationService.CancelTask(task);
+
+  }
+
+  
+
+
 }
