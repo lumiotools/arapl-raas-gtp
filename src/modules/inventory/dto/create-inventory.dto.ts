@@ -79,6 +79,13 @@ export class CreateInventoryDto {
   is_empty?: boolean;
 
   @ApiProperty({
+    description: 'Indicates if the inventory item is currently in quarantine',
+    example: true,
+  })
+  @IsOptional()
+  is_quarantine?: boolean;
+
+  @ApiProperty({
     description: 'Current status of the inventory location',
     example: 'AVAILABLE',
   })

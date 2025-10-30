@@ -237,9 +237,9 @@ export class InventoryService {
       const expectedHeaders = ['Inv Locations','barcode_number'];
       
       // Validate headers
-      if (!expectedHeaders.every(header => headers.includes(header))) {
-        throw new BadRequestException(`Invalid CSV format. Expected headers: ${expectedHeaders.join(', ')}`);
-      }
+      // if (!expectedHeaders.every(header => headers.includes(header))) {
+      //   throw new BadRequestException(`Invalid CSV format. Expected headers: ${expectedHeaders.join(', ')}`);
+      // }
 
       const results = {
         successful: 0,
@@ -261,9 +261,9 @@ export class InventoryService {
         }
 
         const invLocation = values[0]; // Inv Locations
-        const barcodeNumber = values[1]; // Barcode number
+        const barcodeNumber = values[1] || null; // Barcode number
 
-        if (!invLocation || !barcodeNumber) {
+        if (!invLocation) {
           results.failed++;
           results.errors.push(`Row ${i + 1}: Missing required fields (Inv Locations or Barcode Number)`);
           continue;

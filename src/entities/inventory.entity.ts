@@ -18,8 +18,8 @@ export class Inventory {
   @Column({ type: 'boolean', default: false })
   isProcessing: boolean;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  barcode_number: string;
+  @Column({ type: 'varchar', length: 255, nullable: true, default: null })
+  barcode_number: string | null;
 
   @Column({
     type: 'enum',
@@ -28,14 +28,17 @@ export class Inventory {
   })
   status: LocationStatus;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', nullable: true, default: null })
   holded_by: string | null;
 
-  @Column({ type: 'boolean', default: true})
+  @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
-  @Column({ type: 'boolean', default: false})
+  @Column({ type: 'boolean', default: false })
   is_empty: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  is_quarantine: boolean;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
