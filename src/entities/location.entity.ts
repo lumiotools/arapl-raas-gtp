@@ -7,11 +7,13 @@ export enum LocationType {
   BAY = 'Bay',
   PALLET = 'PALLET',
   TRANSIENT = 'Transient',
+  ENTRY = 'Entry',
 }
 
 export enum LocationAction {
   PICK = 'PICK',
   DROP = 'DROP',
+  NOP = 'NOP',
   NOP_RESUME = 'NOP_RESUME',
   NOP_PAUSE = 'NOP_PAUSE',
 }

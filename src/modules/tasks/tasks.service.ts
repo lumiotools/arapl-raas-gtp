@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   Optional,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository, IsNull } from 'typeorm';
@@ -23,9 +24,10 @@ import { ActivityType, TaskActivity } from './dto/task-activity';
 import { LoggingService } from '../../services/logging.service';
 import { WebhookService } from '../webhook/webhook.service';
 import { TASK_CONFIG } from './constants';
+import { LocationStatus } from 'src/entities/station.entity';
 
 @Injectable()
-export class TaskService {
+export class TaskService implements OnModuleInit {
   private readonly operationType: OperationType;
   private readonly taskType: TaskType;
   private isProcessing = false;
@@ -33,7 +35,7 @@ export class TaskService {
     readonly LocationManagerService: LocationManagerService,
     private readonly httpService: HttpService,
     @InjectRepository(Task)
-    private readonly taskRepository: Repository<Task>,
+    readonly taskRepository: Repository<Task>,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(RobotCount)
@@ -67,6 +69,15 @@ export class TaskService {
       this.LocationManagerService.initForTaskType(this.operationType, this.taskType);
     } catch (err) {
       // If LocationManagerService doesn't implement initForTaskType (older versions), ignore
+    }
+  }
+
+  async onModuleInit(): Promise<void> {
+    // Ensure initial setup and FMS locations sync happen on module initialization
+    try {
+      await this.LocationManagerService.syncFMSLocations();
+    } catch (err) {
+      console.error('Error during TaskService module initialization:', err);
     }
   }
 

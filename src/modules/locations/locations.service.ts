@@ -1,14 +1,17 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { UpdateLocationDto } from './dto/update-location.dto';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { LocationEntity, LocationType } from 'src/entities/location.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UpdateZoneDto } from './dto/update-zone.dto';
+import { LocationManagerService } from '../tasks/location_manager.service';
+import { LocationStatus } from 'src/entities/station.entity';
 
 @Injectable()
 export class LocationsService {
 
   constructor(
+    readonly LocationManagerService: LocationManagerService,
     @InjectRepository(LocationEntity)
     private readonly locationRepository: Repository<LocationEntity>,
   ) {}
@@ -51,6 +54,13 @@ export class LocationsService {
       }
       existing.attributes = attrs as any;
     }
+    if (updates.location_status &&  [LocationType.PALLET, LocationType.ENTRY].includes(existing.location_type) && updates.location_status !== existing.location_status) {
+      if(updates.location_status === LocationStatus.AVAILABLE) {
+        await this.LocationManagerService.updateLocationStatusInFMS(existing.location_id, "Empty")
+      } else if (updates.location_status === LocationStatus.OCCUPIED) {
+        await this.LocationManagerService.updateLocationStatusInFMS(existing.location_id, "Occupied")
+      }
+    }
 
     Object.assign(existing, updates);
     await this.locationRepository.save(existing);
@@ -59,7 +69,7 @@ export class LocationsService {
 
   async findByZone(zoneId: string) {
     // Return only actual locations that belong to the zone (exclude the zone record itself)
-    return await this.locationRepository.find({ where: { parent_id: zoneId, location_type: LocationType.PALLET }, order: { display_name: 'ASC' } });
+    return await this.locationRepository.find({ where: { parent_id: zoneId, location_type: In([LocationType.PALLET, LocationType.ENTRY]) }, order: { display_name: 'ASC' } });
   }
 
   async findZones() {

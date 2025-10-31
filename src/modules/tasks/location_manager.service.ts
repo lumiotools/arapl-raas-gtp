@@ -96,11 +96,13 @@ export class LocationManagerService {
 
     async freeLocation(location_id: string): Promise<void> {
         await this.locationRepository.update({ location_id }, { location_status: LocationStatus.AVAILABLE });
+        await this.updateLocationStatusInFMS(location_id, 'Empty');
         await this.loggingService.log(`Location ${location_id} set to AVAILABLE`, this.taskType, null, null);
     }
 
     async occupyLocation(location_id: string): Promise<void> {
         await this.locationRepository.update({ location_id }, { location_status: LocationStatus.OCCUPIED });
+        await this.updateLocationStatusInFMS(location_id, 'Occupied');
         await this.loggingService.log(`Location ${location_id} set to OCCUPIED`, this.taskType, null, null);
     }
 
@@ -256,6 +258,13 @@ export class LocationManagerService {
         return location!.drop_priority;
     }
 
+    async getEntryPoint(location_id: string): Promise<LocationEntity|null> {
+        const location = await this.locationRepository.findOne({ where: { location_id: location_id }, select: {parent_id: true} });
+        const entry_location = await this.locationRepository.findOne({ where: { parent_id: location?.parent_id ?? location?.location_id, location_type: LocationType.ENTRY } });
+        
+        return entry_location ? entry_location : null;
+    }
+
     async getLocation(location_id: string): Promise<LocationEntity | null> {
         const location = await this.locationRepository.findOne({ where: { location_id: location_id } });
         return location || null;
@@ -266,29 +275,30 @@ export class LocationManagerService {
 
         const blocked: LocationEntity[] = [];
 
-        const colQb = this.locationRepository.createQueryBuilder('c')
-            .select('DISTINCT c.column', 'col')
-            .where('c.location_type = :locationType', { locationType: LocationType.PALLET })
-            .andWhere('c.column IS NOT NULL');
-        if (zoneId) colQb.andWhere('c.parent_id = :zoneId', { zoneId });
-        const cols = await colQb.getRawMany();
-        if (cols.length <= 2) return [];
+        // load all requested start locations in one query
+        const starts = await this.locationRepository.find({
+            where: { location_id: In(startLocationIds) }
+        });
 
-        for (const sid of startLocationIds) {
-            const loc = await this.getLocation(sid);
+        for (const loc of starts) {
             if (!loc) continue;
-            if (loc.column == null) continue;
+            if (loc.pick_priority == null) continue;
 
-            // Query for any non-AVAILABLE slot in same column with pick_priority less than maxPriority
+            // If any OTHER location (excluding the provided start locations)
+            // in the same zone (or a provided zoneId) is OCCUPIED and has a
+            // pick_priority less than this start's pick_priority, then this
+            // start location is blocked (we must pick in ascending pick_priority order).
             const qb = this.locationRepository.createQueryBuilder('l')
                 .where('l.location_type = :locationType', { locationType: LocationType.PALLET })
-                .andWhere('l.column = :col', { col: loc.column })
-                .andWhere('l.location_status != :available', { available: LocationStatus.AVAILABLE })
-                .andWhere('l.pick_priority < :maxPriority', { maxPriority });
+                .andWhere('l.location_status = :occupied', { occupied: LocationStatus.OCCUPIED })
+                .andWhere('l.pick_priority < :startPriority', { startPriority: loc.pick_priority })
+                .andWhere('l.location_id NOT IN (:...excluded)', { excluded: startLocationIds });
 
-            if (zoneId) qb.andWhere('l.parent_id = :zoneId', { zoneId });
-            // exclude the current batch's start locations from blocking
-            if (startLocationIds && startLocationIds.length > 0) qb.andWhere('l.location_id NOT IN (:...excluded)', { excluded: startLocationIds });
+            if (zoneId) {
+                qb.andWhere('l.parent_id = :zoneId', { zoneId });
+            } else if (loc.parent_id) {
+                qb.andWhere('l.parent_id = :parentId', { parentId: loc.parent_id });
+            }
 
             const blocker = await qb.getOne();
             if (blocker) blocked.push(loc);
@@ -298,108 +308,74 @@ export class LocationManagerService {
     }
 
     async syncFMSLocations() {
-        const existingLocations = await this.locationRepository.find();
+        // const existingLocations = await this.locationRepository.find();
 
-        if (existingLocations.length > 0) {
-            console.log("Existing locations found in DB, skipping initial FMS sync to avoid overwriting local data.");
-            return;
-        }
-        
+        // if (existingLocations.length > 0) {
+        //     console.log("Existing locations found in DB, skipping initial FMS sync to avoid overwriting local data.");
+        //     return;
+        // }
+
         console.log("Starting FMS location sync...");
         const fmsLocations = await this.fetchFMSLocations();
         console.log("Fetched FMS locations");
 
-        const zoneIds = Object.keys(fmsLocations);
-        const fmsZoneIds = new Set(zoneIds);
-
-        for (const zoneId of zoneIds) {
-            const locations = Array.isArray(fmsLocations[zoneId]) ? fmsLocations[zoneId] : [];
-            console.log(`Syncing zone ${zoneId} with ${locations.length} locations`);
-
-            // Ensure zone exists (add-only, no overwrite)
-            const existingZone = await this.locationRepository.findOne({ where: { location_id: zoneId, location_type: LocationType.ZONE } });
-            if (!existingZone) {
+        for (const { zone_id, locations, entry_point } of fmsLocations) {
+            const existing_zone = await this.locationRepository.findOne({ where: { location_id: zone_id, location_type: LocationType.ZONE } });
+            if (!existing_zone) {
                 const zoneRecord = this.locationRepository.create({
-                    location_id: zoneId,
-                    display_name: zoneId,
+                    location_id: zone_id,
+                    display_name: zone_id,
                     location_type: LocationType.ZONE,
                 });
                 await this.locationRepository.save(zoneRecord);
-                    await this.loggingService.log(`Created new zone ${zoneId} from FMS sync`, this.taskType, null, null);
-                console.log(`Created new zone ${zoneId}`);
+                console.log(`Created new zone ${zone_id} from FMS sync`);
+                await this.loggingService.log(`Created new zone ${zone_id} from FMS sync`, this.taskType, null, null);
             } else {
-                console.log(`Zone ${zoneId} already exists; skipping update`);
+                console.log(`Zone ${zone_id} already exists; skipping update`);
             }
 
-            // Load existing pallet locations under this zone for cleanup
-            const existing = await this.locationRepository.find({
-                where: { parent_id: zoneId, location_type: LocationType.PALLET },
+            const existingLocations = await this.locationRepository.find({
+                where: { parent_id: zone_id, location_type: LocationType.PALLET },
             });
-            const existingById = new Map(existing.map(e => [e.location_id, e] as const));
-            const seenIds = new Set<string>();
 
-            // Determine fallback counters from existing data
-            const maxExistingRow = existing.reduce((m, e) => Math.max(m, e.row ?? 0), 0);
-            const maxExistingPick = existing.reduce((m, e) => Math.max(m, e.pick_priority ?? 0), 0);
-            let nextRow = maxExistingRow + 1;
-            let nextPick = maxExistingPick + 1;
-            const baselineTotal = Math.max(1, existing.length + locations.length);
-
-            for (const l of locations) {
-                const id = String(l.location_id).trim();
-                if (!id) continue;
-                seenIds.add(id);
-
-                const existingRecord = existingById.get(id);
-
-                if (!existingRecord) {
-                    // Create new record with payload fields
+            for (const location of locations) {
+                const existingLocation = existingLocations.find(el => el.location_id === location.location_id)
+                if (!existingLocation) {
                     const record = this.locationRepository.create({
-                        location_id: id,
-                        parent_id: zoneId,
-                        display_name: l.display_name ?? id,
+                        location_id: String(location.location_id).trim(),
+                        parent_id: zone_id,
+                        display_name: location.display_name ?? String(location.location_id).trim(),
                         location_type: LocationType.PALLET,
-                        row: l.location_row != null ? Number(l.location_row) : undefined,
-                        column: l.location_column != null ? Number(l.location_column) : undefined,
+                        row: location.location_row != null ? Number(location.location_row) : undefined,
+                        column: location.location_column != null ? Number(location.location_column) : undefined,
                     });
-
-                    // Fallbacks ONLY for newly created records
-                    if (record.column == null) record.column = 1;
-                    if (record.row == null) record.row = nextRow++;
-                    if (record.pick_priority == null) record.pick_priority = nextPick++;
-                    if (record.drop_priority == null && record.pick_priority != null) {
-                        const computed = baselineTotal - (record.pick_priority - 1);
-                        record.drop_priority = Math.max(1, computed);
-                    }
-
                     await this.locationRepository.save(record);
-                    await this.loggingService.log(`Created new location ${id} under zone ${zoneId} from FMS sync`, this.taskType, null, null);
-                    console.log(`Created new location ${id} under zone ${zoneId}`);
+                    console.log(`Created new location ${location.location_id} under zone ${zone_id}`);
+                    await this.loggingService.log(`Created new location ${location.location_id} under zone ${zone_id} from FMS sync`, this.taskType, null, null);
                 } else {
-                    // Existing location found - no changes (add-only policy)
-                    // Intentionally skipping updates for existing locations
-                    // to avoid overwriting local data when FMS omits fields
+                    existingLocation.location_status = location.location_attribute?.attribute_value === "Empty" ? LocationStatus.AVAILABLE : LocationStatus.OCCUPIED;
+                    await this.locationRepository.save(existingLocation);
+                    console.log(`Updated location ${location.location_id} status under zone ${zone_id}`);
                 }
             }
 
-            // Remove pallets not present in FMS response for this zone
-            for (const e of existing) {
-                if (!seenIds.has(e.location_id)) {
-                    console.log(`Deleting location ${e.location_id} from zone ${zoneId} as it's not present in FMS`);
-                    await this.locationRepository.delete({ location_id: e.location_id });
-                    await this.loggingService.log(`Deleted location ${e.location_id} (not present in FMS)`, this.taskType, null, null);
+            if (entry_point) {
+                const existingEntry = await this.locationRepository.findOne({ where: { parent_id: zone_id, location_type: LocationType.ENTRY } });
+                if (!existingEntry) {
+                    const entryRecord = this.locationRepository.create({
+                        location_id: String(entry_point.location_id).trim(),
+                        parent_id: zone_id,
+                        display_name: entry_point.display_name ?? String(entry_point.location_id).trim(),
+                        location_type: LocationType.ENTRY,
+                    });
+                    await this.locationRepository.save(entryRecord);
+                    console.log(`Created new entry point ${entry_point.location_id} under zone ${zone_id}`);
+                    await this.loggingService.log(`Created new entry point ${entry_point.location_id} under zone ${zone_id} from FMS sync`, this.taskType, null, null);
+                } else {
+                    existingEntry.location_status = entry_point.location_attribute?.attribute_value === "Empty" ? LocationStatus.AVAILABLE : LocationStatus.OCCUPIED;
+                    await this.locationRepository.save(existingEntry);
+                    console.log(`Updated entry point ${entry_point.location_id} under zone ${zone_id}`);
                 }
-            }
-        }
-
-        // Remove zones not present in FMS (and their children first)
-        const dbZones = await this.locationRepository.find({ where: { location_type: LocationType.ZONE } });
-        for (const dbZone of dbZones) {
-            if (!fmsZoneIds.has(dbZone.location_id)) {
-                console.log(`Deleting zone ${dbZone.location_id} and its children as it's not present in FMS`);
-                await this.locationRepository.delete({ parent_id: dbZone.location_id, location_type: LocationType.PALLET });
-                await this.locationRepository.delete({ location_id: dbZone.location_id });
-                await this.loggingService.log(`Deleted zone ${dbZone.location_id} and its children (not present in FMS)`, this.taskType, null, null);
             }
         }
     }
@@ -408,36 +384,91 @@ export class LocationManagerService {
     const fms_zones = JSON.parse(process.env.FMS_ZONES || '[]');
 
     try{
-          const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-          const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
-          const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3000/robot-job';
-          console.log(`Fetching WMS locations from ${wms_base_url}`);
-            const zones = Array.isArray(fms_zones) && fms_zones.length ? fms_zones : [];
-            const entries = await Promise.all(zones.map(async (zone: string) => {
-              const url = `${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=${encodeURIComponent(zone)}&location_type=${encodeURIComponent(zone)}`;
-              console.log(`Fetching locations for zone ${zone} from ${url}`);
-              const response = await fetch(url, {
-              method: 'GET',
-              headers: {
+        const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+        const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+        const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3000/robot-job';
+        console.log(`Fetching WMS locations from ${wms_base_url}`);
+        const zones = Array.isArray(fms_zones) && fms_zones.length ? fms_zones : [];
+        const entries = await Promise.all(zones.map(async (zone_type: { zone: string; type: string }) => {
+            const locationsUrl = `${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=${encodeURIComponent(zone_type.zone)}&location_type=${encodeURIComponent(zone_type.type)}`;
+            console.log(`Fetching locations for zone ${zone_type.zone} from ${locationsUrl}`);
+            const locationsResponse = await fetch(locationsUrl, {
+            method: 'GET',
+            headers: {
+            authorization: `${warehouse_key}`,
+            'Content-Type': 'application/json',
+            },
+            });
+            const locationsData = await locationsResponse.json();
+
+            if (!locationsData?.available_location_types?.length) {
+                locationsData.available_location_types = [];
+            }
+            locationsData.available_location_types.sort((a, b)=> a.location_id.localeCompare(b.location_id));
+
+            const entryPointUrl = `${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=${encodeURIComponent(zone_type.zone)}&location_type=entry`;
+            console.log(`Fetching locations for zone ${zone_type.zone} from ${entryPointUrl}`);
+            const entryPointResponse = await fetch(entryPointUrl, {
+            method: 'GET',
+            headers: {
+            authorization: `${warehouse_key}`,
+            'Content-Type': 'application/json',
+            },
+            });
+            const entryPointData = await entryPointResponse.json();
+
+            if (!entryPointData?.available_location_types?.length) {
+                entryPointData.available_location_types = [];
+            }
+
+            return {
+                zone_id: zone_type.zone,
+                locations: locationsData.available_location_types,
+                entry_point: entryPointData.available_location_types[0]
+            };
+        }));
+
+        const zoneMap = entries;
+        return zoneMap;
+        } catch(error){
+            throw new BadRequestException('Failed to fetch locations from FMS' );
+        }
+  }
+
+  async updateLocationStatusInFMS(location_id: string, status: 'Empty' | 'Occupied'): Promise<void> {
+    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+    const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3000/robot-job';
+    const updateUrl = `${wms_base_url}/robot-job/${warehouse_name}/locations/status`;
+
+    const payload = {
+        location_id: location_id,
+        status: status
+    };
+
+    try {
+        const response = await fetch(updateUrl, {
+            method: 'PATCH',
+            headers: {
                 authorization: `${warehouse_key}`,
                 'Content-Type': 'application/json',
-              },
-              });
-              if (!response.ok) {
-              throw new BadRequestException(`Failed to fetch locations for zone ${zone}: ${response.status} ${response.statusText}`);
-              }
-              const data = await response.json();
-              data.available_location_types.sort((a, b)=> a.location_id.localeCompare(b.location_id));
-              return [data.zone_id, data.available_location_types] as const;
-            }));
+            },
+            body: JSON.stringify(payload),
+        });
 
-            const zoneMap: Record<string, any> = Object.fromEntries(entries);
-            return zoneMap;
+        const responseData = await response.json();
+
+        if(responseData.status != 200) {
+            throw new BadRequestException(responseData.message);
         }
-                catch(error){
-            await this.loggingService.createErrorLog(`Failed to fetch locations from FMS: ${error?.message ?? error}`,
-                this.taskType, null as any, null, true);
-                    throw new BadRequestException('Failed to fetch locations from FMS' );
-        }
+    } catch (error) {
+        console.log('Failed to update location status in FMS: ', error.message)
+    }
+  }
+
+  async getZoneType(zone_id: string): Promise<string> {
+    const fms_zones = JSON.parse(process.env.FMS_ZONES || '[]');
+    const zone = fms_zones.find((z: { zone: string; type: string }) => z.zone === zone_id);
+    return zone.type;
   }
 }

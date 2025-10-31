@@ -1,5 +1,8 @@
 import { BadRequestException, Inject, Injectable, forwardRef } from '@nestjs/common';
 import { TaskService } from '../tasks/tasks.service';
+import { TaskStatus, TaskType } from 'src/entities';
+import { In } from 'typeorm';
+import { MOVE_TYPE } from 'src/entities/task.entity';
 
 @Injectable()
 export class CrossdockTaskService {
@@ -98,36 +101,36 @@ export class CrossdockTaskService {
       (t as any)._dropPriority = dropPriorities[i];
     });
 
-    const pickPriorityValues = pickPriorities.filter(p => p != null);
-    if (pickPriorityValues.length > 0) {
-      const maxPick = Math.max(...pickPriorityValues);
-      // Ensure all start locations are in the same zone (parent_id)
-      const startLocationIdsForExclusion = tasks.map(t => t['start_location_location_id']).filter(Boolean);
-      const startLocations = await Promise.all(startLocationIdsForExclusion.map(id => this.taskService.LocationManagerService.getLocation(id)));
-      const parentIds = Array.from(new Set(startLocations.map(s => s?.parent_id).filter(Boolean)));
-      if (parentIds.length > 1) {
-        // clean up temporary fields
-        tasks.forEach(t => {
-          delete (t as any)._pickPriority;
-          delete (t as any)._dropPriority;
-        });
-        throw new BadRequestException('All start locations must belong to the same zone');
-      }
+    // const pickPriorityValues = pickPriorities.filter(p => p != null);
+    // if (pickPriorityValues.length > 0) {
+    //   const maxPick = Math.max(...pickPriorityValues);
+    //   // Ensure all start locations are in the same zone (parent_id)
+    //   const startLocationIdsForExclusion = tasks.map(t => t['start_location_location_id']).filter(Boolean);
+    //   const startLocations = await Promise.all(startLocationIdsForExclusion.map(id => this.taskService.LocationManagerService.getLocation(id)));
+    //   const parentIds = Array.from(new Set(startLocations.map(s => s?.parent_id).filter(Boolean)));
+    //   if (parentIds.length > 1) {
+    //     // clean up temporary fields
+    //     tasks.forEach(t => {
+    //       delete (t as any)._pickPriority;
+    //       delete (t as any)._dropPriority;
+    //     });
+    //     throw new BadRequestException('All start locations must belong to the same zone');
+    //   }
 
-      const baselineMinPick = 1; // P1 is always the baseline
-      const zoneIdToCheck = parentIds.length === 1 ? parentIds[0] : undefined;
-        // Use simple column-based check: ensure lower rows in same column are available
-        const blockedByColumn = await this.taskService.LocationManagerService.findInaccessibleStartLocations(startLocationIdsForExclusion, baselineMinPick, maxPick, zoneIdToCheck);
-        if (blockedByColumn && blockedByColumn.length > 0) {
-          const blockedIds = blockedByColumn.map(b => b.location_id);
-          // clean up temporary fields
-          tasks.forEach(t => {
-            delete (t as any)._pickPriority;
-            delete (t as any)._dropPriority;
-          });
-          throw new BadRequestException(`Pick locations (${blockedIds.join(', ')}) not directly accessible`);
-        }
-    }
+    //   const baselineMinPick = 1; // P1 is always the baseline
+    //   const zoneIdToCheck = parentIds.length === 1 ? parentIds[0] : undefined;
+    //     // Use simple column-based check: ensure lower rows in same column are available
+    //     const blockedByColumn = await this.taskService.LocationManagerService.findInaccessibleStartLocations(startLocationIdsForExclusion, baselineMinPick, maxPick, zoneIdToCheck);
+    //     if (blockedByColumn && blockedByColumn.length > 0) {
+    //       const blockedIds = blockedByColumn.map(b => b.location_id);
+    //       // clean up temporary fields
+    //       tasks.forEach(t => {
+    //         delete (t as any)._pickPriority;
+    //         delete (t as any)._dropPriority;
+    //       });
+    //       throw new BadRequestException(`Pick locations (${blockedIds.join(', ')}) not directly accessible`);
+    //     }
+    // }
 
     // Sort by pick priority (ascending). If pick priorities are equal, tie-break by drop priority (ascending).
     // For tasks whose end location is not a PALLET or drop priority is undefined, treat drop priority as Infinity
@@ -183,13 +186,71 @@ export class CrossdockTaskService {
       throw new BadRequestException(`Drop locations (${dropOrderErrors.join(', ')}) will not be directly accessible`);
     }
 
-    // clean up temporary priority fields
+    const crossdockTasks = await this.taskService.taskRepository.find({
+      where: {
+      task_type: TaskType.CROSSDOCK,
+      move_type: MOVE_TYPE.ZONE_TO_ZONE,
+      status: In([TaskStatus.HALTED, TaskStatus.PENDING])
+      },
+    });
+
+    // fetch pick priorities for db tasks
+    const crossdockTasksPickPriorities = await Promise.all(
+      crossdockTasks.map(t => this.taskService.LocationManagerService.getPickPriority(t.start_location.location_id))
+    );
+    crossdockTasks.forEach((t, i) => {
+      (t as any)._pickPriority = crossdockTasksPickPriorities[i];
+      (t as any)._isNew = false;
+    });
+
+    // mark new tasks so we can combine and sort together
     tasks.forEach(t => {
+      (t as any)._isNew = true;
+      // tasks already have _pickPriority set earlier
+    });
+
+    // combine DB tasks and new tasks, sort by pick priority and assign global priorities
+    const combined = [...crossdockTasks, ...tasks];
+    combined.sort((a, b) => {
+      const pa = (a as any)._pickPriority ?? Number.POSITIVE_INFINITY;
+      const pb = (b as any)._pickPriority ?? Number.POSITIVE_INFINITY;
+      if (pa !== pb) return pa - pb;
+
+      // tie-break deterministically: prefer existing DB tasks before new tasks, then by id if available
+      if ((a as any)._isNew !== (b as any)._isNew) return (a as any)._isNew ? 1 : -1;
+      const aid = (a as any).id ?? '';
+      const bid = (b as any).id ?? '';
+      return aid.toString().localeCompare(bid.toString());
+    });
+
+    combined.forEach((t, i) => {
+      (t as any).priority = i + 1;
+    });
+
+    // prepare DB tasks to be saved with updated priorities
+    const updatedDbTasks = combined
+      .filter(t => !(t as any)._isNew)
+      .map(t => {
+      delete (t as any)._isNew;
+      delete (t as any)._pickPriority;
+      return t as any;
+      });
+
+    // clean temporary fields from new tasks (they are the original objects in `tasks`)
+    tasks.forEach(t => {
+      delete (t as any)._isNew;
       delete (t as any)._pickPriority;
       delete (t as any)._dropPriority;
     });
 
-  //  return this.taskService.processTasks(tasks, priority);
+    // persist priority updates for DB tasks
+    await this.taskService.taskRepository.save(updatedDbTasks);
+
+    await tasks.forEach(async (task) => {
+      await this.taskService.LocationManagerService.occupyLocation(task['start_location_location_id']);
+    });
+
+   return this.taskService.processTasks(tasks, priority);
   }
 
   async setInitialConfiguration(): Promise<void> {
