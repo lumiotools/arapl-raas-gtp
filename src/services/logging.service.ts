@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Log } from '../entities/log.entity';
-import { TaskType } from 'src/entities';
+import { Task, TaskType } from 'src/entities';
 
 @Injectable()
 export class LoggingService {
@@ -14,6 +14,8 @@ export class LoggingService {
   constructor(
     @InjectRepository(Log)
     private readonly logRepository: Repository<Log>,
+    @InjectRepository(Task)
+    private readonly taskRepository: Repository<Task>,
   ) {}
 
   async log(message: string, task_type: TaskType, task_id: string | null, order_batch_id: string | null, is_error: boolean = false): Promise<void> {
@@ -113,6 +115,22 @@ export class LoggingService {
     } catch (error) {
       this.logger.error(`Failed to delete all logs: ${error.message}`);
       throw error;
+    }
+  }
+
+  async removeUnnecessaryErrorLogs() {
+    const errorLogs = await this.logRepository.find({ where: { is_error: true } });
+    for (const logEntry of errorLogs) {
+      const taskId = logEntry.task_id;
+      if (!taskId) continue;
+      const taskExists = await this.taskRepository.findOne({ where: { task_id: taskId } });
+      if (!taskExists) {
+        await this.logRepository.delete({ log_id: logEntry.log_id });
+      }
+      const nextSequenceTask = await this.taskRepository.findOne({ where: { task_dependency: taskId, batch_id: taskExists?.batch_id } });
+      if (nextSequenceTask) {
+        await this.logRepository.delete({ log_id: logEntry.log_id });
+      }
     }
   }
 }

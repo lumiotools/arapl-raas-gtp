@@ -1512,6 +1512,7 @@ export class OrchestratorService {
     return { message: 'Order started successfully' };
   }
   async checkForErrorTasks(){
+    await this.loggingService.removeUnnecessaryErrorLogs();
     const errorTasks = await this.taskRepository.find({
       where: { status: TaskStatus.CANCELLED,
         updated_at: Between(new Date(Date.now() - 5 * 60 * 1000), new Date(Date.now() - 1 * 60 * 1000)),

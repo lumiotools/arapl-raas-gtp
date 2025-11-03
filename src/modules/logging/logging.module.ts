@@ -4,10 +4,11 @@ import { Log } from '../../entities/log.entity';
 import { LoggingService } from '../../services/logging.service';
 import { LogsController } from './logs.controller';
 import { User } from 'src/entities/user.entity';
+import { Task } from 'src/entities';
 
 @Global()
 @Module({
-  imports: [TypeOrmModule.forFeature([Log, User])],
+  imports: [TypeOrmModule.forFeature([Log, User, Task])],
   controllers: [LogsController],
   providers: [LoggingService],
   exports: [LoggingService],
