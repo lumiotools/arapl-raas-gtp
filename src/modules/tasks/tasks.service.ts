@@ -518,10 +518,11 @@ export class TaskService implements OnModuleInit {
       const newTask = await this.createNextSequenceTask(task, end_location_id);
       if (!newTask) continue;
 
+      newTask.end_location.location_id = end_location_id;
+
       // Send to WMS and increment - extracted to helper method
       const success = await this.sendTaskToWMSAndIncrement(
-        newTask,
-        end_location_id,
+        [newTask],
         task.batch.priority,
       );
       if (success) {
@@ -557,14 +558,12 @@ export class TaskService implements OnModuleInit {
 
   // Helper method to avoid duplication
   private async sendTaskToWMSAndIncrement(
-    task: Task,
-    end_location_id: string,
+    tasks: Task[],
     batchPriority: number,
   ): Promise<boolean> {
-    const req_tasks = [
-      {
-        task_id: task.task_id,
-        task_type: String(this.taskType),
+    const req_tasks = tasks.map(task => ({
+      task_id: task.task_id,
+        task_type: this.taskType !== TaskType.CROSSDOCK ? this.taskType : TaskType.CROSSDOCK_INTERNAL,
         task_dependency: task.task_dependency,
         robot_id: task.robot_id,
         start_location: {
@@ -574,15 +573,15 @@ export class TaskService implements OnModuleInit {
           location_dimension: task.start_location.location_dimension,
         },
         end_location: {
-          location_id: end_location_id,
+          location_id: task.end_location.location_id,
           location_type: task.end_location.location_type,
           location_action: task.end_location.location_action,
           location_dimension: task.end_location.location_dimension,
         },
         wait: task.wait,
         cargos: task.cargos,
-      },
-    ];
+      }
+    ));
 
     const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
     const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
@@ -608,39 +607,55 @@ export class TaskService implements OnModuleInit {
           },
         ),
       );
-      // Log dispatch success
+      
+      tasks.forEach(async (task) => {
+        // Log dispatch success
       await this.loggingService.log(
-        `Task ${task.task_id} sent to WMS API layer`,
-        this.taskType,
-        task.task_id,
-        task.batch_id ?? null,
-      );
+          `Task ${task.task_id} sent to WMS API layer`,
+          this.taskType,
+          task.task_id,
+          task.batch_id ?? null,
+        );
+      });
 
-      await this.incrementRobotInUse(); // ← Single increment point
-      await this.loggingService.log(
-        `Robot in use incremented. Current robot in use: ${await this.getRobotInUse()}`,
-        this.taskType,
-        task.task_id,
-        task.batch_id ?? null,
-      );
+      if(req_tasks[0].task_type !== TaskType.CROSSDOCK_INTERNAL) {
+        await this.incrementRobotInUse(); // ← Single increment point
+      }
+
+      tasks.forEach(async (task) => {
+        await this.loggingService.log(
+          `Robot in use incremented. Current robot in use: ${await this.getRobotInUse()}`,
+          this.taskType,
+          task.task_id,
+          task.batch_id ?? null,
+        );
+        await this.taskRepository.update(
+          { task_id: task.task_id },
+          { status: TaskStatus.ASSIGNED },
+        );
+      });
       return true;
     } catch (error) {
-      console.error(`Error sending task ${task.task_id} to WMS Layer:`, error);
-      await this.loggingService.createErrorLog(
-        `Error sending task ${task.task_id} to WMS Layer: ${error?.message ?? error}`,
-        this.taskType,
-        task.task_id,
-        task.batch_id ?? null,
-        true,
-      );
-      await this.loggingService.log(
-        `Task ${task.task_id} failed to send to WMS. Releasing location ${end_location_id}`,
-        this.taskType,
-        task.task_id,
-        task.batch_id ?? null,
-      );
-      await this.LocationManagerService.freeLocation(end_location_id);
-      await this.taskRepository.delete({ task_id: task.task_id });
+        await Promise.all(tasks.map(async (task) => {
+        console.error(`Error sending task ${task.task_id} to WMS Layer:`, error);
+        await this.loggingService.createErrorLog(
+          `Error sending task ${task.task_id} to WMS Layer: ${error?.message ?? error}`,
+          this.taskType,
+          task.task_id,
+          task.batch_id ?? null,
+          true,
+        );
+        await this.loggingService.log(
+          `Task ${task.task_id} failed to send to WMS. Releasing location ${task.end_location.location_id}`,
+          this.taskType,
+          task.task_id,
+          task.batch_id ?? null,
+        );
+        await this.LocationManagerService.freeLocation(task.end_location.location_id);
+        if (task.move_type === MOVE_TYPE.ZONE_TO_WAIT) {
+          await this.taskRepository.delete({ task_id: task.task_id });
+        }
+      }));
       return false;
     }
   }
@@ -656,7 +671,11 @@ export class TaskService implements OnModuleInit {
 
     try {
       // Your batch processing logic here
-      await this.processTask(nextTask);
+      if (nextTask.task_type === TaskType.CROSSDOCK) {
+        await this.processCrossdockTask(nextTask);
+      } else {
+        await this.processBaseopsTask(nextTask);
+      }
       return nextTask.task_id;
     } catch (error) {
       console.error(
@@ -667,7 +686,178 @@ export class TaskService implements OnModuleInit {
     }
   }
 
-  private async processTask(task: Task): Promise<void> {
+  private async processBaseopsTask(task: Task): Promise<void> {
+    const processedTask = await this.processTask(task);
+    if (!processedTask) {
+      console.log(
+        `Task ${task.task_id} could not be processed, aborting WMS send.`,
+      );
+      return;
+    } else {
+      const success = await this.sendTaskToWMSAndIncrement(
+        [processedTask],
+        task.batch.priority,
+      );
+
+      if (!success) {
+        await this.LocationManagerService.freeLocation(
+          task.start_location.location_id,
+        );
+        await this.LocationManagerService.freeLocation(
+          task.end_location.location_id,
+        );
+        console.log(
+          `Task ${task.task_id} failed to send to WMS, locations released.`,
+        );
+        return;
+      }
+    }
+  }
+
+  private async processCrossdockTask(task: Task): Promise<void> {
+    const startEntryLocation = await this.LocationManagerService.getEntryPoint(task.start_location.location_attribute.attribute_value);
+    const endEntryLocation = await this.LocationManagerService.getEntryPoint(task.end_location.location_attribute.attribute_value);
+    const originalTask = structuredClone(task);
+
+    const startLocationPickPriority = await this.LocationManagerService.getPickPriority(task.start_location.location_attribute.attribute_value);
+
+    let tasks: Task[] = [];
+
+    if(startEntryLocation) {
+      let toStartEntryTask = new Task()
+      toStartEntryTask.batch_id = task.batch.batch_id;
+      toStartEntryTask.task_type = this.taskType;
+      toStartEntryTask.status = TaskStatus.PENDING;
+      toStartEntryTask.move_type = MOVE_TYPE.PICK_ENTRY;
+      toStartEntryTask.sequence_order = 0;
+      toStartEntryTask.priority = task.priority;
+
+      toStartEntryTask.start_location = {
+        location_id: startEntryLocation.location_id,
+        location_type: LocationType.PALLET,
+        location_action: LocationAction.NOP,
+        location_dimension: {
+          length: 1,
+          width: 1,
+          height: 1,
+        },
+        location_attribute: null as any,
+      };
+
+      toStartEntryTask.end_location = {
+        location_id: startEntryLocation.location_id,
+        location_type: LocationType.PALLET,
+        location_action: LocationAction.NOP,
+        location_dimension: {
+          length: 1,
+          width: 1,
+          height: 1,
+        },
+        location_attribute: null as any,
+      };
+
+      toStartEntryTask.wait = null as any;
+      toStartEntryTask.cargos = task.cargos;
+
+      toStartEntryTask = await this.taskRepository.save(toStartEntryTask);
+      tasks.push(toStartEntryTask);
+
+      task.task_dependency = toStartEntryTask.task_id; 
+      task.sequence_order = 1;
+      task = await this.taskRepository.save(task);
+    } else {
+      task.sequence_order = 0;
+      task = await this.taskRepository.save(task);
+    }
+
+    if(endEntryLocation) {
+      let fromEndEntryTask = new Task()
+      fromEndEntryTask.batch_id = task.batch.batch_id;
+      fromEndEntryTask.task_type = this.taskType;
+      fromEndEntryTask.status = TaskStatus.PENDING;
+      fromEndEntryTask.move_type = MOVE_TYPE.DROP_ENTRY;
+      fromEndEntryTask.sequence_order = startEntryLocation ? 2 : 1;
+      fromEndEntryTask.task_dependency = task.task_id;
+      fromEndEntryTask.priority = task.priority;
+
+      fromEndEntryTask.start_location = {
+        location_id: endEntryLocation.location_id,
+        location_type: LocationType.PALLET,
+        location_action: LocationAction.NOP_RESUME,
+        location_dimension: {
+          length: 1,
+          width: 1,
+          height: 1,
+        },
+        location_attribute: null as any,
+      };
+
+      fromEndEntryTask.end_location = task.end_location;
+
+      fromEndEntryTask.wait = null as any;
+      fromEndEntryTask.cargos = task.cargos;
+
+      fromEndEntryTask = await this.taskRepository.save(fromEndEntryTask);
+
+
+      task.end_location = {
+        location_id: endEntryLocation.location_id,
+        location_type: LocationType.PALLET,
+        location_action: LocationAction.NOP_PAUSE,
+        location_dimension: {
+          length: 1,
+          width: 1,
+          height: 1,
+        },
+        location_attribute: null as any,
+      };
+
+      task = await this.taskRepository.save(task);
+
+      tasks.push(task);
+      tasks.push(fromEndEntryTask);
+    } else {
+      tasks.push(task);
+    }
+
+    const processedTasks: Task[] = [];
+    for (const t of tasks) {
+      const processedTask = await this.processTask(t);
+      if (processedTask) {
+        processedTasks.push(processedTask);
+      }
+    }
+
+    let success = true;
+
+    if(tasks.length !== processedTasks.length) {
+      console.log(`Not all tasks could be processed, aborting WMS send.`);
+      success = false;
+    } else {
+      success = await this.sendTaskToWMSAndIncrement(processedTasks, startLocationPickPriority);
+    }
+
+    if(!success) {
+      tasks.forEach(async (t) => {
+        if(t.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+          await this.taskRepository.save(originalTask);
+        } else {
+          await this.taskRepository.delete({ task_id: t.task_id });
+        }
+        await this.LocationManagerService.freeLocation(task.start_location.location_id);
+        await this.LocationManagerService.freeLocation(task.end_location.location_id);
+      });
+    } else {
+      tasks.forEach(async (t) => {
+        await this.taskRepository.update(
+          { task_id: t.task_id },
+          { status: TaskStatus.ASSIGNED },
+        );
+      });
+    }
+  }
+
+  private async processTask(task: Task): Promise<Task | undefined> {
     // Implement your actual task processing logic here
     console.log(`Processing task: ${task.task_id}`);
     if (!task) return;
@@ -680,6 +870,9 @@ export class TaskService implements OnModuleInit {
           task.end_location.location_attribute?.attribute_value,
         );
       if (!end_location_id) {
+        if(task.task_type === TaskType.CROSSDOCK) {
+          return;
+        }
         // no optimal drop location found in the zone, look for the location in wait zone
         end_location_id =
           await this.LocationManagerService.getOptimalWaitLocation(
@@ -783,80 +976,84 @@ export class TaskService implements OnModuleInit {
         task.batch_id ?? null,
       );
     }
-    req_tasks.push({
-      task_id: task.task_id,
-      task_type: String(this.taskType),
-      task_dependency: task.task_dependency,
-      robot_id: task.robot_id,
-      start_location: {
-        location_id: task.start_location.location_id,
-        location_type: task.start_location.location_type,
-        location_action: task.start_location.location_action,
-        location_dimension: task.start_location.location_dimension,
-      },
-      end_location: {
-        location_id: end_location_id,
-        location_type: task.end_location.location_type,
-        location_action: task.end_location.location_action,
-        location_dimension: task.end_location.location_dimension,
-      },
-      wait: task.wait,
-      cargos: task.cargos,
-    });
-    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-    const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
-    const wms_base_url =
-      process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
-    const req_body = {
-      batch_type: 'DISCRETE',
-      batch_priority: task.batch.priority,
-      tasks: req_tasks,
-    };
-    try {
-      await firstValueFrom(
-        this.httpService.post(
-          `${wms_base_url}/robot-job/${warehouse_name}/tasks`,
-          req_body,
-          {
-            headers: {
-              authorization: `${warehouse_key}`,
-              'Content-Type': 'application/json',
-            },
-          },
-        ),
-      );
-    } catch (error) {
-      console.error(
-        `Error sending batch ${task.batch.batch_id} to WMS Layer:`,
-        error,
-      );
-      await this.LocationManagerService.freeLocation(end_location_id);
-      await this.loggingService.createErrorLog(
-        `Error sending task ${task.task_id} to WMS Layer: ${error?.message ?? error}`,
-        this.taskType,
-        task.task_id,
-        task.batch_id ?? null,
-        true,
-      );
-      return;
-    }
-    await this.loggingService.log(
-      `Task ${task.task_id} sent to WMS API layer`,
-      this.taskType,
-      task.task_id,
-      task.batch_id ?? null,
-    );
-    await this.incrementRobotInUse();
-    await this.loggingService.log(
-      `Robot in use incremented. Current robot in use: ${await this.getRobotInUse()}`,
-      this.taskType,
-      task.task_id,
-      task.batch_id ?? null,
-    );
-    await this.taskRepository.update(
-      { task_id: task.task_id },
-      { status: TaskStatus.ASSIGNED },
-    );
+
+    task.end_location.location_id = end_location_id;
+
+    return task;
+    // req_tasks.push({
+    //   task_id: task.task_id,
+    //   task_type: String(this.taskType),
+    //   task_dependency: task.task_dependency,
+    //   robot_id: task.robot_id,
+    //   start_location: {
+    //     location_id: task.start_location.location_id,
+    //     location_type: task.start_location.location_type,
+    //     location_action: task.start_location.location_action,
+    //     location_dimension: task.start_location.location_dimension,
+    //   },
+    //   end_location: {
+    //     location_id: end_location_id,
+    //     location_type: task.end_location.location_type,
+    //     location_action: task.end_location.location_action,
+    //     location_dimension: task.end_location.location_dimension,
+    //   },
+    //   wait: task.wait,
+    //   cargos: task.cargos,
+    // });
+    // const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+    // const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+    // const wms_base_url =
+    //   process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
+    // const req_body = {
+    //   batch_type: 'DISCRETE',
+    //   batch_priority: task.batch.priority,
+    //   tasks: req_tasks,
+    // };
+    // try {
+    //   await firstValueFrom(
+    //     this.httpService.post(
+    //       `${wms_base_url}/robot-job/${warehouse_name}/tasks`,
+    //       req_body,
+    //       {
+    //         headers: {
+    //           authorization: `${warehouse_key}`,
+    //           'Content-Type': 'application/json',
+    //         },
+    //       },
+    //     ),
+    //   );
+    // } catch (error) {
+    //   console.error(
+    //     `Error sending batch ${task.batch.batch_id} to WMS Layer:`,
+    //     error,
+    //   );
+    //   await this.LocationManagerService.freeLocation(end_location_id);
+    //   await this.loggingService.createErrorLog(
+    //     `Error sending task ${task.task_id} to WMS Layer: ${error?.message ?? error}`,
+    //     this.taskType,
+    //     task.task_id,
+    //     task.batch_id ?? null,
+    //     true,
+    //   );
+    //   return;
+    // }
+    // await this.loggingService.log(
+    //   `Task ${task.task_id} sent to WMS API layer`,
+    //   this.taskType,
+    //   task.task_id,
+    //   task.batch_id ?? null,
+    // );
+    // await this.incrementRobotInUse();
+    // await this.loggingService.log(
+    //   `Robot in use incremented. Current robot in use: ${await this.getRobotInUse()}`,
+    //   this.taskType,
+    //   task.task_id,
+    //   task.batch_id ?? null,
+    // );
+    // await this.taskRepository.update(
+    //   { task_id: task.task_id },
+    //   { status: TaskStatus.ASSIGNED },
+    // );
   }
 
   private async markTaskHaulted(task_id: string): Promise<void> {

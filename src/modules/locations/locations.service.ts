@@ -54,6 +54,38 @@ export class LocationsService {
       }
       existing.attributes = attrs as any;
     }
+    // Handle all_locations_directly_accessible attribute similar to is_waiting_area
+    if (body.all_locations_directly_accessible !== undefined) {
+      // Ensure attributes array exists
+      if (!Array.isArray(existing.attributes)) {
+        existing.attributes = [] as any;
+      }
+      const attrs: any[] = existing.attributes as any[];
+      const idx = attrs.findIndex(
+        a => a && a.attribute_name === 'all_locations_directly_accessible',
+      );
+
+      if (body.all_locations_directly_accessible === false) {
+        // remove the attribute entry entirely when explicitly false
+        if (idx >= 0) {
+          attrs.splice(idx, 1);
+        }
+      } else {
+        const value =
+          body.all_locations_directly_accessible === null
+            ? null
+            : body.all_locations_directly_accessible;
+        if (idx >= 0) {
+          attrs[idx].attribute_value = value;
+        } else {
+          attrs.push({
+            attribute_name: 'all_locations_directly_accessible',
+            attribute_value: value,
+          });
+        }
+      }
+      existing.attributes = attrs as any;
+    }
     if (updates.location_status &&  [LocationType.PALLET, LocationType.ENTRY].includes(existing.location_type) && updates.location_status !== existing.location_status) {
       if(updates.location_status === LocationStatus.AVAILABLE) {
         await this.LocationManagerService.updateLocationStatusInFMS(existing.location_id, "Empty")
@@ -123,8 +155,25 @@ export class LocationsService {
       mutated = true;
     }
 
+    if (dto.all_locations_directly_accessible !== undefined) {
+      // Ensure attributes array exists
+      if (!Array.isArray(zone.attributes)) {
+        zone.attributes = [] as any;
+      }
+      const attrs: any[] = zone.attributes as any[];
+      const idx = attrs.findIndex(a => a && a.attribute_name === 'all_locations_directly_accessible');
+
+      if (idx >= 0) {
+        attrs[idx].attribute_value = dto.all_locations_directly_accessible === null ? null : dto.all_locations_directly_accessible;
+      } else {
+        attrs.push({ attribute_name: 'all_locations_directly_accessible', attribute_value: dto.all_locations_directly_accessible === null ? null : dto.all_locations_directly_accessible });
+      }
+      zone.attributes = attrs as any;
+      mutated = true;
+    }
+
     if (!mutated) {
-      throw new BadRequestException('No updatable fields provided (display_name or category or is_waiting_area).');
+      throw new BadRequestException('No updatable fields provided (display_name or category or is_waiting_area or all_locations_directly_accessible).');
     }
 
     await this.locationRepository.save(zone);

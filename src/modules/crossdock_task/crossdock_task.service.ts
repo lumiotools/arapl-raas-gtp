@@ -70,11 +70,11 @@ export class CrossdockTaskService {
       // 7. Check if the start and end location ids exist in the system and they are available
       const startLocationValid = await this.taskService.LocationManagerService.isValidLocationId(startLocationId, true);
       if (!startLocationValid) {
-        validationErrors.push(`Row ${rowNum-1}: start_location_location_id '${startLocationId}' is not available or does not exist in the system`);
+        validationErrors.push(`Start Location '${startLocationId}' is not available or does not exist in the system`);
       }
       const OtherTaskWithStartLocation = await this.taskService.LocationManagerService.otherTaskWithStartLocation(startLocationId);
       if (OtherTaskWithStartLocation){
-        validationErrors.push(`Row ${rowNum-1}: start_location_location_id '${startLocationId}' is already assigned to another pending task (${OtherTaskWithStartLocation})`);
+        validationErrors.push(`Start Location '${startLocationId}' is already assigned to another pending task`);
       }
 
     }

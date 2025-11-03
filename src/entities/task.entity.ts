@@ -19,6 +19,7 @@ import { OrderItem } from './order-item.entity';
 
 export enum TaskType {
   CROSSDOCK = 'CROSSDOCK',
+  CROSSDOCK_INTERNAL = 'CROSSDOCK_INTERNAL',
   PUTAWAY = 'Putaway', 
   PICKING = 'PICKING',
   BASEOPS = 'BASEOPS',
@@ -43,6 +44,8 @@ export  enum MOVE_TYPE {
   WAITING_LOCATION_TO_EMPTY_LOCATION = 'WaitingLocationToEmptyLocation',
   EMPTY_TO_EMPTY_LOCATION = 'EmptyToEmptyLocation',
   WAITING_TO_WAITING_LOCATION = 'WaitingToWaitingLocation',
+  PICK_ENTRY = 'PickEntry',
+  DROP_ENTRY = 'DropEntry',
 }
 
 

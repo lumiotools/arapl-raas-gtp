@@ -34,6 +34,9 @@ export class LocationManagerService {
             await this.loggingService.log(`Location ${location_id} not available for reservation`, this.taskType, null, null);
             return false;
         }
+        if(location.location_type === LocationType.ENTRY) {
+            return true;
+        }
         location.location_status = LocationStatus.RESERVED;
         await this.locationRepository.save(location);
         await this.loggingService.log(`Location ${location_id} reserved`, this.taskType, null, null);
@@ -46,6 +49,9 @@ export class LocationManagerService {
             console.log(`Location ${location_id} is not available for reservation.`);
             await this.loggingService.log(`Start location ${location_id} not available for reservation`, this.taskType, null, null);
             return false;
+        }
+        if(location.location_type === LocationType.ENTRY) {
+            return true;
         }
         location.location_status = LocationStatus.RESERVED;
         await this.locationRepository.save(location);
@@ -60,38 +66,65 @@ export class LocationManagerService {
             await this.loggingService.log(`Zone ${zone_id} not found while finding drop location`, this.taskType, null, null);
             return null;
         }
-        const locations = await this.locationRepository.find({
-            where: { parent_id: zone.location_id, location_status: LocationStatus.AVAILABLE, location_type: LocationType.PALLET },
+        const all_locations_directly_accessible = zone.attributes?.find(attr => attr.attribute_name === 'all_locations_directly_accessible')?.attribute_value ?? false;
+
+        // Fetch ALL pallet locations under the zone to understand blocking, not just available ones
+        const allZoneLocations = await this.locationRepository.find({
+            where: { parent_id: zone.location_id, location_type: LocationType.PALLET },
             order: { drop_priority: "ASC" }
         });
-        if (locations.length === 0){
+
+        // Available locations only (candidates)
+        const available = allZoneLocations.filter(l => l.location_status === LocationStatus.AVAILABLE);
+        if (available.length === 0) {
             await this.loggingService.log(`No available drop locations in zone ${zone_id}`, this.taskType, null, null);
             return null;
         }
-        // fetch the location from the locations with smallest (highest priority) drop_priority
 
-        const optimalLocation = locations.find(loc => loc.drop_priority !== null);
-            if (optimalLocation) {
-            await this.loggingService.log(`Selected drop location ${optimalLocation.location_id} in zone ${zone_id}`, this.taskType, null, null);
-            return optimalLocation.location_id;
-        }
-        const validLocations = locations.filter(loc => 
-            loc.row != null && loc.column != null
-        );
-        if (!validLocations.length) {
-            await this.loggingService.log(`No valid drop locations (row/column) in zone ${zone_id}`, this.taskType, null, null);
+        // Prefer locations with an explicit drop_priority
+        const availableWithPriority = available.filter(l => l.drop_priority != null);
+
+        // If everything is directly accessible, pick the smallest drop_priority among available
+        if (all_locations_directly_accessible) {
+            const optimal = availableWithPriority.sort((a, b) => (a.drop_priority! - b.drop_priority!))[0];
+            if (optimal) {
+                await this.loggingService.log(`Selected drop location ${optimal.location_id} in zone ${zone_id} (direct access)`, this.taskType, null, null);
+                return optimal.location_id;
+            }
+            await this.loggingService.log(`No priority-based drop locations available in zone ${zone_id} (direct access)`, this.taskType, null, null);
             return null;
         }
 
-        const chosen = validLocations.reduce((min, current) => {
-            if (current.row < min.row || 
-            (current.row === min.row && current.column < min.column)) {
-            return current;
+        // Not all locations are directly accessible: simple rule
+        // Reverse by drop_priority (high -> low), find first BLOCKED, pick the one just before it
+        const withPriority = allZoneLocations.filter(l => l.drop_priority != null);
+        const desc = [...withPriority].sort((a, b) => (b.drop_priority! - a.drop_priority!));
+        const firstBlockedIdx = desc.findIndex(l => l.location_status !== LocationStatus.AVAILABLE);
+
+        if (firstBlockedIdx === -1) {
+            // No blockers: choose the smallest drop_priority among available
+            const optimalNoBlock = availableWithPriority.sort((a, b) => (a.drop_priority! - b.drop_priority!))[0];
+            if (optimalNoBlock) {
+                await this.loggingService.log(`Selected drop location ${optimalNoBlock.location_id} in zone ${zone_id} (no blockers)`, this.taskType, null, null);
+                return optimalNoBlock.location_id;
             }
-            return min;
-        });
-        await this.loggingService.log(`Selected drop location ${chosen.location_id} in zone ${zone_id} by row/column`, this.taskType, null, null);
-        return chosen.location_id;
+            await this.loggingService.log(`No priority-based drop locations available in zone ${zone_id} (no blockers)`, this.taskType, null, null);
+            return null;
+        }
+
+        if (firstBlockedIdx <= 0) {
+            await this.loggingService.log(`First position from entrance is blocked in zone ${zone_id}; no reachable slot before it`, this.taskType, null, null);
+            return null;
+        }
+
+        const candidate = desc[firstBlockedIdx - 1];
+        if (candidate && candidate.location_status === LocationStatus.AVAILABLE) {
+            await this.loggingService.log(`Selected drop location ${candidate.location_id} in zone ${zone_id} (just before nearest block at priority ${desc[firstBlockedIdx].drop_priority})`, this.taskType, null, null);
+            return candidate.location_id;
+        }
+
+        await this.loggingService.log(`Candidate before nearest block is not available in zone ${zone_id}; no suitable drop`, this.taskType, null, null);
+        return null;
     }
 
     async freeLocation(location_id: string): Promise<void> {
@@ -259,9 +292,8 @@ export class LocationManagerService {
     }
 
     async getEntryPoint(location_id: string): Promise<LocationEntity|null> {
-        const location = await this.locationRepository.findOne({ where: { location_id: location_id }, select: {parent_id: true} });
+        const location = await this.locationRepository.findOne({ where: { location_id: location_id }, select: { location_id: true, parent_id: true } });
         const entry_location = await this.locationRepository.findOne({ where: { parent_id: location?.parent_id ?? location?.location_id, location_type: LocationType.ENTRY } });
-        
         return entry_location ? entry_location : null;
     }
 

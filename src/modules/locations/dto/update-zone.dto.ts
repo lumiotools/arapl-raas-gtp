@@ -16,4 +16,8 @@ export class UpdateZoneDto {
   @IsOptional()
   @IsBoolean()
   is_waiting_area?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  all_locations_directly_accessible?: boolean;
 }
