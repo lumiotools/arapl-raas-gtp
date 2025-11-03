@@ -5,7 +5,7 @@ import { TaskType } from "src/entities/task.entity";
 import { OperationType } from 'src/entities/robot-count.entity';
 import { LocationEntity, LocationType } from "src/entities/location.entity";
 import { LocationStatus } from "src/entities/station.entity";
-import { In, Raw, Repository } from "typeorm";
+import { In, Repository } from "typeorm";
 import { LoggingService } from "../../services/logging.service";
 
 @Injectable()
@@ -125,6 +125,87 @@ export class LocationManagerService {
 
         await this.loggingService.log(`Candidate before nearest block is not available in zone ${zone_id}; no suitable drop`, this.taskType, null, null);
         return null;
+    }
+
+    // Accepts a list of location IDs (assumed to be from the same zone) and returns, in order, which are directly accessible/unblocked
+    async checkDropLocationsDirectAccessibility(location_ids: string[]): Promise<boolean[]> {
+        if (!Array.isArray(location_ids) || location_ids.length === 0) {
+            await this.loggingService.log(`Accessibility check: no location ids provided`, this.taskType, null, null);
+            return [];
+        }
+
+        // 1) Load all candidate locations once
+        const candidateLocations = await this.locationRepository.find({
+            where: { location_id: In(location_ids) }
+        });
+        const candidateById = new Map(candidateLocations.map(l => [l.location_id, l]));
+
+        // 2) Determine (assumed) single zone from valid candidates
+        const validCandidates = candidateLocations.filter(l => l.location_type === LocationType.PALLET && l.location_status === LocationStatus.AVAILABLE && !!l.parent_id);
+        if (validCandidates.length === 0) {
+            await this.loggingService.log(`Accessibility check: no valid PALLET & AVAILABLE candidates found`, this.taskType, null, null);
+            return location_ids.map(_ => false);
+        }
+
+        const zoneId = validCandidates[0].parent_id!;
+        // Optional sanity: detect if multiple zones present; proceed with the first (as per assumption)
+        const sanityZones = new Set(validCandidates.map(l => l.parent_id));
+        if (sanityZones.size > 1) {
+            await this.loggingService.log(`Accessibility check: multiple zones detected in input; proceeding with zone ${zoneId} as per assumption`, this.taskType, null, null);
+        }
+
+        // 3) Load the zone and all its pallets once
+        const zone = await this.locationRepository.findOne({ where: { location_id: zoneId, location_type: LocationType.ZONE } });
+        if (!zone) {
+            await this.loggingService.log(`Accessibility check: zone ${zoneId} not found`, this.taskType, null, null);
+            return location_ids.map(_ => false);
+        }
+        const pallets = await this.locationRepository.find({ where: { parent_id: zoneId, location_type: LocationType.PALLET } });
+
+        // 4) If all locations are directly accessible, simply return availability per input
+        const allDirect = zone.attributes?.find((a: any) => a.attribute_name === 'all_locations_directly_accessible')?.attribute_value ?? false;
+        if (allDirect) {
+            const result = location_ids.map(id => {
+                const loc = candidateById.get(id);
+                return !!(loc && loc.location_type === LocationType.PALLET && loc.location_status === LocationStatus.AVAILABLE && loc.parent_id === zoneId);
+            });
+            await this.loggingService.log(`Accessibility check (all-direct): computed availability for ${location_ids.length} locations`, this.taskType, null, null);
+            return result;
+        }
+
+        // 5) Build helper structures for blocking checks
+        const palletsWithPriority = pallets.filter(l => l.drop_priority != null);
+        const byId = new Map(palletsWithPriority.map(l => [l.location_id, l]));
+
+        // For a location L to be directly accessible: all pallets with drop_priority > L.drop_priority
+        // must be AVAILABLE and not newly selected earlier in this list.
+        const newlySelected = new Set<string>();
+        const results: boolean[] = [];
+
+        for (const id of location_ids) {
+            const loc = candidateById.get(id);
+            // Default false for unknown, wrong type, wrong zone, or not available
+            if (!loc || loc.location_type !== LocationType.PALLET || loc.parent_id !== zoneId || loc.location_status !== LocationStatus.AVAILABLE || loc.drop_priority == null) {
+                results.push(false);
+                continue;
+            }
+
+            const lp = loc.drop_priority!;
+            // Check any blocker in front (higher drop_priority)
+            const isBlocked = palletsWithPriority.some(other => {
+                if (other.drop_priority == null) return false;
+                if (other.drop_priority! <= lp) return false; // not in front
+                // Blocked if occupied/reserved/etc or if already selected earlier
+                return other.location_status !== LocationStatus.AVAILABLE || newlySelected.has(other.location_id);
+            });
+
+            const accessible = !isBlocked;
+            results.push(accessible);
+            if (accessible) newlySelected.add(id);
+        }
+
+        await this.loggingService.log(`Accessibility check: computed direct accessibility for ${location_ids.length} locations in zone ${zoneId}` , this.taskType, null, null);
+        return results;
     }
 
     async freeLocation(location_id: string): Promise<void> {

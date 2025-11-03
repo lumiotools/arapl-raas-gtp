@@ -552,7 +552,11 @@ export class TaskService implements OnModuleInit {
       if (!task.end_location) {
         continue;
       }
-      await this.processTask(task);
+      if (task.task_type === TaskType.CROSSDOCK) {
+        await this.processCrossdockTask(task);
+      } else {
+        await this.processBaseopsTask(task);
+      }
     }
   }
 
@@ -840,6 +844,7 @@ export class TaskService implements OnModuleInit {
     if(!success) {
       tasks.forEach(async (t) => {
         if(t.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+          originalTask.status = TaskStatus.HALTED;
           await this.taskRepository.save(originalTask);
         } else {
           await this.taskRepository.delete({ task_id: t.task_id });
