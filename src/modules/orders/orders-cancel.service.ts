@@ -209,7 +209,6 @@ export class OrdersCancelService {
     const task = await this.taskRepository.findOne({
       where: {
         origin_location: orderItem.source_location_id,
-        status: TaskStatus.CANCELLED,
       },
       order: { created_at: 'DESC' }
     });
@@ -219,7 +218,7 @@ export class OrdersCancelService {
       station_id: await this.gtpLocationRepository.findOne({ where: { gtp_location_id: orderItem.destination_pallet_slot_id } }).then(loc => loc?.station_id || ''),
     });
 
-    if (task){
+    if (task && task.status === TaskStatus.CANCELLED){
       await this.orchestrationService.handleErroneousTask(task.task_id);
     }
   }
@@ -234,11 +233,10 @@ export class OrdersCancelService {
     const cancelled_task = await this.taskRepository.findOne({
       where: {
         origin_location: source_location_id,
-        status: TaskStatus.CANCELLED,
       },
       order: { created_at: 'DESC' }
     });
-    if (!cancelled_task){
+    if (!cancelled_task || cancelled_task.status !== TaskStatus.CANCELLED){
       throw new BadRequestException(`No cancelled task found for Order Item ID ${orderItemId}`);
     }
     if ((cancelled_task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || cancelled_task.move_type === MOVE_TYPE.STATION_TO_STATION) && cancelled_task.inqueue && !cancelled_task.processing && !cancelled_task.completed && !cancelled_task.triggered){
@@ -247,11 +245,11 @@ export class OrdersCancelService {
     if (await this.inventoryService.reserveInventory(quarantineLocationId) === false){
       throw new BadRequestException(`Failed to reserve inventory for Quarantine Location ID ${quarantineLocationId}`);
     }
+    await this.inventoryService.makeInventoryProcessing(quarantineLocationId);
 
     const [newTaskId, newTask] = await this.orchestrationService.createTask({
       batchId: cancelled_task.batch_id,
       originLocation: source_location_id,
-      sourceInventoryId: cancelled_task.start_location.location_id,
       sourceQuarantineLocationId: quarantineLocationId,
       destinationQuarantineLocationId: quarantineLocationId,
       taskType: TaskType.GOODS_TO_PERSON,
@@ -285,6 +283,7 @@ export class OrdersCancelService {
     if (await this.inventoryService.reserveInventory(quarantineLocationId) === false){
       throw new BadRequestException(`Failed to reserve inventory for Quarantine Location ID ${quarantineLocationId}`);
     }
+    await this.inventoryService.makeInventoryProcessing(quarantineLocationId);
     const orderItems = await this.orderItemRepository.find({
       where: {
         source_location_id: task.origin_location,

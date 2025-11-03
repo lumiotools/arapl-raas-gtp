@@ -204,7 +204,7 @@ export class WebhookService {
         if (task.move_type === MOVE_TYPE.TO_QUARANTINE){
           await this.orchestratorService.decrementRobotInUse();
           const sourceInventoryId = task.start_location.location_id;
-          await this.inventoryService.removeQuarantine(task.end_location.location_id, task.cargos[0].cargo_code);
+          await this.inventoryService.occupyQuarantine(task.end_location.location_id, task.cargos[0].cargo_code);
           await this.inventoryService.makeInventoryUnavailable(task.origin_location);
 
         }
