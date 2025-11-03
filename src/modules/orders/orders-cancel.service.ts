@@ -241,7 +241,9 @@ export class OrdersCancelService {
     if (!cancelled_task){
       throw new BadRequestException(`No cancelled task found for Order Item ID ${orderItemId}`);
     }
-
+    if ((cancelled_task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || cancelled_task.move_type === MOVE_TYPE.STATION_TO_STATION) && cancelled_task.inqueue && !cancelled_task.processing && !cancelled_task.completed && !cancelled_task.triggered){
+      throw new BadRequestException(`Cannot reassign - pallet has not been picked`);
+    }
     if (await this.inventoryService.reserveInventory(quarantineLocationId) === false){
       throw new BadRequestException(`Failed to reserve inventory for Quarantine Location ID ${quarantineLocationId}`);
     }

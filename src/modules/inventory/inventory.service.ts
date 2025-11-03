@@ -387,6 +387,7 @@ export class InventoryService {
       throw new NotFoundException(`Inventory with ID ${id} not found`);
     }
     existingInventory.is_active = false;
+    existingInventory.is_empty = false;
     await this.inventoryRepository.save(existingInventory);
   }
 }
