@@ -491,4 +491,18 @@ export class OrdersController {
     }
     return await this.ordersCancelService.reassignOrderItemLocation(orderItemId, locationId);
   }
+
+  @Post('reassign-task/:task_id/:location_id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
+  async reassignTaskLocation(
+    @Param('task_id') taskId: string,
+    @Param('location_id') locationId: string,
+  ) {
+    if (!taskId || !locationId) {
+      throw new BadRequestException('task_id and location_id are required');
+    }
+    return await this.ordersCancelService.reassignTaskLocation(taskId, locationId);
+  }
 }

@@ -3052,6 +3052,25 @@ export class OrchestratorService {
         await this.loggingService.log(`Retry Task: ${taskID}, New Task: ${newTaskId}, start location: ${newTask.start_location.location_id}, destination location: ${newTask.end_location.location_id}`, TaskType.GOODS_TO_PERSON,newTaskId,null);
       }
     }
+    else if (task.move_type === MOVE_TYPE.TO_QUARANTINE){
+      const [newTaskId,newTask] = await this.createTask({
+        batchId: task.batch_id,
+        originLocation: task.origin_location,
+        sourceQuarantineLocationId: task.start_location.location_id,
+        destinationQuarantineLocationId: task.end_location.location_id,
+        taskType: TaskType.GOODS_TO_PERSON,
+        move_type: MOVE_TYPE.TO_QUARANTINE,
+        sequenceOrder: task.sequence_order+1,
+        taskDependency: task.task_id,
+        robotId: task.robot_id,
+        cargos: task.cargos,
+      });
+      if (newTask && newTaskId) {
+        await this.sendSingleTaskToWms(newTask);
+        await this.loggingService.log(`Retry Task: ${taskID}, New Task: ${newTaskId}, start location: ${newTask.start_location.location_id}, destination location: ${newTask.end_location.location_id}`, TaskType.GOODS_TO_PERSON,newTaskId,null);
+        await this.loggingService.deleteErrorLogsForTask(taskID);
+      }
+    }
   }
   
 }

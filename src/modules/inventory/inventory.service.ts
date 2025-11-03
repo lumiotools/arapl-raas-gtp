@@ -326,9 +326,10 @@ export class InventoryService {
             .createQueryBuilder()
             .update(Inventory)
             .set({ status: LocationStatus.RESERVED })
-            .where("id = :id AND status = :status", {
+            .where("id = :id AND status = :status AND is_active = :is_active", {
                 id: id,
-                status: LocationStatus.AVAILABLE
+                status: LocationStatus.AVAILABLE,
+                is_active: true
             })
             .execute();
 
@@ -369,12 +370,14 @@ export class InventoryService {
     }
   }
 
-  async removeQuarantine(id: string) {
+  async removeQuarantine(id: string, barcode_number: string) {
     const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
     if (!existingInventory) {
       throw new NotFoundException(`Inventory with ID ${id} not found`);
     }
+    console.log(`barcode_number: ${barcode_number}`);
     existingInventory.is_quarantine = false;
+    existingInventory.barcode_number = barcode_number;
     await this.inventoryRepository.save(existingInventory);
   }
 

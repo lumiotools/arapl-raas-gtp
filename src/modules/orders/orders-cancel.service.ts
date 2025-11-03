@@ -275,4 +275,48 @@ export class OrdersCancelService {
     return { newTaskId, newTask  };
   }
 
+  async reassignTaskLocation(taskId: string, quarantineLocationId: string) {
+    const task = await this.taskRepository.findOne({ where: { task_id: taskId } });
+    if (!task){
+      throw new NotFoundException(`Task with ID ${taskId} not found`);
+    }
+    if (await this.inventoryService.reserveInventory(quarantineLocationId) === false){
+      throw new BadRequestException(`Failed to reserve inventory for Quarantine Location ID ${quarantineLocationId}`);
+    }
+    const orderItems = await this.orderItemRepository.find({
+      where: {
+        source_location_id: task.origin_location,
+        status: In([OrderItemStatus.IN_PROGRESS])
+      },
+    });
+    if (orderItems.length > 0){
+      orderItems.forEach(async (orderItem) => {
+        orderItem.retry_reassign_attempts += 1;
+        orderItem.status = OrderItemStatus.CANCELLED;
+        await this.orderItemRepository.save(orderItem);
+        await this.loggingService.log(`Incremented retry_reassign_attempts for Order Item ID ${orderItem.order_item_id} due to reassignment`,
+          TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
+      });
+      await this.productRequirementRepository.delete({ source_location_id: task.origin_location });
+    }
+    const [newTaskId, newTask] = await this.orchestrationService.createTask({
+      batchId: task.batch_id,
+      originLocation: task.origin_location,
+      sourceQuarantineLocationId: quarantineLocationId,
+      destinationQuarantineLocationId: quarantineLocationId,
+      taskType: TaskType.GOODS_TO_PERSON,
+      move_type: MOVE_TYPE.TO_QUARANTINE,
+      robotId: task.robot_id,
+      sequenceOrder: task.sequence_order + 1,
+      taskDependency: task.task_id,
+      cargos: task.cargos,
+      orderItems: null,
+    });
+    if (!newTask){
+      throw new BadRequestException(`Failed to create new task for Task ID ${taskId}`);
+    }
+    await this.orchestrationService.sendSingleTaskToWms(newTask);
+    return { newTaskId, newTask  };
+
+  }
 }
