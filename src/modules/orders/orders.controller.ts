@@ -478,4 +478,17 @@ export class OrdersController {
     return await this.ordersCancelService.retryOrderItem(orderItemId);
   }
 
+  @Post('reassign-order-item/:order_item_id/:location_id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
+  async reassignOrderItemLocation(
+    @Param('order_item_id') orderItemId: number,
+    @Param('location_id') locationId: string,
+  ) {
+    if (!orderItemId || !locationId) {
+      throw new BadRequestException('order_item_id and location_id are required');
+    }
+    return await this.ordersCancelService.reassignOrderItemLocation(orderItemId, locationId);
+  }
 }

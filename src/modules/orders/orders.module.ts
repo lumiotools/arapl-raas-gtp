@@ -14,10 +14,14 @@ import { Log, ProductRequirement, Task } from 'src/entities';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { OrdersCancelService } from './orders-cancel.service';
+import { In } from 'typeorm';
+import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
   imports: [JwtModule.register(jwtConfig),
-    TypeOrmModule.forFeature([OrderItem, Product, GtpLocation, User, Log, ScheduleMapping, Task, ProductRequirement]),OrchestratorModule],
+    TypeOrmModule.forFeature([OrderItem, Product, GtpLocation, User, Log, ScheduleMapping, Task, ProductRequirement]),OrchestratorModule,
+    InventoryModule
+  ],
   controllers: [OrdersController],
   providers: [OrdersService, LoggingService, OrdersCancelService],
 })

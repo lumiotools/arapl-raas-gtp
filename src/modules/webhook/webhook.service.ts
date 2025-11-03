@@ -17,6 +17,7 @@ import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationAction } from 'src/entities';
+import { InventoryService } from '../inventory/inventory.service';
 
 @Injectable()
 export class WebhookService {
@@ -43,6 +44,7 @@ export class WebhookService {
     private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
     @Inject(forwardRef(() => BaseopsTaskService))
     private readonly BaseOpsTaskService: BaseopsTaskService,
+    private readonly inventoryService: InventoryService,
   ) {}
 
   async processWebhook(webhookData: any): Promise<{ message: string }> {
@@ -198,6 +200,14 @@ export class WebhookService {
           await this.orchestratorService.decrementRobotInUse();
           await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
         }
+
+        if (task.move_type === MOVE_TYPE.TO_QUARANTINE){
+          await this.orchestratorService.decrementRobotInUse();
+          const sourceInventoryId = task.start_location.location_id;
+          await this.inventoryService.removeQuarantine(task.end_location.location_id);
+          await this.inventoryService.makeInventoryUnavailable(task.origin_location);
+
+        }
       }
     }
   }
@@ -346,7 +356,7 @@ export class WebhookService {
 
   private isTaskToInventory(task: Task): boolean {
     // Check if end_location has inventory attribute
-    return task.end_location?.location_attribute?.attribute_value === 'inventory';
+    return task.end_location?.location_attribute?.attribute_value === 'inventory' || task.end_location?.location_attribute?.attribute_value === 'quarantine';
   }
 
   private async updateInventoryWithTaskQuantity(task: Task): Promise<void> {

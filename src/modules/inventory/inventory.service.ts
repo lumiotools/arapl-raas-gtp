@@ -368,4 +368,22 @@ export class InventoryService {
       status: "HOLDED"
     }
   }
+
+  async removeQuarantine(id: string) {
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
+    if (!existingInventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+    existingInventory.is_quarantine = false;
+    await this.inventoryRepository.save(existingInventory);
+  }
+
+  async makeInventoryUnavailable(id: string) {
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
+    if (!existingInventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+    existingInventory.is_active = false;
+    await this.inventoryRepository.save(existingInventory);
+  }
 }

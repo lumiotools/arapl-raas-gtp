@@ -86,7 +86,7 @@ export class InventoryController {
   async findAll() {
     return await this.inventoryService.findAll();
   }
-
+  
   @Get(':id')
   @ApiOperation({ 
     summary: 'Get an inventory entry by ID',
@@ -226,4 +226,6 @@ export class InventoryController {
   async getActiveRobot(@Param('id') id: string) {
     return await this.inventoryService.getActiveRobotAtInventory(id);
   }
+
+  
 }
