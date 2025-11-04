@@ -237,10 +237,10 @@ export class OrdersCancelService {
       order: { created_at: 'DESC' }
     });
     if (!cancelled_task || cancelled_task.status !== TaskStatus.CANCELLED){
-      throw new BadRequestException(`No cancelled task found for Order Item ID ${orderItemId}`);
+      throw new BadRequestException(`Pallet has not been picked for Order Item ID ${orderItemId}`);
     }
     if ((cancelled_task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || cancelled_task.move_type === MOVE_TYPE.STATION_TO_STATION) && cancelled_task.inqueue && !cancelled_task.processing && !cancelled_task.completed && !cancelled_task.triggered){
-      throw new BadRequestException(`Cannot reassign - pallet has not been picked`);
+      throw new BadRequestException(`Pallet has not been picked for Order Item ID ${orderItemId}`);
     }
     if (await this.inventoryService.reserveInventory(quarantineLocationId) === false){
       throw new BadRequestException(`Failed to reserve inventory for Quarantine Location ID ${quarantineLocationId}`);
@@ -318,6 +318,37 @@ export class OrdersCancelService {
     }
     await this.orchestrationService.sendSingleTaskToWms(newTask);
     return { newTaskId, newTask  };
+
+  }
+
+  async isRetryReassignEnabled(taskId?: string, orderItemId?: number, check_type: 'retry'| 'reassign'='retry'){
+    if (check_type === 'reassign' && taskId){
+      const task = await this.taskRepository.findOne({ where: { task_id: taskId } });
+      if (!task){
+        throw new NotFoundException(`Task with ID ${taskId} not found`);
+      }
+    }
+    if (check_type === 'reassign' && orderItemId){
+      const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
+      if (!orderItem){
+        throw new NotFoundException(`Order item with ID ${orderItemId} not found`);
+      }
+
+      const source_location_id = orderItem.source_location_id;
+      const cancelled_task = await this.taskRepository.findOne({
+        where: {
+          origin_location: source_location_id,
+        },
+        order: { created_at: 'DESC' }
+      });
+      if (!cancelled_task || cancelled_task.status !== TaskStatus.CANCELLED){
+        throw new BadRequestException(`Pallet has not been picked for Order Item ID ${orderItemId}`);
+      }
+      if ((cancelled_task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || cancelled_task.move_type === MOVE_TYPE.STATION_TO_STATION) && cancelled_task.inqueue && !cancelled_task.processing && !cancelled_task.completed && !cancelled_task.triggered){
+        throw new BadRequestException(`Pallet has not been picked for Order Item ID ${orderItemId}`);
+      }
+    }
+    return { success: true };
 
   }
 }

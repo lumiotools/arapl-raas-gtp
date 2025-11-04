@@ -328,6 +328,14 @@ export class WebhookService {
         await this.emptyLocationRepository.save(destinationEmptyLocation);
       }
     }
+    else if (task.move_type===MOVE_TYPE.TO_QUARANTINE){
+      const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id } });
+      if (destinationInventoryLocation){
+        destinationInventoryLocation.status = LocationStatus.AVAILABLE;
+        destinationInventoryLocation.isProcessing = false;
+        await this.inventoryRepository.save(destinationInventoryLocation);
+      }
+    }
   }
 
   private async handleInventoryUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus, batchId: string): Promise<void> {

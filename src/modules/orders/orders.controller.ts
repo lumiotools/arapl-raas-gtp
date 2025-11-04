@@ -505,4 +505,13 @@ export class OrdersController {
     }
     return await this.ordersCancelService.reassignTaskLocation(taskId, locationId);
   }
+
+  @Get('check-retry-reassign')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
+  async checkRetryReassignEnabled(@Query('task_id') taskId: string, @Query('order_item_id') orderItemId: number, @Query('check_type') checkType: 'retry' | 'reassign') {
+    return await this.ordersCancelService.isRetryReassignEnabled(taskId, orderItemId, checkType);
+    
+  }
 }
