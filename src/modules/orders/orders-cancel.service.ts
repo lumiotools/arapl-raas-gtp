@@ -46,19 +46,17 @@ export class OrdersCancelService {
     const task = await this.taskRepository.findOne({
       where: {
         origin_location: orderItem.source_location_id,
-        move_type: MOVE_TYPE.INVENTORY_TO_STATION
+        status: In([TaskStatus.INQUEUE, TaskStatus.ASSIGNED, TaskStatus.PENDING])
       },
       order: { created_at: 'DESC' }
     });
     console.log(`orderItem: ${orderItem.order_item_id}, found task: ${task ? task.task_id : 'none'}`);
     console.log(`task status: ${task ? task.status : 'N/A'}`);
-    if (task && (task.status === TaskStatus.CANCELLED || task.status === TaskStatus.COMPLETED || task.status === TaskStatus.PROCESSING)){
-      throw new BadRequestException(`Cannot cancel tasks with status ${task.status}`);
-    }
     // if (orderItem.retry_reassign_attempts >= 1){
       await this.productRequirementRepository.delete({ source_location_id: orderItem.source_location_id });
     // }
     if (!task){return;}
+    
     await this.orchestrationService.decrementRobotInUse();
     await this.loggingService.log(`Cancelling Task ID ${task.task_id} related to Order Item ID ${orderItem.order_item_id}`,
       TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
@@ -150,6 +148,15 @@ export class OrdersCancelService {
     if (!task){
       throw new NotFoundException(`Task with ID ${taskId} not found`);
     }
+    const nextSequenceTask = await this.taskRepository.findOne({
+      where: {
+        task_dependency: task.task_id,
+        batch_id: task.batch_id,
+      },
+    });
+    if (nextSequenceTask){
+      throw new BadRequestException(`Cannot reassign Task ID ${taskId} because a subsequent task (Task ID ${nextSequenceTask.task_id}) exists`);
+    }
     if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION
       || task.move_type === MOVE_TYPE.STATION_TO_STATION
       || task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_STATION
@@ -188,6 +195,9 @@ export class OrdersCancelService {
     if (!orderItem){
       throw new NotFoundException(`Order item with ID ${orderItemId} not found`);
     }
+    if (orderItem.status !== OrderItemStatus.CANCELLED){
+      throw new BadRequestException(`Order item with ID ${orderItemId} is not in CANCELLED status`);
+    }
     const cancelledOrderItems = await this.orderItemRepository.find({
       where: { merged_order_item_id: orderItem.merged_order_item_id || orderItemId , status: OrderItemStatus.CANCELLED }
     });
@@ -213,10 +223,20 @@ export class OrdersCancelService {
       order: { created_at: 'DESC' }
     });
 
-    await this.productRequirementRepository.save({
+    const gtpLocation = await this.gtpLocationRepository.findOne({ where: { gtp_location_id: orderItem.destination_pallet_slot_id } });
+    if (!gtpLocation){
+      throw new NotFoundException(`GTP Location with ID ${orderItem.destination_pallet_slot_id} not found`);
+    }
+    const requirement = await this.productRequirementRepository.findOne({ where: {
       source_location_id: orderItem.source_location_id,
-      station_id: await this.gtpLocationRepository.findOne({ where: { gtp_location_id: orderItem.destination_pallet_slot_id } }).then(loc => loc?.station_id || ''),
-    });
+      station_id: gtpLocation.station_id,
+    } });
+    if (!requirement){
+      await this.productRequirementRepository.save({
+        source_location_id: orderItem.source_location_id,
+        station_id: await this.gtpLocationRepository.findOne({ where: { gtp_location_id: orderItem.destination_pallet_slot_id } }).then(loc => loc?.station_id || ''),
+      });
+    }
 
     if (task && task.status === TaskStatus.CANCELLED){
       await this.orchestrationService.handleErroneousTask(task.task_id);
@@ -237,11 +257,22 @@ export class OrdersCancelService {
       order: { created_at: 'DESC' }
     });
     if (!cancelled_task || cancelled_task.status !== TaskStatus.CANCELLED){
-      throw new BadRequestException(`Pallet has not been picked for Order Item ID ${orderItemId}`);
+      throw new BadRequestException(`Pallet for this order has not been Picked.`);
     }
     if ((cancelled_task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || cancelled_task.move_type === MOVE_TYPE.STATION_TO_STATION) && cancelled_task.inqueue && !cancelled_task.processing && !cancelled_task.completed && !cancelled_task.triggered){
-      throw new BadRequestException(`Pallet has not been picked for Order Item ID ${orderItemId}`);
+      throw new BadRequestException(`Pallet for this order has not been Picked.`);
     }
+
+    const nextSequenceTask = await this.taskRepository.findOne({
+      where: {
+        task_dependency: cancelled_task.task_id,
+        batch_id: cancelled_task.batch_id,
+      },
+    });
+    if (nextSequenceTask){
+      throw new BadRequestException(`Cannot reassign Order Item ID ${orderItemId} because a subsequent task (Task ID ${nextSequenceTask.task_id}) exists`);
+    }
+
     if (await this.inventoryService.reserveInventory(quarantineLocationId) === false){
       throw new BadRequestException(`Failed to reserve inventory for Quarantine Location ID ${quarantineLocationId}`);
     }
@@ -279,6 +310,15 @@ export class OrdersCancelService {
     const task = await this.taskRepository.findOne({ where: { task_id: taskId } });
     if (!task){
       throw new NotFoundException(`Task with ID ${taskId} not found`);
+    }
+    const nextSequenceTask = await this.taskRepository.findOne({
+      where: {
+        task_dependency: task.task_id,
+        batch_id: task.batch_id,
+      },
+    });
+    if (nextSequenceTask){
+      throw new BadRequestException(`Cannot reassign Task ID ${taskId} because a subsequent task (Task ID ${nextSequenceTask.task_id}) exists`);
     }
     if (await this.inventoryService.reserveInventory(quarantineLocationId) === false){
       throw new BadRequestException(`Failed to reserve inventory for Quarantine Location ID ${quarantineLocationId}`);
@@ -342,10 +382,10 @@ export class OrdersCancelService {
         order: { created_at: 'DESC' }
       });
       if (!cancelled_task || cancelled_task.status !== TaskStatus.CANCELLED){
-        throw new BadRequestException(`Pallet has not been picked for Order Item ID ${orderItemId}`);
+        throw new BadRequestException(`Pallet for this order has not been Picked.`);
       }
       if ((cancelled_task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || cancelled_task.move_type === MOVE_TYPE.STATION_TO_STATION) && cancelled_task.inqueue && !cancelled_task.processing && !cancelled_task.completed && !cancelled_task.triggered){
-        throw new BadRequestException(`Pallet has not been picked for Order Item ID ${orderItemId}`);
+        throw new BadRequestException(`Pallet for this order has not been Picked.`);
       }
     }
     return { success: true };
