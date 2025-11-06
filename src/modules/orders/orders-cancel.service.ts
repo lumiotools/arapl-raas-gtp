@@ -278,6 +278,9 @@ export class OrdersCancelService {
     }
     await this.inventoryService.makeInventoryProcessing(quarantineLocationId);
 
+    // make the source location unavailable
+    await this.inventoryService.makeInventoryUnavailable(cancelled_task.origin_location);
+
     const [newTaskId, newTask] = await this.orchestrationService.createTask({
       batchId: cancelled_task.batch_id,
       originLocation: source_location_id,
@@ -330,6 +333,8 @@ export class OrdersCancelService {
         status: In([OrderItemStatus.IN_PROGRESS])
       },
     });
+    // make the source location unavailable
+    await this.inventoryService.makeInventoryUnavailable(task.origin_location);
     if (orderItems.length > 0){
       orderItems.forEach(async (orderItem) => {
         orderItem.retry_reassign_attempts += 1;
