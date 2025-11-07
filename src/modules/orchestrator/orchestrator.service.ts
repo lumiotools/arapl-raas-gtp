@@ -396,7 +396,7 @@ export class OrchestratorService {
     let sortedStations = await this.getStationsSortedByPriority(stationIds);
     if (databaseRequirement.length > 0) {
       const taskComingToInventory = await this.taskRepository.findOne({
-        where:{origin_location: inventoryID, status:TaskStatus.PROCESSING , move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY])}
+        where:{origin_location: inventoryID, status:TaskStatus.PROCESSING , move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY, MOVE_TYPE.INVENTORY_TO_INVENTORY])}
       })
       if (taskComingToInventory && taskComingToInventory.robot_id) {
         try{

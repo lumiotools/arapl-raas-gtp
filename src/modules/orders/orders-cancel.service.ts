@@ -43,6 +43,11 @@ export class OrdersCancelService {
   ) {}
 
   async cancelRelatedTasks(orderItem: OrderItem) {
+    const gtpLocation = await this.gtpLocationRepository.findOne({ where: { gtp_location_id: orderItem.destination_pallet_slot_id } });
+    if (!gtpLocation){
+      throw new NotFoundException(`GTP Location with ID ${orderItem.destination_pallet_slot_id} not found`);
+    }
+    const station_id = gtpLocation.station_id;
     const task = await this.taskRepository.findOne({
       where: {
         origin_location: orderItem.source_location_id,
@@ -53,9 +58,13 @@ export class OrdersCancelService {
     console.log(`orderItem: ${orderItem.order_item_id}, found task: ${task ? task.task_id : 'none'}`);
     console.log(`task status: ${task ? task.status : 'N/A'}`);
     // if (orderItem.retry_reassign_attempts >= 1){
-      await this.productRequirementRepository.delete({ source_location_id: orderItem.source_location_id });
+      await this.productRequirementRepository.delete({ source_location_id: orderItem.source_location_id, station_id: station_id });
     // }
     if (!task){return;}
+
+    if (task.end_location.location_id !== station_id){
+      return;
+    }
     
     await this.orchestrationService.decrementRobotInUse();
     await this.loggingService.log(`Cancelling Task ID ${task.task_id} related to Order Item ID ${orderItem.order_item_id}`,
