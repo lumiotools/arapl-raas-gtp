@@ -130,15 +130,17 @@ export class OrchestratorService {
   async processAssignedOrderItems() {
     try {
       // Calculate product requirements and sort by descending order
-      let productRequirements = new Set<String>();
+      const productRequirements = [] as string[];
       const dbRequirements = await this.productRequirementRepository.find({
         where: { isPaused: false , isCancelled: false},
-        order: { source_location_id: 'ASC', station_id: 'ASC' }
+        order: { created_at: 'ASC' }
       });
       for (const dbReq of dbRequirements) {
-        productRequirements.add(dbReq.source_location_id);
+        if (!productRequirements.includes(dbReq.source_location_id)) {
+          productRequirements.push(dbReq.source_location_id);
+        }
       }
-      console.log(`Current Product Requirement: ${JSON.stringify(productRequirements)}`);
+      console.log(`Current Product Requirement: ${productRequirements}`);
       // first check waiting locations for this product.
       const waitingLocations = await this.waitingLocationRepository.find({
         where: {
@@ -163,7 +165,7 @@ export class OrchestratorService {
           }
 
           // Check if this task's product is in the current requirements
-          const hasRequirement = productRequirements.has(task.origin_location);
+          const hasRequirement = productRequirements.includes(task.origin_location);
 
           // the product at waiting location has no requirement and it is not paused as well - return to inventory.
           if (!hasRequirement) {
@@ -178,7 +180,7 @@ export class OrchestratorService {
             // find all product requirements for this product that is not paused
             const databaseRequirement = await this.productRequirementRepository.find({
               where : { source_location_id: task.origin_location, isPaused: false},
-              order: { station_id: 'ASC' }
+              order: { created_at: 'ASC' }
             });
             const stationIds = databaseRequirement.map(pr => pr.station_id);// get all station IDs from the requirements
             const sortedStations = await this.getStationsSortedByPriority(stationIds);// sort stations by priority
@@ -222,15 +224,16 @@ export class OrchestratorService {
           }
         }
       }
-      if (productRequirements.size === 0){
+      if (productRequirements.length === 0){
         return;
       }
-      this.logger.log(`Current product requirement length: ${productRequirements.size}`);
+      this.logger.log(`Current product requirement length: ${productRequirements.length}`);
       for (const requirement of productRequirements) {
         // check if the system is in waiting state
         const isWaiting = await this.checkIfSystemIsInWaitingState();
         if (isWaiting){break;}
-        await this.processInventoryRequirement(requirement.toString());
+        console.log(`Processing requirement for product: ${requirement}`);
+        await this.processInventoryRequirement(requirement);
       }
       return { message: 'Orchestrator process completed successfully' };
       
@@ -802,7 +805,8 @@ export class OrchestratorService {
       task.orderItems = [];
     }
     if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION ||
-      task.move_type === MOVE_TYPE.STATION_TO_STATION 
+      task.move_type === MOVE_TYPE.STATION_TO_STATION || 
+      task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_STATION
     ){
       const stationId = task.end_location.location_id;
       const gtpLocations = await this.gtpLocationRepository.find({
@@ -810,9 +814,15 @@ export class OrchestratorService {
       });
       for (const gtpLocation of gtpLocations) {
         const orderItems = await this.orderItemRepository.find({ where: { destination_pallet_slot_id: gtpLocation.gtp_location_id, 
-          status: OrderItemStatus.IN_PROGRESS 
+          status: OrderItemStatus.IN_PROGRESS,
+          source_location_id: task.origin_location
         } });
-        task.orderItems.push(...orderItems);
+        for (const orderItem of orderItems) {
+          if (task.orderItems.find(oi => oi.order_item_id === orderItem.order_item_id)) {
+            continue;
+          }
+          task.orderItems.push(orderItem);
+        }
       }
       await this.taskRepository.save(task);
     }
@@ -836,6 +846,21 @@ export class OrchestratorService {
         }
       }
       await this.taskRepository.save(completedTask);
+    }
+    else if (task.move_type === MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION || task.move_type === MOVE_TYPE.WAITING_TO_WAITING_LOCATION) {
+      const waitLocationId = task.end_location.location_id;
+      console.log('waitLocationId:', waitLocationId);
+      const inventoryId = task.origin_location;
+      const orderItems = await this.orderItemRepository.find({ where: { source_location_id: inventoryId, status: OrderItemStatus.IN_PROGRESS } });
+      console.log(`Found ${orderItems.length} order items for inventory ${inventoryId}`);
+      for (const orderItem of orderItems) {
+        if (task.orderItems.find(oi => oi.order_item_id === orderItem.order_item_id)) {
+          continue;
+        }
+        console.log(`Adding order item ${orderItem.order_item_id} to task ${task.task_id}`);
+        task.orderItems.push(orderItem);
+      }
+      await this.taskRepository.save(task);
     }
   }
 
@@ -1135,15 +1160,15 @@ export class OrchestratorService {
           });
           for (const orderItem of orderItems){
             if (orderItem){
-              if (!orderItem.completedTasks){
-                orderItem.completedTasks = [];
-              }
+              // if (!orderItem.completedTasks){
+              //   orderItem.completedTasks = [];
+              // }
               // if (!completedTask.orderItems) {completedTask.orderItems = [];}
               // completedTask.orderItems.push(orderItem);
               // await this.taskRepository.save(completedTask);
               await this.loggingService.log(`Order Item ${orderItem.order_item_id}: ${orderItem.source_location_id} (source) - ${orderItem.destination_pallet_slot_id} (destination), marked as COMPLETED`, TaskType.GOODS_TO_PERSON, completedTask.task_id, orderItem.order_batch_id);
               orderItem.status = OrderItemStatus.COMPLETED;
-              orderItem.completedTasks.push(completedTask);
+              // orderItem.completedTasks.push(completedTask);
               await this.orderItemRepository.save(orderItem);
             }
           }
