@@ -164,6 +164,13 @@ export class WaitingLocationService {
     return { message: `Waiting location with id ${id} deleted successfully` };
   }
 
+  async checkWaitingLocationAvailability(location_id: string): Promise<boolean> {
+    const waitingLocation = await this.waitingLocationRepository.findOne({
+      where: { location_id: location_id, is_active: true, status: LocationStatus.AVAILABLE },
+    });
+    return !!waitingLocation;
+  }
+
   async reserveWaitingLocation(location_id: string): Promise<boolean> {
     const queryRunner = this.waitingLocationRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();

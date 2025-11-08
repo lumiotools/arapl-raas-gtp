@@ -112,6 +112,14 @@ export class EmptyLocationsService {
       currentEmptyLocations[i].current_pallet = requiredTask.cargos ? requiredTask?.cargos[0]?.cargo_code : null;
     }
     return currentEmptyLocations;
+
+  }
+
+  async checkEmptyLocationAvailability(location_id: string): Promise<boolean> {
+    const emptyLocation = await this.emptyLocationRepository.findOne({
+      where: { location_id: location_id, is_active: true, status: LocationStatus.AVAILABLE },
+    });
+    return !!emptyLocation;
   }
 
   async reserveEmptyLocation(location_id: string): Promise<boolean> {
@@ -125,9 +133,10 @@ export class EmptyLocationsService {
             .createQueryBuilder()
             .update(EmptyLocation)
             .set({ status: LocationStatus.RESERVED })
-            .where("location_id = :location_id AND status = :status", {
+            .where("location_id = :location_id AND status = :status AND is_active = :is_active", {
                 location_id: location_id,
-                status: LocationStatus.AVAILABLE
+                status: LocationStatus.AVAILABLE,
+                is_active: true
             })
             .execute();
 

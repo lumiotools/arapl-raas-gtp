@@ -314,6 +314,13 @@ export class InventoryService {
     }
   }
 
+  async checkInventoryAvailability(id: string): Promise<boolean> {
+    const inventory = await this.inventoryRepository.findOne({
+      where: { id: id, is_active: true, status: LocationStatus.AVAILABLE },
+    });
+    return !!inventory;
+  }
+
 
   async reserveInventory(id: string): Promise<boolean> {
     const queryRunner = this.inventoryRepository.manager.connection.createQueryRunner();

@@ -302,6 +302,17 @@ export class StationsService {
     await this.productRequirementRepository.remove(productRequirements);
   }
 
+  async checkStationReservation(station_id: string): Promise<boolean> {
+    const station = await this.stationRepository.findOne({ where: { station_id } });
+    if (!station) {
+      throw new NotFoundException(`Station with id ${station_id} not found`);
+    }
+    if (station.status === LocationStatus.AVAILABLE && station.is_active) {
+      return true;
+    }
+    return false;
+  }
+
   async reserveStation(station_id: string): Promise<boolean> {
     const queryRunner = this.stationRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();

@@ -12,7 +12,7 @@ import {
   ProcessedOrderItemDto,
   UploadResponseDto,
 } from './dto/upload-order.dto';
-import { Log, ProductRequirement, Task, TaskStatus, TaskType } from 'src/entities';
+import { Log, ProductRequirement, Station, Task, TaskStatus, TaskType } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
@@ -37,6 +37,8 @@ export class OrdersCancelService {
     private taskRepository: Repository<Task>,
     @InjectRepository(ProductRequirement)
     private productRequirementRepository: Repository<ProductRequirement>,
+    @InjectRepository(Station)
+    private stationRepository: Repository<Station>,
     private readonly orchestrationService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly inventoryService: InventoryService
@@ -127,12 +129,26 @@ export class OrdersCancelService {
     }
 
     const source_location_id = task?.origin_location;
-    const orderItems = await this.orderItemRepository.find({
-      where: {
-        source_location_id: source_location_id,
-        status: In([OrderItemStatus.IN_PROGRESS])
-      },
-    });
+    const destination_location_id = task?.end_location.location_id;
+    const station = await this.stationRepository.findOne({ where: { station_id: destination_location_id } });
+    let orderItems: OrderItem[] = [];
+    if (!station){
+      orderItems = await this.orderItemRepository.find({
+        where: {
+          source_location_id: source_location_id,
+          status: In([OrderItemStatus.IN_PROGRESS])
+        },
+      });
+    }
+    else{
+      orderItems = await this.orderItemRepository.find({
+        where: {
+          source_location_id: source_location_id,
+          status: In([OrderItemStatus.IN_PROGRESS]),
+          destination_pallet_slot_id: In(station.gtpLocations.map(loc => loc.gtp_location_id)),
+        },
+      });
+    }
     let any_retry_exceed = false;
     for (const orderItem of orderItems){
       if (orderItem.retry_reassign_attempts >= 1){
@@ -153,6 +169,7 @@ export class OrdersCancelService {
   }
   
   async retryOrderByTaskId(taskId: string){
+    await this.isRetryReassignEnabled(taskId, undefined, 'retry');
     const task = await this.taskRepository.findOne({ where: { task_id: taskId } });
     if (!task){
       throw new NotFoundException(`Task with ID ${taskId} not found`);
@@ -200,6 +217,7 @@ export class OrdersCancelService {
   }
 
   async retryOrderItem(orderItemId: number) {
+    await this.isRetryReassignEnabled(undefined, orderItemId, 'retry');
     const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
     if (!orderItem){
       throw new NotFoundException(`Order item with ID ${orderItemId} not found`);
@@ -248,11 +266,17 @@ export class OrdersCancelService {
     }
 
     if (task && task.status === TaskStatus.CANCELLED){
-      await this.orchestrationService.handleErroneousTask(task.task_id);
+      const station_id = task.end_location.location_id;
+      const gtpLocations = (await this.gtpLocationRepository.find({where: {station_id: station_id}})).map(loc => loc.gtp_location_id);
+      if (gtpLocations.includes(orderItem.destination_pallet_slot_id) === true){
+        await this.orchestrationService.handleErroneousTask(task.task_id);
+      }
+      
     }
   }
 
   async reassignOrderItemLocation(orderItemId: number, quarantineLocationId: string) {
+    await this.isRetryReassignEnabled(undefined, orderItemId, 'reassign');
     const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
     if (!orderItem){
       throw new NotFoundException(`Order item with ID ${orderItemId} not found`);
@@ -266,7 +290,7 @@ export class OrdersCancelService {
       order: { created_at: 'DESC' }
     });
     if (!cancelled_task || cancelled_task.status !== TaskStatus.CANCELLED){
-      throw new BadRequestException(`Pallet for this order has not been Picked.`);
+      throw new BadRequestException(`Pallet for this order has not been Picked or You don't have authority to reassign right now.`);
     }
     if ((cancelled_task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || cancelled_task.move_type === MOVE_TYPE.STATION_TO_STATION) && cancelled_task.inqueue && !cancelled_task.processing && !cancelled_task.completed && !cancelled_task.triggered){
       throw new BadRequestException(`Pallet for this order has not been Picked.`);
@@ -319,6 +343,7 @@ export class OrdersCancelService {
   }
 
   async reassignTaskLocation(taskId: string, quarantineLocationId: string) {
+    await this.isRetryReassignEnabled(taskId, undefined, 'reassign');
     const task = await this.taskRepository.findOne({ where: { task_id: taskId } });
     if (!task){
       throw new NotFoundException(`Task with ID ${taskId} not found`);
@@ -396,13 +421,74 @@ export class OrdersCancelService {
         order: { created_at: 'DESC' }
       });
       if (!cancelled_task || cancelled_task.status !== TaskStatus.CANCELLED){
-        throw new BadRequestException(`Pallet for this order has not been Picked.`);
+        throw new BadRequestException(`Pallet for this order has not been Picked or You don't have authority to reassign right now.`);
       }
       if ((cancelled_task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || cancelled_task.move_type === MOVE_TYPE.STATION_TO_STATION) && cancelled_task.inqueue && !cancelled_task.processing && !cancelled_task.completed && !cancelled_task.triggered){
         throw new BadRequestException(`Pallet for this order has not been Picked.`);
       }
+      const station_id = cancelled_task.end_location.location_id;
+      const gtpLocations = (await this.gtpLocationRepository.find({where: {station_id: station_id}})).map(loc => loc.gtp_location_id);
+      if (gtpLocations.includes(orderItem.destination_pallet_slot_id) === false){
+        throw new NotFoundException(`This station don't have the authority to reassign this order item.`);
+      }
+    }
+    if (check_type === 'retry' && orderItemId){
+      const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
+      if (!orderItem){
+        throw new NotFoundException(`Order item with ID ${orderItemId} not found`);
+      }
+      if (orderItem.status !== OrderItemStatus.CANCELLED){
+        throw new BadRequestException(`Order item with ID ${orderItemId} is not in CANCELLED status`);
+      }
+      const task = await this.taskRepository.findOne({
+        where: {
+          origin_location: orderItem.source_location_id,
+        },
+        order: { created_at: 'DESC' }
+      });
+      if (!task){
+        throw new NotFoundException(`No task found for Order Item ID ${orderItemId}`);
+      }
+      if (task.status === TaskStatus.CANCELLED){
+        await this.checkDestinationLocation(task.end_location.location_id, task.end_location.location_attribute.attribute_value);
+      }
+    }
+    if (check_type === 'retry' && taskId){
+      const task = await this.taskRepository.findOne({ where: { task_id: taskId } });
+      if (!task){
+        throw new NotFoundException(`Task with ID ${taskId} not found`);
+      }
+      const nextSequenceTask = await this.taskRepository.findOne({
+        where: {
+          task_dependency: task.task_id,
+          batch_id: task.batch_id,
+        },
+      });
+      if (nextSequenceTask){
+        throw new BadRequestException(`Cannot reassign Task ID ${taskId} because a subsequent task (Task ID ${nextSequenceTask.task_id}) exists`);
+      }
+      await this.checkDestinationLocation(task.end_location.location_id, task.end_location.location_attribute.attribute_value);
+
     }
     return { success: true };
 
+  }
+
+  async checkDestinationLocation(location_id: string, location_type: string){
+    let isAvailable = false;
+    if (location_type === 'station'){
+      isAvailable = await this.orchestrationService.checkDestinationLocation(location_id,'station');
+    } else if (location_type === 'waiting_location'){
+      isAvailable = await this.orchestrationService.checkDestinationLocation(location_id,'waiting_location');
+    } else if (location_type === 'empty_location'){
+      isAvailable = await this.orchestrationService.checkDestinationLocation(location_id,'empty');
+    } else if (location_type === 'inventory'){
+      isAvailable = await this.orchestrationService.checkDestinationLocation(location_id,'inventory');
+    }else if (location_type === 'quarantine'){
+      isAvailable = await this.orchestrationService.checkDestinationLocation(location_id,'inventory');
+    }
+    if (!isAvailable){
+      throw new BadRequestException(`Destination location ID ${location_id} is not available for retry`);
+    }
   }
 }

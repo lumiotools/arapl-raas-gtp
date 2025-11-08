@@ -340,10 +340,12 @@ export class WebhookService {
 
   private async handleInventoryUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus, batchId: string): Promise<void> {
     try {
-      // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
+      if (newStatus === TaskStatus.INQUEUE && task.robot_id != null){
+        await this.orchestratorService.unmarkSystemAsWaiting();
+      }
       if ((newStatus === TaskStatus.PROCESSING || newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
         await this.releaseProcessingInventory(task.start_location.location_id);
-        if (newStatus === TaskStatus.PROCESSING){
+        if ((newStatus === TaskStatus.PROCESSING)){
           await this.orchestratorService.unmarkSystemAsWaiting();
           await this.loggingService.log(`Task ${task.task_id}: System removed from waiting state.`, task.task_type, task.task_id, null);
         }

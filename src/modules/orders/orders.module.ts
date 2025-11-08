@@ -10,7 +10,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { jwtConfig } from 'src/config/jwt.config';
 import { User } from 'src/entities/user.entity';
 import { LoggingService } from 'src/services/logging.service';
-import { Log, ProductRequirement, Task } from 'src/entities';
+import { Log, ProductRequirement, Station, Task } from 'src/entities';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { OrdersCancelService } from './orders-cancel.service';
@@ -19,7 +19,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
   imports: [JwtModule.register(jwtConfig),
-    TypeOrmModule.forFeature([OrderItem, Product, GtpLocation, User, Log, ScheduleMapping, Task, ProductRequirement]),OrchestratorModule,
+    TypeOrmModule.forFeature([OrderItem, Product, GtpLocation, User, Log, ScheduleMapping, Task, ProductRequirement, Station]),OrchestratorModule,
     InventoryModule
   ],
   controllers: [OrdersController],
