@@ -1,5 +1,9 @@
 import { BadRequestException, Inject, Injectable, forwardRef } from '@nestjs/common';
 import { TaskService } from '../tasks/tasks.service';
+import { WMSBatchJob, WMSBatchJobStatus } from '../wms_integration_wrapper/entities/batch_job';
+import { BatchStatus, LocationType, TaskStatus } from 'src/entities';
+import { WMSBatchJobTaskLocationAction, WMSBatchJobTaskLocationType } from '../wms_integration_wrapper/entities/batch_job_task_location';
+import { WMSBatchJobTaskStatus, WMSBatchJobTaskType } from '../wms_integration_wrapper/entities/batch_job_task';
 // Removed unused imports after simplifying flow (no merge with existing DB tasks)
 
 @Injectable()
@@ -21,7 +25,7 @@ export class CrossdockTaskService {
    return await this.taskService.findBatchTasksActivities(batch_id, task_id);
   }
 
-  async processTasks(tasks: any[], priority: number): Promise<any> {
+  async processTasks(tasks: any[], priority: number, batch_job_id?: string): Promise<any> {
     // ===== VALIDATION SECTION =====
     const validationErrors: string[] = [];
     const startLocationIds = new Set<string>();
@@ -79,7 +83,7 @@ export class CrossdockTaskService {
     console.log(`Validation completed with ${validationErrors.length} errors.`);
     // If there are validation errors, throw them
     if (validationErrors.length > 0) {
-      throw new BadRequestException(`Data Validation Failed:\n${validationErrors.join('\n')}`);
+      throw new BadRequestException(validationErrors.join('\n'));
     }
 
     // Remove the temporary row number field before processing
@@ -154,7 +158,7 @@ export class CrossdockTaskService {
     }
 
     // Process only the provided tasks without merging with existing DB tasks
-    return this.taskService.processTasks(tasks, priority);
+    return await this.taskService.processTasks(tasks, priority, batch_job_id);
   }
 
   async setInitialConfiguration(): Promise<void> {
@@ -173,5 +177,95 @@ export class CrossdockTaskService {
 
   async cancelTask(task_id: string): Promise<any> {
    return await this.taskService.cancelTask(task_id);
+  }
+
+  async createWMSBatchJob(batch_job: WMSBatchJob): Promise<string> {
+    const crossdock_tasks: any[] = []
+
+    batch_job.tasks.forEach((task)=> {
+      crossdock_tasks.push({
+        wms_task_id: task.task_id,
+        start_location_location_type: task.start_location.location_type,
+        start_location_location_id: task.start_location.location_id,
+        end_location_location_type: task.end_location.location_type,
+        end_location_location_id: task.end_location.location_id,
+        barcode_number: task.cargos.length > 0 ? task.cargos[0].cargo_code : '',
+        priority: 1,
+      })
+    })
+
+    try {
+      const { batch_id } = await this.processTasks(crossdock_tasks, 3, batch_job.batch_job_id);
+      return batch_id as string;
+    } catch (error) {
+      throw new BadRequestException(`Failed to create batch job: ${error.message}`);
+    }
+  }
+
+  async getWMSBatchJob(batch_id: string): Promise<WMSBatchJob> {
+    
+    const crossdock_batch = await this.taskService.findBatchById(batch_id);
+
+    if (!crossdock_batch) {
+      throw new BadRequestException(`Batch with ID '${batch_id}' not found`);
+    }
+    
+    const tasks =  await this.findBatchTasks(batch_id);
+
+    const batch_job_tasks: WMSBatchJob["tasks"] = []
+
+    for (const task of tasks) {
+      const final_end_location = (task as any).final_end_location || task.end_location;
+      let task_status = WMSBatchJobTaskStatus.TASK_ACKNOWLEDGED;
+
+      if(task.robot_id) task_status = WMSBatchJobTaskStatus.ROBOT_ASSIGNED;
+      if(task.status === TaskStatus.PROCESSING) task_status = WMSBatchJobTaskStatus.PICKUP_SUCCESSFUL;
+      if(task.status === TaskStatus.COMPLETED) task_status = WMSBatchJobTaskStatus.TASK_COMPLETED;
+      if(task.status === TaskStatus.CANCELLED) task_status = WMSBatchJobTaskStatus.TASK_CANCELLED;
+
+      batch_job_tasks.push({
+        task_id: task.wms_task_id || task.task_id,
+        task_type: WMSBatchJobTaskType.CROSSDOCK,
+        status: task_status,
+        start_location: {
+          location_id: task.start_location.display_name!,
+          location_type: task.start_location.location_type === LocationType.PALLET ? WMSBatchJobTaskLocationType.PALLET : WMSBatchJobTaskLocationType.ZONE,
+          location_action: WMSBatchJobTaskLocationAction.PICK,
+          location_dimension: {
+            length: task.start_location.location_dimension?.length!,
+            width: task.start_location.location_dimension?.width!,
+            height: task.start_location.location_dimension?.height!,
+          },
+        },
+        end_location: {
+          location_id: final_end_location.display_name!,
+          location_type: final_end_location.location_type === LocationType.PALLET ? WMSBatchJobTaskLocationType.PALLET : WMSBatchJobTaskLocationType.ZONE,
+          location_action: WMSBatchJobTaskLocationAction.DROP,
+          location_dimension: {
+            length: final_end_location.location_dimension?.length!,
+            width: final_end_location.location_dimension?.width!,
+            height: final_end_location.location_dimension?.height!,
+          },
+        },
+        cargos: task.cargos?.map(cargo => ({
+          cargo_code: cargo.cargo_code,
+        })) || [],
+      })
+    }
+
+    let batch_job_status = WMSBatchJobStatus.TASK_ACKNOWLEDGED;
+
+    if([BatchStatus.IN_PROGRESS, BatchStatus.PROCESSING].includes(crossdock_batch?.status!)) batch_job_status = WMSBatchJobStatus.TASK_IN_PROGRESS;
+    if(crossdock_batch?.status === BatchStatus.CANCELLED) batch_job_status = WMSBatchJobStatus.TASK_CANCELLED;
+    if(crossdock_batch?.status === BatchStatus.COMPLETED) batch_job_status = WMSBatchJobStatus.TASK_COMPLETED;
+
+    const batch_job: WMSBatchJob = {
+      batch_job_id: batch_id,
+      batch_job_status: batch_job_status,
+      tasks: batch_job_tasks,
+    }
+
+    return batch_job;
+
   }
 }

@@ -16,12 +16,8 @@ export class TaskActivity {
   move_type?: MOVE_TYPE;
   robot_id?: string;
   // Timestamps mirrored from Task entity
-  created_at: Date | null;
-  updated_at: Date | null;
-  inqueue?: Date | null;
-  processing?: Date | null;
-  completed?: Date | null;
-  triggered?: Date | null;
+  start_time: Date | null;
+  end_time: Date | null;
   start_location: Location;
   end_location: Location;
   cargos: Cargo[];

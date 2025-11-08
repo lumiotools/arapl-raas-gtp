@@ -8,6 +8,11 @@ import { LocationStatus } from "src/entities/station.entity";
 import { In, Repository } from "typeorm";
 import { LoggingService } from "../../services/logging.service";
 
+export interface CrossdockWMSLocationEntity {
+    id: string;
+    status: 'EMPTY' | 'OCCUPIED';
+}
+
 @Injectable()
 export class LocationManagerService {
     private taskType: TaskType = TaskType.BASEOPS;
@@ -128,11 +133,18 @@ export class LocationManagerService {
     }
 
     // Accepts a list of location IDs (assumed to be from the same zone) and returns, in order, which are directly accessible/unblocked
-    async checkDropLocationsDirectAccessibility(location_ids: string[]): Promise<boolean[]> {
+    async checkDropLocationsDirectAccessibility(location_ids: string[], ignoreReserved: boolean | null = false): Promise<boolean[]> {
         if (!Array.isArray(location_ids) || location_ids.length === 0) {
             await this.loggingService.log(`Accessibility check: no location ids provided`, this.taskType, null, null);
             return [];
         }
+
+        // Helper to decide if a status should be considered "free/non-blocking"
+        const isFree = (status: LocationStatus) => {
+            return ignoreReserved
+                ? (status === LocationStatus.AVAILABLE || status === LocationStatus.RESERVED)
+                : status === LocationStatus.AVAILABLE;
+        };
 
         // 1) Load all candidate locations once
         const candidateLocations = await this.locationRepository.find({
@@ -141,7 +153,7 @@ export class LocationManagerService {
         const candidateById = new Map(candidateLocations.map(l => [l.location_id, l]));
 
         // 2) Determine (assumed) single zone from valid candidates
-        const validCandidates = candidateLocations.filter(l => l.location_type === LocationType.PALLET && l.location_status === LocationStatus.AVAILABLE && !!l.parent_id);
+        const validCandidates = candidateLocations.filter(l => l.location_type === LocationType.PALLET && isFree(l.location_status) && !!l.parent_id);
         if (validCandidates.length === 0) {
             await this.loggingService.log(`Accessibility check: no valid PALLET & AVAILABLE candidates found`, this.taskType, null, null);
             return location_ids.map(_ => false);
@@ -167,7 +179,7 @@ export class LocationManagerService {
         if (allDirect) {
             const result = location_ids.map(id => {
                 const loc = candidateById.get(id);
-                return !!(loc && loc.location_type === LocationType.PALLET && loc.location_status === LocationStatus.AVAILABLE && loc.parent_id === zoneId);
+                return !!(loc && loc.location_type === LocationType.PALLET && isFree(loc.location_status) && loc.parent_id === zoneId);
             });
             await this.loggingService.log(`Accessibility check (all-direct): computed availability for ${location_ids.length} locations`, this.taskType, null, null);
             return result;
@@ -175,7 +187,6 @@ export class LocationManagerService {
 
         // 5) Build helper structures for blocking checks
         const palletsWithPriority = pallets.filter(l => l.drop_priority != null);
-        const byId = new Map(palletsWithPriority.map(l => [l.location_id, l]));
 
         // For a location L to be directly accessible: all pallets with drop_priority > L.drop_priority
         // must be AVAILABLE and not newly selected earlier in this list.
@@ -185,7 +196,7 @@ export class LocationManagerService {
         for (const id of location_ids) {
             const loc = candidateById.get(id);
             // Default false for unknown, wrong type, wrong zone, or not available
-            if (!loc || loc.location_type !== LocationType.PALLET || loc.parent_id !== zoneId || loc.location_status !== LocationStatus.AVAILABLE || loc.drop_priority == null) {
+            if (!loc || loc.location_type !== LocationType.PALLET || loc.parent_id !== zoneId || !isFree(loc.location_status) || loc.drop_priority == null) {
                 results.push(false);
                 continue;
             }
@@ -196,7 +207,7 @@ export class LocationManagerService {
                 if (other.drop_priority == null) return false;
                 if (other.drop_priority! <= lp) return false; // not in front
                 // Blocked if occupied/reserved/etc or if already selected earlier
-                return other.location_status !== LocationStatus.AVAILABLE || newlySelected.has(other.location_id);
+                return !isFree(other.location_status) || newlySelected.has(other.location_id);
             });
 
             const accessible = !isBlocked;
@@ -204,18 +215,38 @@ export class LocationManagerService {
             if (accessible) newlySelected.add(id);
         }
 
-        await this.loggingService.log(`Accessibility check: computed direct accessibility for ${location_ids.length} locations in zone ${zoneId}` , this.taskType, null, null);
+        await this.loggingService.log(`Accessibility check: computed direct accessibility for ${location_ids.length} locations in zone ${zoneId} (ignoreReserved=${!!ignoreReserved})` , this.taskType, null, null);
         return results;
     }
 
     async freeLocation(location_id: string): Promise<void> {
-        await this.locationRepository.update({ location_id }, { location_status: LocationStatus.AVAILABLE });
+        const location = await this.locationRepository.findOne({ where: { location_id } });
+        if (!location) {
+            console.log(`Location ${location_id} not found.`);
+            await this.loggingService.log(`Location ${location_id} not found`, this.taskType, null, null);
+            return;
+        }
+        if(location.location_type === LocationType.ENTRY) {
+            return;
+        }
+        location.location_status = LocationStatus.AVAILABLE;
+        await this.locationRepository.save(location);
         await this.updateLocationStatusInFMS(location_id, 'Empty');
         await this.loggingService.log(`Location ${location_id} set to AVAILABLE`, this.taskType, null, null);
     }
 
     async occupyLocation(location_id: string): Promise<void> {
-        await this.locationRepository.update({ location_id }, { location_status: LocationStatus.OCCUPIED });
+        const location = await this.locationRepository.findOne({ where: { location_id } });
+        if (!location) {
+            console.log(`Location ${location_id} not found.`);
+            await this.loggingService.log(`Location ${location_id} not found`, this.taskType, null, null);
+            return;
+        }
+        if(location.location_type === LocationType.ENTRY) {
+            return;
+        }
+        location.location_status = LocationStatus.OCCUPIED;
+        await this.locationRepository.save(location);
         await this.updateLocationStatusInFMS(location_id, 'Occupied');
         await this.loggingService.log(`Location ${location_id} set to OCCUPIED`, this.taskType, null, null);
     }
@@ -583,5 +614,15 @@ export class LocationManagerService {
     const fms_zones = JSON.parse(process.env.FMS_ZONES || '[]');
     const zone = fms_zones.find((z: { zone: string; type: string }) => z.zone === zone_id);
     return zone.type;
+  }
+
+  async getCrossdockEmptyLocations(zone_name: string, status: CrossdockWMSLocationEntity["status"] | null = "EMPTY"): Promise<CrossdockWMSLocationEntity[]> {
+    const locations = await this.locationRepository.find({
+      where: {
+        parent_id: zone_name,
+        location_status: status === "EMPTY" ? In([LocationStatus.AVAILABLE, LocationStatus.RESERVED]) : LocationStatus.OCCUPIED,
+      }
+    });
+    return locations.map(loc => ({ id: loc.location_id, status: loc.location_status === LocationStatus.OCCUPIED ? "OCCUPIED" : "EMPTY" } as CrossdockWMSLocationEntity));
   }
 }

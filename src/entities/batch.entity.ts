@@ -29,6 +29,9 @@ export class Batch {
   @PrimaryColumn({ type: 'varchar', length: 32 })
   batch_id: string;
   
+  @Column({ type: 'varchar', length: 64, unique: true, nullable: true })
+  wms_batch_id?: string;
+
   @Column({
     type: 'enum',
     enum: TaskType,

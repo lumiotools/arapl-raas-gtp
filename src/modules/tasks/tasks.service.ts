@@ -7,16 +7,15 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository, IsNull } from 'typeorm';
+import { Between, Repository, IsNull, MoreThan, In, Not } from 'typeorm';
 import {
   Task,
   TaskStatus,
   TaskType,
   MOVE_TYPE,
 } from 'src/entities/task.entity';
-import { LocationAction, LocationType } from 'src/entities/location.entity';
+import { LocationAction, LocationEntity, LocationType } from 'src/entities/location.entity';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
-import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { LocationManagerService } from './location_manager.service';
 import { OperationType, RobotCount } from 'src/entities/robot-count.entity';
@@ -86,6 +85,8 @@ export class TaskService implements OnModuleInit {
     let batches = await this.batchRepository.find({
       select: [
         'batch_id',
+        'wms_batch_id',
+        'task_type',
         'priority',
         'status',
         'total_tasks',
@@ -97,12 +98,34 @@ export class TaskService implements OnModuleInit {
       where: { task_type: this.taskType },
       order: { created_at: 'DESC' },
     });
-
+    // Enrich with alert (HALTED reason) if batch itself is HALTED
+    for (const batch of batches) {
+      if ((batch as any).status === TaskStatus.HALTED) {
+        const haltedTask = await this.taskRepository.findOne({
+          where: { batch_id: (batch as any).batch_id, status: TaskStatus.HALTED },
+          order: { updated_at: 'DESC', created_at: 'DESC' },
+        });
+        if (haltedTask) {
+          (batch as any).alert = await this.computeHaltReason(haltedTask);
+        } else {
+          (batch as any).alert = undefined;
+        }
+      } else {
+        (batch as any).alert = undefined;
+      }
+    }
     return batches;
   }
 
+  async findBatchById(batch_id: string) {
+    const batch = await this.batchRepository.findOne({
+      where: { batch_id: batch_id, task_type: this.taskType },
+    });
+    return batch;
+  }
+
   async findBatchTasks(batch_id: string) {
-    let tasks = await this.taskRepository.find({
+    const tasks = await this.taskRepository.find({
       where: {
         batch_id: batch_id,
         task_type: this.taskType,
@@ -113,6 +136,46 @@ export class TaskService implements OnModuleInit {
     });
 
     for (const task of tasks) {
+      // For CROSSDOCK, render the task as originally received by user (pallet→zone or pallet→pallet)
+      // even if we split it internally into PICK_ENTRY / ZONE_TO_DROP_ENTRY / DROP_ENTRY_TO_ZONE.
+      if (this.taskType === TaskType.CROSSDOCK) {
+        try {
+          // Walk the chain to find the main leg and final leg
+          const chain: Task[] = [];
+          let cur: Task | null = task;
+          // Include the current task and all dependents
+          while (cur) {
+            chain.push(cur);
+            const nxt = await this.taskRepository.findOne({ where: { task_dependency: cur.task_id } });
+            cur = nxt ?? null;
+          }
+
+          // Main leg: ZONE_TO_DROP_ENTRY if present, else ZONE_TO_ZONE
+          const mainLeg = chain.find((t) => t.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY)
+            ?? chain.find((t) => t.move_type === MOVE_TYPE.ZONE_TO_ZONE)
+            ?? task;
+
+          // Final leg: DROP_ENTRY_TO_ZONE if present
+          const finalLeg = chain.find((t) => t.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE) ?? null;
+
+          // Render as originally requested by the user
+          const renderStart = mainLeg.start_location ?? task.start_location;
+          const renderEnd = finalLeg?.end_location ?? mainLeg.end_location ?? task.end_location;
+
+          // Do not persist; only shape the response object
+          task.start_location = renderStart as any;
+          task.end_location = renderEnd as any;
+          const validFirstChainNode = chain.find((t)=> [MOVE_TYPE.PICK_ENTRY, MOVE_TYPE.ZONE_TO_ZONE].includes(t.move_type) &&  t.status !== TaskStatus.CANCELLED);
+          (task as any).start_time = validFirstChainNode?.processing ?? validFirstChainNode?.inqueue;
+          (task as any).end_time = chain[chain.length - 1]?.[chain[chain.length - 1]?.status === TaskStatus.CANCELLED ? 'updated_at' : 'completed'] ?? null;
+        } catch (e) {
+          // Fallback: keep task as-is on any error
+        }
+      } else {
+        (task as any).start_time = task.processing ?? task.inqueue;
+        (task as any).end_time = (task.status === TaskStatus.CANCELLED ? task.updated_at : task.completed) ?? null;
+      }
+
       if (task.start_location) {
         task.start_location.display_name =
           await this.LocationManagerService.getDisplayName(
@@ -125,6 +188,20 @@ export class TaskService implements OnModuleInit {
           await this.LocationManagerService.getLocation(
             task.end_location.location_attribute.attribute_value,
           );
+
+        if(task.status === TaskStatus.COMPLETED){
+          const finalEndLocation = await this.LocationManagerService.getLocation(
+            task.end_location.location_id,
+          );
+          if (finalEndLocation) {
+            (task as any).final_end_location = {
+              ...task.end_location,
+              location_id: finalEndLocation.location_id,
+              location_type: finalEndLocation.location_type,
+              display_name: finalEndLocation.display_name,
+            };
+          }
+        }
 
         if (originalEndLocation) {
           task.end_location = {
@@ -146,15 +223,139 @@ export class TaskService implements OnModuleInit {
           },
         });
 
+        // Aggregate status and timestamps for Crossdock chains
+        if (this.taskType === TaskType.CROSSDOCK) {
+          try {
+            // 1) Aggregate chain status (already computed elsewhere if needed)
+            const chainStatuses = await this.collectChainStatuses(batch_id, task.task_id);
+            const aggregate = this.aggregateStatuses(chainStatuses);
+            task.status = aggregate;
+          } catch {}
+        } else {
+          // For non-crossdock, expose start/end based on the task itself
+          const startCandidate = task.inqueue ?? task.processing ?? task.created_at ?? null;
+          const endCandidate = task.completed ?? null;
+          (task as any).start_time = startCandidate;
+          (task as any).end_time = endCandidate;
+        }
         if (!waitToZoneTask) {
           task.status = TaskStatus.WAITING;
         } else {
           task.status = waitToZoneTask.status;
         }
       }
+
+      // Aggregate status across the full chain for Crossdock
+      if (this.taskType === TaskType.CROSSDOCK) {
+        try {
+          const chainStatuses = await this.collectChainStatuses(batch_id, task.task_id);
+          const aggregate = this.aggregateStatuses(chainStatuses);
+          task.status = aggregate;
+          // Recompute alert if now HALTED
+        } catch (e) {
+          // On failure keep task.status as-is
+        }
+      }
+
+      // Attach HALTED reason for UI/API consumers (renamed to alert)
+      (task as any).alert = await this.computeHaltReason(task)
     }
 
     return tasks;
+  }
+
+  // Helper: collect statuses for a full dependency chain (BFS fan-out) starting from root
+  private async collectChainStatuses(batch_id: string, rootTaskId: string): Promise<TaskStatus[]> {
+    const statuses: TaskStatus[] = [];
+    const visited = new Set<string>();
+    let frontier: string[] = [rootTaskId];
+    while (frontier.length > 0) {
+      const nodes = await this.taskRepository.find({
+        where: [
+          { task_id: In(frontier), batch: { batch_id } },
+          { task_dependency: In(frontier), batch: { batch_id } },
+        ],
+      });
+      const nextFrontier: string[] = [];
+      for (const n of nodes) {
+        if (!visited.has(n.task_id) && n.move_type !== MOVE_TYPE.PICK_ENTRY) {
+          visited.add(n.task_id);
+          statuses.push(n.status);
+          if (n.task_dependency && frontier.includes(n.task_dependency) === false) {
+            // no-op; we already expand by dependency on frontier via where clause
+          }
+          nextFrontier.push(n.task_id);
+        }
+      }
+      // Discover dependents of all nodes we just saw in this level
+      const dependents = await this.taskRepository.find({
+        where: { task_dependency: In(nextFrontier), batch: { batch_id } },
+        select: ['task_id', 'status'],
+      });
+      for (const d of dependents) {
+        if (!visited.has(d.task_id)) {
+          // We won't push status yet; it will be captured in the next loop iteration
+          nextFrontier.push(d.task_id);
+        }
+      }
+      frontier = Array.from(new Set(nextFrontier));
+      // Stop condition guard to avoid infinite loops
+      if (frontier.length === 0) break;
+      // Trim frontier to only those not yet visited
+      frontier = frontier.filter((id) => !visited.has(id));
+    }
+    // Ensure root included even if not fetched above
+    if (!visited.has(rootTaskId)) {
+      const root = await this.taskRepository.findOne({ where: { task_id: rootTaskId, batch: { batch_id }, move_type: Not(MOVE_TYPE.PICK_ENTRY) } });
+      if (root) statuses.push(root.status);
+    }
+    return statuses;
+  }
+
+  // Helper: aggregate statuses per provided mapping/priorities
+  private aggregateStatuses(statuses: TaskStatus[]): TaskStatus {
+    if (!statuses || statuses.length === 0) return TaskStatus.PENDING;
+    const unique = new Set(statuses);
+    // All cancelled -> CANCELLED
+    if (unique.size === 1 && unique.has(TaskStatus.CANCELLED)) {
+      return TaskStatus.CANCELLED;
+    }
+    // Any PROCESSING -> PROCESSING
+    if (unique.has(TaskStatus.PROCESSING)) return TaskStatus.PROCESSING;
+    // Any ASSIGNED or INQUEUE -> ASSIGNED
+    if (unique.has(TaskStatus.ASSIGNED) || unique.has((TaskStatus as any).INQUEUE)) return TaskStatus.ASSIGNED;
+    // Any HALTED -> HALTED
+    if (unique.has((TaskStatus as any).HALTED)) return TaskStatus.HALTED;
+    // Any WAITING -> WAITING
+    if (unique.has((TaskStatus as any).WAITING)) return TaskStatus.WAITING;
+    // Any PENDING -> PENDING
+    if (unique.has((TaskStatus as any).PENDING)) return TaskStatus.PENDING;
+    // Any PENDING / HALTED / WAITING -> PENDING
+    // if (unique.has(TaskStatus.PENDING) || unique.has((TaskStatus as any).HALTED) || unique.has((TaskStatus as any).WAITING)) {
+    //   // If all are pending -> pending; else mixture with completed/cancelled still shows pending based on given examples leaning towards higher progress; but
+    //   // user wants assigned > pending; since we passed assigned above, we return pending here
+    //   // Edge: if only completed+cancelled would be handled below
+    //   return TaskStatus.PENDING;
+    // }
+    // Completed mixed with Cancelled -> COMPLETED
+    if (unique.has(TaskStatus.COMPLETED)) return TaskStatus.COMPLETED;
+    // Fallback: if we reach here and we have statuses but none matched, prefer first
+    return statuses[0];
+  }
+
+  // Helper: provide a human-readable reason for HALTED tasks, consistent across views
+  private async computeHaltReason(t: Task): Promise<string | undefined> {
+    if (t.status !== TaskStatus.HALTED) return undefined;
+    if (t.end_location?.location_attribute?.attribute_name === 'ZONE') {
+      const zoneId = t.end_location.location_attribute.attribute_value;
+      const zoneName = zoneId
+        ? await this.LocationManagerService.getDisplayName(zoneId)
+        : undefined;
+      return zoneName
+        ? `No directly accessible locations in ${zoneName}`
+        : 'No directly accessible locations in target zone';
+    }
+    return 'Destination location is occupied';
   }
 
   async findBatchTasksActivities(batch_id: string, task_id: string) {
@@ -175,25 +376,33 @@ export class TaskService implements OnModuleInit {
 
     orderedTasks.push(firstTask);
 
-    // Follow the dependency chain to collect subsequent tasks
-    while (true) {
-      const prev = orderedTasks[orderedTasks.length - 1];
-      if (!prev) break;
-      const nextTask = await this.taskRepository.findOne({
-        where: { task_dependency: prev.task_id },
+    // Follow the dependency graph to collect ALL subsequent tasks (fan-out supported)
+    const visited = new Set<string>([firstTask.task_id]);
+    let frontier: string[] = [firstTask.task_id];
+    while (frontier.length > 0) {
+      const dependents = await this.taskRepository.find({
+        where: { task_dependency: In(frontier), batch: { batch_id } },
+        relations: ['batch'],
       });
-      if (!nextTask) break;
-      orderedTasks.push(nextTask);
+      const newlyDiscovered: Task[] = [];
+      for (const dep of dependents) {
+        if (!visited.has(dep.task_id)) {
+          visited.add(dep.task_id);
+          newlyDiscovered.push(dep);
+        }
+      }
+      orderedTasks.push(...newlyDiscovered);
+      frontier = newlyDiscovered.map((t) => t.task_id);
     }
+
+    // Order tasks by their sequence within the chain
+    orderedTasks.sort((a, b) => (a.sequence_order ?? 0) - (b.sequence_order ?? 0));
 
     // Build activities: MOVEMENT for each task
     for (let i = 0; i < orderedTasks.length; i++) {
       const t = orderedTasks[i];
 
-      // Do not display cancelled tasks
-      if (t.status === TaskStatus.CANCELLED) {
-        continue;
-      }
+      // Include cancelled tasks as well to present complete sequence (A, B, C, D...)
 
       if (t.start_location) {
         t.start_location.display_name =
@@ -208,23 +417,36 @@ export class TaskService implements OnModuleInit {
           );
       }
 
+      const stime = t.processing || (t.status === TaskStatus.CANCELLED ? t.updated_at : null);
+      const etime = t.status === TaskStatus.CANCELLED ? t.updated_at : t.completed;
+
+      let activityReason: string | undefined;
+      if (t.status === TaskStatus.HALTED) {
+        if (t.end_location?.location_attribute?.attribute_name === 'ZONE') {
+          const zoneId = t.end_location.location_attribute.attribute_value;
+          const zoneName = zoneId
+        ? await this.LocationManagerService.getDisplayName(zoneId)
+        : undefined;
+          activityReason = zoneName
+        ? `No directly accessible locations in ${zoneName}`
+        : 'No directly accessible locations in target zone';
+        } else {
+          activityReason = 'Destination location is occupied';
+        }
+      } else {
+        activityReason = undefined;
+      }
+
       activities.push({
         activity_id: t.task_id,
         display_activity_id: t.display_task_id,
         activity_type: ActivityType.MOVEMENT,
         status: t.status,
-        activity_reason:
-          t.status === TaskStatus.HALTED
-            ? 'Destination Location is Occupied'
-            : undefined,
+        activity_reason: activityReason,
         move_type: t.move_type,
         robot_id: t.robot_id,
-        created_at: t.created_at,
-        updated_at: t.updated_at,
-        inqueue: t.inqueue ?? null,
-        processing: t.processing ?? null,
-        completed: t.completed ?? null,
-        triggered: t.triggered ?? null,
+        start_time: stime,
+        end_time: etime,
         cargos: t.cargos,
         start_location: t.start_location,
         end_location: t.end_location,
@@ -402,10 +624,6 @@ export class TaskService implements OnModuleInit {
             task.end_location.location_id,
           );
       }
-
-      console.log(
-        `Task ${task.task_id} start location: ${JSON.stringify(task.start_location)}, end location: ${JSON.stringify(task.end_location)}`,
-      );
     }
 
     return tasks;
@@ -460,9 +678,8 @@ export class TaskService implements OnModuleInit {
       },
       relations: ['batch'],
       order: {
-        batch: { priority: 'ASC', created_at: 'ASC' },
-        priority: 'ASC',
-        created_at: 'ASC',
+        batch: { priority: 'ASC' },
+        priority: 'ASC'
       },
     });
     return nextTask;
@@ -534,17 +751,16 @@ export class TaskService implements OnModuleInit {
     }
 
     // Process HALTED tasks
-    const haultedTasks = await this.taskRepository.find({
+    let haultedTasks = await this.taskRepository.find({
       where: {
         task_type: this.taskType,
         status: TaskStatus.HALTED,
-        move_type: MOVE_TYPE.ZONE_TO_ZONE,
+        move_type: In([MOVE_TYPE.ZONE_TO_ZONE, MOVE_TYPE.ZONE_TO_DROP_ENTRY, MOVE_TYPE.DROP_ENTRY_TO_ZONE]),
       },
       relations: ['batch'],
       order: {
-        batch: { priority: 'ASC', created_at: 'ASC' },
-        priority: 'ASC',
-        created_at: 'ASC',
+        batch: { priority: 'ASC' },
+        priority: 'ASC'
       },
     });
 
@@ -553,6 +769,7 @@ export class TaskService implements OnModuleInit {
         continue;
       }
       if (task.task_type === TaskType.CROSSDOCK) {
+        if(task.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE && haultedTasks.find(t => t.priority === task.priority && t.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY)) continue;
         await this.processCrossdockTask(task);
       } else {
         await this.processBaseopsTask(task);
@@ -599,19 +816,28 @@ export class TaskService implements OnModuleInit {
     };
 
     try {
-      await firstValueFrom(
-        this.httpService.post(
-          `${wms_base_url}/robot-job/${warehouse_name}/tasks`,
-          req_body,
-          {
-            headers: {
-              authorization: `${warehouse_key}`,
-              'Content-Type': 'application/json',
-            },
+      const response = await fetch(
+        `${wms_base_url}/robot-job/${warehouse_name}/tasks`,
+        {
+          method: 'POST',
+          body: JSON.stringify(req_body),
+          headers: {
+            authorization: `${warehouse_key}`,
+            'Content-Type': 'application/json',
           },
-        ),
+        },
       );
-      
+
+      if(!response.ok) {
+        throw new Error(`WMS API responded with status ${response.status}: ${response.statusText}`);
+      }
+
+      const responseData = await response.json();
+
+      if(!responseData.batch_id) {
+        throw new Error(`WMS API response missing batch_id: ${JSON.stringify(responseData)}`);
+      }
+
       tasks.forEach(async (task) => {
         // Log dispatch success
       await this.loggingService.log(
@@ -635,7 +861,7 @@ export class TaskService implements OnModuleInit {
         );
         await this.taskRepository.update(
           { task_id: task.task_id },
-          { status: TaskStatus.ASSIGNED },
+          { status: TaskStatus.ASSIGNED, fms_batch_id: responseData.batch_id },
         );
       });
       return true;
@@ -661,6 +887,58 @@ export class TaskService implements OnModuleInit {
         }
       }));
       return false;
+    }
+  }
+
+  async cancelTaskFromWMS(task: Task): Promise<void> {
+     try {
+      console.log(`Cancelling task ${task.task_id}`);
+      const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+      const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test'; // Fixed typo
+      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030';
+      const fms_batch_id = task.fms_batch_id;
+      
+      const requestBody = {
+        "force": true,
+        "reason": "Cancelled via Crossdock Task Service",
+        "timestamp": new Date().toISOString()
+      };
+      
+      const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/tasks/${fms_batch_id}/${task.task_id}/cancel`, {
+        method: 'PATCH',
+        headers: {
+          'authorization': warehouse_key,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      if (!response.ok) {
+        // Try to get error details
+        let errorMessage = response.statusText;
+        try {
+          const errorData = await response.text();
+          errorMessage = errorData || response.statusText;
+        } catch (e) {
+          // If can't read response, use statusText
+        }
+        throw new Error(`Failed to cancel task ${task.task_id}: ${errorMessage}`);
+      }
+      
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      let res;
+      if (contentType && contentType.includes('application/json')) {
+        res = await response.json();
+      } else {
+        res = await response.text();
+      }
+      
+      return;
+      
+    } catch (error) {
+      console.error(`Error cancelling task ${task.task_id}:`, error);
+      throw new Error(`Failed to cancel task ${task.task_id}: ${error.message}`);
     }
   }
 
@@ -719,109 +997,155 @@ export class TaskService implements OnModuleInit {
   }
 
   private async processCrossdockTask(task: Task): Promise<void> {
-    const startEntryLocation = await this.LocationManagerService.getEntryPoint(task.start_location.location_attribute.attribute_value);
-    const endEntryLocation = await this.LocationManagerService.getEntryPoint(task.end_location.location_attribute.attribute_value);
     const originalTask = structuredClone(task);
-
-    const startLocationPickPriority = await this.LocationManagerService.getPickPriority(task.start_location.location_attribute.attribute_value);
 
     let tasks: Task[] = [];
 
-    if(startEntryLocation) {
-      let toStartEntryTask = new Task()
-      toStartEntryTask.batch_id = task.batch.batch_id;
-      toStartEntryTask.task_type = this.taskType;
-      toStartEntryTask.status = TaskStatus.PENDING;
-      toStartEntryTask.move_type = MOVE_TYPE.PICK_ENTRY;
-      toStartEntryTask.sequence_order = 0;
-      toStartEntryTask.priority = task.priority;
+    if(originalTask.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+      const startEntryLocation = await this.LocationManagerService.getEntryPoint(originalTask.start_location.location_attribute.attribute_value);
+      const endEntryLocation = await this.LocationManagerService.getEntryPoint(originalTask.end_location.location_attribute.attribute_value);
 
-      toStartEntryTask.start_location = {
-        location_id: startEntryLocation.location_id,
-        location_type: LocationType.PALLET,
-        location_action: LocationAction.NOP,
-        location_dimension: {
-          length: 1,
-          width: 1,
-          height: 1,
+      const higherPriorityTask = await this.taskRepository.findOne({
+        where: {
+          task_type: TaskType.CROSSDOCK,
+          priority: MoreThan(originalTask.priority ?? Number.MAX_SAFE_INTEGER),
+          move_type: MOVE_TYPE.PICK_ENTRY,
+          status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING])
+        }
+      });
+
+      if(higherPriorityTask && originalTask.end_location.location_attribute.attribute_name === 'ZONE') {
+        await this.markSystemAsWaiting();
+        const destinationZone = originalTask.end_location.location_attribute.attribute_value;
+
+        const dropLocationAffectedTasks = await this.taskRepository.find({
+          where: {
+            task_type: TaskType.CROSSDOCK,
+            move_type: MOVE_TYPE.PICK_ENTRY,
+            status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING])
+          }
+        });
+
+        for (const affectedTask of dropLocationAffectedTasks) {
+          await this.handleCrossdockPickEntryCancellation(affectedTask, destinationZone);
+        }
+        await this.unmarkSystemAsWaiting();
+      }
+
+      if(startEntryLocation) {
+        let toStartEntryTask = new Task()
+        toStartEntryTask.batch_id = task.batch.batch_id;
+        toStartEntryTask.wms_task_id = task.wms_task_id;
+        toStartEntryTask.task_type = this.taskType;
+        toStartEntryTask.status = TaskStatus.PENDING;
+        toStartEntryTask.move_type = MOVE_TYPE.PICK_ENTRY;
+        toStartEntryTask.sequence_order = originalTask.sequence_order;
+        toStartEntryTask.task_dependency = originalTask.task_dependency;
+        toStartEntryTask.priority = task.priority;
+
+        toStartEntryTask.start_location = {
+          location_id: startEntryLocation.location_id,
+          location_type: LocationType.PALLET,
+          location_action: LocationAction.NOP,
+          location_dimension: {
+            length: 1,
+            width: 1,
+            height: 1,
+          },
+          location_attribute: null as any,
+        };
+
+        toStartEntryTask.end_location = {
+          location_id: startEntryLocation.location_id,
+          location_type: LocationType.PALLET,
+          location_action: LocationAction.NOP,
+          location_dimension: {
+            length: 1,
+            width: 1,
+            height: 1,
+          },
+          location_attribute: null as any,
+        };
+
+        toStartEntryTask.wait = null as any;
+        toStartEntryTask.cargos = task.cargos;
+
+        toStartEntryTask = await this.taskRepository.save(toStartEntryTask);
+        tasks.push(toStartEntryTask);
+
+        task.task_dependency = toStartEntryTask.task_id; 
+        task.sequence_order = toStartEntryTask.sequence_order + 1;
+        task = await this.taskRepository.save(task);
+      } else {
+        task.sequence_order = originalTask.sequence_order;
+        task = await this.taskRepository.save(task);
+      }
+
+      if(endEntryLocation) {
+        let fromEndEntryTask = new Task()
+        fromEndEntryTask.batch_id = task.batch.batch_id;
+        fromEndEntryTask.wms_task_id = task.wms_task_id;
+        fromEndEntryTask.task_type = this.taskType;
+        fromEndEntryTask.status = TaskStatus.PENDING;
+        fromEndEntryTask.move_type = MOVE_TYPE.DROP_ENTRY_TO_ZONE;
+        fromEndEntryTask.sequence_order = task.sequence_order + 1;
+        fromEndEntryTask.task_dependency = task.task_id;
+        fromEndEntryTask.priority = task.priority;
+
+        fromEndEntryTask.start_location = {
+          location_id: endEntryLocation.location_id,
+          location_type: LocationType.PALLET,
+          location_action: LocationAction.NOP_RESUME,
+          location_dimension: {
+            length: 1,
+            width: 1,
+            height: 1,
+          },
+          location_attribute: null as any,
+        };
+
+        fromEndEntryTask.end_location = task.end_location;
+
+        fromEndEntryTask.wait = null as any;
+        fromEndEntryTask.cargos = task.cargos;
+
+        fromEndEntryTask = await this.taskRepository.save(fromEndEntryTask);
+
+        task.move_type = MOVE_TYPE.ZONE_TO_DROP_ENTRY;
+        task.end_location = {
+          location_id: endEntryLocation.location_id,
+          location_type: LocationType.PALLET,
+          location_action: LocationAction.NOP_PAUSE,
+          location_dimension: {
+            length: 1,
+            width: 1,
+            height: 1,
+          },
+          location_attribute: null as any,
+        };
+
+        task = await this.taskRepository.save(task);
+
+        tasks.push(task);
+        tasks.push(fromEndEntryTask);
+      } else {
+        tasks.push(task);
+      }
+    } else if (originalTask.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY) {
+      const dependentTask = (await this.taskRepository.findOne({
+        where: {
+          task_dependency: task.task_id,
         },
-        location_attribute: null as any,
-      };
+      })) as Task;
 
-      toStartEntryTask.end_location = {
-        location_id: startEntryLocation.location_id,
-        location_type: LocationType.PALLET,
-        location_action: LocationAction.NOP,
-        location_dimension: {
-          length: 1,
-          width: 1,
-          height: 1,
-        },
-        location_attribute: null as any,
-      };
-
-      toStartEntryTask.wait = null as any;
-      toStartEntryTask.cargos = task.cargos;
-
-      toStartEntryTask = await this.taskRepository.save(toStartEntryTask);
-      tasks.push(toStartEntryTask);
-
-      task.task_dependency = toStartEntryTask.task_id; 
-      task.sequence_order = 1;
-      task = await this.taskRepository.save(task);
-    } else {
-      task.sequence_order = 0;
-      task = await this.taskRepository.save(task);
+      tasks.push(task);
+      tasks.push(dependentTask);
+    } else if (originalTask.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE) {
+      tasks.push(task);
     }
 
-    if(endEntryLocation) {
-      let fromEndEntryTask = new Task()
-      fromEndEntryTask.batch_id = task.batch.batch_id;
-      fromEndEntryTask.task_type = this.taskType;
-      fromEndEntryTask.status = TaskStatus.PENDING;
-      fromEndEntryTask.move_type = MOVE_TYPE.DROP_ENTRY;
-      fromEndEntryTask.sequence_order = startEntryLocation ? 2 : 1;
-      fromEndEntryTask.task_dependency = task.task_id;
-      fromEndEntryTask.priority = task.priority;
-
-      fromEndEntryTask.start_location = {
-        location_id: endEntryLocation.location_id,
-        location_type: LocationType.PALLET,
-        location_action: LocationAction.NOP_RESUME,
-        location_dimension: {
-          length: 1,
-          width: 1,
-          height: 1,
-        },
-        location_attribute: null as any,
-      };
-
-      fromEndEntryTask.end_location = task.end_location;
-
-      fromEndEntryTask.wait = null as any;
-      fromEndEntryTask.cargos = task.cargos;
-
-      fromEndEntryTask = await this.taskRepository.save(fromEndEntryTask);
-
-
-      task.end_location = {
-        location_id: endEntryLocation.location_id,
-        location_type: LocationType.PALLET,
-        location_action: LocationAction.NOP_PAUSE,
-        location_dimension: {
-          length: 1,
-          width: 1,
-          height: 1,
-        },
-        location_attribute: null as any,
-      };
-
-      task = await this.taskRepository.save(task);
-
-      tasks.push(task);
-      tasks.push(fromEndEntryTask);
-    } else {
-      tasks.push(task);
+    if(originalTask.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+      tasks[0].task_dependency = null as any;
     }
 
     const processedTasks: Task[] = [];
@@ -838,19 +1162,32 @@ export class TaskService implements OnModuleInit {
       console.log(`Not all tasks could be processed, aborting WMS send.`);
       success = false;
     } else {
-      success = await this.sendTaskToWMSAndIncrement(processedTasks, startLocationPickPriority);
+      success = await this.sendTaskToWMSAndIncrement(processedTasks, task.priority);
     }
 
     if(!success) {
       tasks.forEach(async (t) => {
-        if(t.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
-          originalTask.status = TaskStatus.HALTED;
-          await this.taskRepository.save(originalTask);
-        } else {
-          await this.taskRepository.delete({ task_id: t.task_id });
+        if (originalTask.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+          if(t.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY || t.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+            originalTask.status = TaskStatus.HALTED;
+            await this.taskRepository.save(originalTask);
+          } else {
+            await this.taskRepository.delete({ task_id: t.task_id });
+          }
+        } else if (originalTask.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY || originalTask.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE) {
+          t.status = TaskStatus.HALTED;
+          await this.taskRepository.save(t);
         }
-        await this.LocationManagerService.freeLocation(task.start_location.location_id);
-        await this.LocationManagerService.freeLocation(task.end_location.location_id);
+
+        if(t.move_type === MOVE_TYPE.ZONE_TO_ZONE || t.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY) {
+          await this.LocationManagerService.occupyLocation(t.start_location.location_id);
+        }
+        if(t.move_type === MOVE_TYPE.ZONE_TO_ZONE || t.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE) {
+          const endLocation = await this.LocationManagerService.getLocation(t.end_location.location_id);
+          if(endLocation?.location_status === LocationStatus.RESERVED) {
+            await this.LocationManagerService.freeLocation(t.end_location.location_id);
+          }
+        }
       });
     } else {
       tasks.forEach(async (t) => {
@@ -1145,12 +1482,17 @@ export class TaskService implements OnModuleInit {
 
     return batchId;
   }
-  async processTasks(tasks: any[], priority: number): Promise<any> {
+  async processTasks(tasks: any[], priority: number, batch_job_id?: string): Promise<any> {
     
+    const existingBatch = await this.batchRepository.findOne({ where: { wms_batch_id: batch_job_id } });
+    if (existingBatch) {
+      throw new Error(`Batch ID ${batch_job_id} already exists. Please use a unique batch ID.`);
+    }
     // Generate a batch
     const batch_id = await this.generateBatchId();
     const batch = this.batchRepository.create({
       batch_id: batch_id,
+      wms_batch_id: batch_job_id,
       task_type: this.taskType,
       description: `${String(this.taskType)} Batch`,
       status: BatchStatus.PENDING,
@@ -1174,6 +1516,7 @@ export class TaskService implements OnModuleInit {
       newTask.task_dependency = null as any;
       newTask.robot_id = null as any;
       newTask.priority = task['priority'];
+      newTask.wms_task_id = task['wms_task_id'] || null;
 
       let end_location_id = null;
       if (task['end_location_location_type'] === 'PALLET') {
@@ -1521,5 +1864,346 @@ export class TaskService implements OnModuleInit {
     await this.webhookService.updateBatchStatus(task.batch_id, this.taskType);
 
     return { task_id: task.task_id, status: TaskStatus.CANCELLED };
+  }
+
+  // Step 1: Cancel chain of tasks derived from a PICK_ENTRY and return blueprint for recreation
+  async cancelCrossdockPickEntryChain(
+    currentTask: Task,
+    destinationZone: string | null = null,
+  ): Promise<Task | null> {
+    const splitTasks: Task[] = [];
+    let dependent = await this.taskRepository.findOne({
+      where: { task_dependency: currentTask.task_id },
+    });
+
+    while (dependent) {
+      splitTasks.push(dependent);
+      dependent = await this.taskRepository.findOne({
+        where: { task_dependency: dependent.task_id },
+      });
+    }
+
+    if (
+      destinationZone &&
+      splitTasks.length > 0 &&
+      splitTasks[splitTasks.length - 1].end_location?.location_attribute?.attribute_name === 'ZONE' &&
+      splitTasks[splitTasks.length - 1].end_location.location_attribute.attribute_value !== destinationZone
+    ) {
+      return null;
+    }
+
+    const originalTask = new Task();
+    originalTask.batch_id = currentTask.batch_id;
+    originalTask.wms_task_id = currentTask.wms_task_id;
+    originalTask.task_type = currentTask.task_type;
+    originalTask.status = TaskStatus.PENDING;
+    originalTask.move_type = MOVE_TYPE.ZONE_TO_ZONE;
+    originalTask.sequence_order = 1;
+    originalTask.priority = currentTask.priority;
+    originalTask.start_location = {} as any;
+    originalTask.end_location = {} as any;
+    originalTask.cargos = currentTask.cargos ?? null;
+
+    for (const dependentTask of splitTasks) {
+      if (dependentTask.status !== TaskStatus.CANCELLED) {
+        await this.cancelTaskFromWMS(dependentTask);
+        dependentTask.status = TaskStatus.CANCELLED;
+        await this.taskRepository.save(dependentTask);
+        await this.loggingService.log(
+          `Cancelled dependent task ${dependentTask.task_id} due to PICK_ENTRY cancellation of ${currentTask.task_id}`,
+          TaskType.CROSSDOCK,
+          dependentTask.task_id,
+          dependentTask.batch_id ?? null,
+        );
+      }
+
+      if (
+        dependentTask.move_type === MOVE_TYPE.ZONE_TO_ZONE ||
+        dependentTask.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY
+      ) {
+        originalTask.start_location = dependentTask.start_location;
+        await this.LocationManagerService.occupyLocation(
+          dependentTask.start_location.location_id,
+        );
+      }
+
+      if (dependentTask.end_location?.location_attribute) {
+        originalTask.sequence_order = dependentTask.sequence_order + 1;
+        originalTask.task_dependency = dependentTask.task_id;
+        originalTask.end_location = {
+          location_id:
+            dependentTask.end_location.location_attribute.attribute_name ===
+            LocationType.PALLET
+              ? dependentTask.end_location.location_attribute.attribute_value
+              : 'To be decided',
+          location_type: LocationType.PALLET,
+          location_action: LocationAction.DROP,
+          location_dimension: {
+            length: 1,
+            width: 1,
+            height: 1,
+          },
+          location_attribute: dependentTask.end_location.location_attribute,
+        } as any;
+        const endLocation = await this.LocationManagerService.getLocation(
+          dependentTask.end_location.location_id,
+        ) as LocationEntity;
+        if (endLocation.location_status === LocationStatus.RESERVED) {
+          await this.LocationManagerService.freeLocation(
+            dependentTask.end_location.location_id,
+          );
+        }
+      }
+    }
+
+    if (currentTask.status != TaskStatus.CANCELLED) {
+      await this.cancelTaskFromWMS(currentTask);
+      currentTask.status = TaskStatus.CANCELLED;
+      await this.taskRepository.save(currentTask);
+    }
+
+    return originalTask;
+  }
+
+  // Step 2: Recreate the original CROSSDOCK task from blueprint
+  async recreateOriginalCrossdockTask(originalTask: Task): Promise<Task> {
+    const saved = await this.taskRepository.save(originalTask);
+    await this.loggingService.log(
+      `Recreated original CROSSDOCK task ${saved.task_id} after PICK_ENTRY cancellation (from ${saved.start_location.location_id} to ${saved.end_location.location_id})`,
+      TaskType.CROSSDOCK,
+      saved.task_id,
+      saved.batch_id,
+    );
+    return saved;
+  }
+
+  // Wrapper maintained for backward compatibility: cancels and (optionally) recreates
+  async handleCrossdockPickEntryCancellation(
+    currentTask: Task,
+    destinationZone: string | null = null,
+    createNewTask: boolean = true,
+  ): Promise<string | void> {
+    const originalTask = await this.cancelCrossdockPickEntryChain(
+      currentTask,
+      destinationZone,
+    );
+
+    if (!originalTask) return; // zone mismatch or nothing to do
+    if (!createNewTask) return;
+
+    const recreated = await this.recreateOriginalCrossdockTask(originalTask);
+    return recreated.end_location.location_attribute.attribute_value;
+  }
+
+  async handleCrossdockDropEntryCancellation(currentTask: Task): Promise<void> {
+    const nextTask = await this.taskRepository.findOne({ where: { task_dependency: currentTask.task_id } });
+    if (!nextTask) return;
+
+    const dropLocation = await this.LocationManagerService.getLocation(nextTask.end_location.location_id) as LocationEntity;
+    // const crossdockWMSLocations = await this.LocationManagerService.getCrossdockEmptyLocations(dropLocation.parent_id);
+
+    // for (const crossdockWMSLocation of crossdockWMSLocations) {
+    //   const location = await this.LocationManagerService.getLocation(crossdockWMSLocation.id) as LocationEntity;
+    //   if(crossdockWMSLocation.status === 'EMPTY' && location.location_status === LocationStatus.OCCUPIED) {
+    //     await this.LocationManagerService.freeLocation(crossdockWMSLocation.id);
+    //   } else if(crossdockWMSLocation.status === 'OCCUPIED' && location.location_status !== LocationStatus.OCCUPIED) {
+    //     await this.LocationManagerService.occupyLocation(crossdockWMSLocation.id);
+    //   }
+    // }
+
+    if((await this.LocationManagerService.checkDropLocationsDirectAccessibility([dropLocation.location_id], true))[0]) return;
+
+    await this.cancelTaskFromWMS(nextTask);
+    nextTask.status = TaskStatus.CANCELLED;
+    await this.taskRepository.save(nextTask);
+
+    const endLocation = await this.LocationManagerService.getLocation(nextTask.end_location.location_id) as LocationEntity;
+    if(endLocation.location_status === LocationStatus.RESERVED) {
+      await this.LocationManagerService.freeLocation(nextTask.end_location.location_id);
+    }
+
+    const newBatchesTasks: Map<number, Task[]> = new Map<number, Task[]>();
+
+    const processingTasksToEntry = await this.taskRepository.find({
+      where: {
+        task_type: TaskType.CROSSDOCK,
+        move_type: MOVE_TYPE.ZONE_TO_DROP_ENTRY,
+        status: TaskStatus.PROCESSING
+      },
+    })
+
+    for (const task of processingTasksToEntry) {
+      if(task.end_location.location_id !== currentTask.end_location.location_id) continue;
+
+      const dependentTask = await this.taskRepository.findOne({ where: { task_dependency: task.task_id }, relations: ['batch'] }) as Task;
+
+      let zoneToDropEntryTask = structuredClone(task);
+      zoneToDropEntryTask.task_id = undefined as any;
+      zoneToDropEntryTask.status = TaskStatus.PENDING;
+      zoneToDropEntryTask.start_location.location_id = currentTask.end_location.location_id;
+      zoneToDropEntryTask.start_location.location_action = LocationAction.NOP;
+      zoneToDropEntryTask.sequence_order = task.sequence_order + 1
+      zoneToDropEntryTask = await this.taskRepository.save(zoneToDropEntryTask);
+
+      let dropEntryToZoneTask = structuredClone(dependentTask);
+      dropEntryToZoneTask.task_id = undefined as any;
+      dropEntryToZoneTask.status = TaskStatus.PENDING;
+      dropEntryToZoneTask.end_location.location_id = 'To be decided';
+      dropEntryToZoneTask.end_location.location_action = LocationAction.DROP;
+      dropEntryToZoneTask.task_dependency = zoneToDropEntryTask.task_id;
+      dropEntryToZoneTask.sequence_order = zoneToDropEntryTask.sequence_order + 1;
+      dropEntryToZoneTask = await this.taskRepository.save(dropEntryToZoneTask);
+
+      newBatchesTasks.set(dependentTask.batch.priority, [zoneToDropEntryTask, dropEntryToZoneTask]);
+
+      await this.cancelTaskFromWMS(task);
+      await this.cancelTaskFromWMS(dependentTask);
+
+      task.status = TaskStatus.CANCELLED;
+      await this.taskRepository.save(task);
+
+      dependentTask.status = TaskStatus.CANCELLED;
+      await this.taskRepository.save(dependentTask);
+
+      const endLocation = await this.LocationManagerService.getLocation(dependentTask.end_location.location_id) as LocationEntity;
+      if(endLocation.location_status === LocationStatus.RESERVED) {
+        await this.LocationManagerService.freeLocation(dependentTask.end_location.location_id);
+      }
+    }
+
+    const inqueueTasksToEntry = await this.taskRepository.find({
+      where: {
+        task_type: TaskType.CROSSDOCK,
+        move_type: MOVE_TYPE.ZONE_TO_DROP_ENTRY,
+        status: TaskStatus.INQUEUE
+      }
+    });
+
+    for (const task of inqueueTasksToEntry) {
+      if(task.end_location.location_id !== currentTask.end_location.location_id) continue;
+
+      const dependentTask = await this.taskRepository.findOne({ where: { task_dependency: task.task_id }, relations: ['batch'] }) as Task;
+
+      let zoneToDropEntryTask = structuredClone(task);
+      zoneToDropEntryTask.task_id = undefined as any;
+      zoneToDropEntryTask.status = TaskStatus.PENDING;
+      zoneToDropEntryTask.sequence_order = task.sequence_order + 1;
+      zoneToDropEntryTask = await this.taskRepository.save(zoneToDropEntryTask);
+
+      let dropEntryToZoneTask = structuredClone(dependentTask);
+      dropEntryToZoneTask.task_id = undefined as any;
+      dropEntryToZoneTask.status = TaskStatus.PENDING;
+      dropEntryToZoneTask.end_location.location_id = 'To be decided';
+      dropEntryToZoneTask.end_location.location_action = LocationAction.DROP;
+      dropEntryToZoneTask.task_dependency = zoneToDropEntryTask.task_id;
+      dropEntryToZoneTask.sequence_order = zoneToDropEntryTask.sequence_order + 1;
+      dropEntryToZoneTask = await this.taskRepository.save(dropEntryToZoneTask);
+
+      newBatchesTasks.set(dependentTask.batch.priority, [zoneToDropEntryTask, dropEntryToZoneTask]);
+
+      await this.cancelTaskFromWMS(task);
+      await this.cancelTaskFromWMS(dependentTask);
+
+      task.status = TaskStatus.CANCELLED;
+      await this.taskRepository.save(task);
+
+      dependentTask.status = TaskStatus.CANCELLED;
+      await this.taskRepository.save(dependentTask);
+
+      await this.LocationManagerService.occupyLocation(task.start_location.location_id);
+
+      const endLocation = await this.LocationManagerService.getLocation(dependentTask.end_location.location_id) as LocationEntity;
+      if(endLocation.location_status === LocationStatus.RESERVED) {
+        await this.LocationManagerService.freeLocation(dependentTask.end_location.location_id);
+      }
+    }
+
+    const assignedTasksToEntry = await this.taskRepository.find({
+      where: {
+        task_type: TaskType.CROSSDOCK,
+        move_type: MOVE_TYPE.ZONE_TO_DROP_ENTRY,
+        status: TaskStatus.ASSIGNED
+      }
+    });
+
+    const cancelledOriginalTasksToPickEntry: Task[] = []
+
+    for (const task of assignedTasksToEntry) {
+      const prevTask = await this.taskRepository.findOne({ where: { task_id: task.task_dependency } }) as Task;
+      const originalTask = await this.cancelCrossdockPickEntryChain(prevTask, nextTask.end_location.location_attribute.attribute_value);
+      if (originalTask) {
+        cancelledOriginalTasksToPickEntry.push(originalTask);
+      }
+    }
+    
+    let newNextTask = structuredClone(nextTask);
+    newNextTask.task_id = undefined as any;
+    newNextTask.status = TaskStatus.PENDING;
+    newNextTask.start_location.location_id = currentTask.end_location.location_id;
+    newNextTask.start_location.location_action = LocationAction.NOP;
+    newNextTask.end_location.location_id = 'To be decided';
+    newNextTask.task_dependency = currentTask.task_id;
+    newNextTask.sequence_order = nextTask.sequence_order + 1;
+    newNextTask = await this.taskRepository.save(newNextTask);
+    const processedNewNextTask = await this.processTask(newNextTask) as Task;
+    if(!processedNewNextTask) {
+      await this.taskRepository.update(
+        { task_id: newNextTask.task_id },
+        { status: TaskStatus.HALTED },
+      );
+      await this.loggingService.log(
+        `Failed to process recreated DROP_ENTRY to ZONE task after DROP_ENTRY cancellation of ${currentTask.task_id}`,
+        TaskType.CROSSDOCK, null, newNextTask.batch_id,
+      );
+      return;
+    }
+
+    await this.sendTaskToWMSAndIncrement([processedNewNextTask], currentTask.priority);
+
+    const newBatchesTasksPriorities = Array.from(newBatchesTasks.keys()).sort((a, b) => a - b);
+
+    for (const priority of newBatchesTasksPriorities) {
+      const tasks = newBatchesTasks.get(priority) || [];
+      const processedTasks: Task[] = [];
+      for (const task of tasks) {
+        const processedTask = await this.processTask(task);
+        if (processedTask) {
+          processedTasks.push(processedTask);
+        }
+      }
+
+      let success = true;
+
+      if(tasks.length !== processedTasks.length) {
+        console.log(`Not all tasks could be processed, aborting WMS send.`);
+        success = false;
+      } else {
+        success = await this.sendTaskToWMSAndIncrement(processedTasks, priority);
+      }
+
+      if(!success) {
+        tasks.forEach(async (t) => {
+          await this.taskRepository.update(
+            { task_id: t.task_id },
+            { status: TaskStatus.HALTED },
+          );
+          const endLocation = await this.LocationManagerService.getLocation(t.start_location.location_id) as LocationEntity;
+          if(endLocation.location_status === LocationStatus.OCCUPIED) {
+            await this.LocationManagerService.freeLocation(t.start_location.location_id);
+          }
+        });
+      } else {
+        tasks.forEach(async (t) => {
+          await this.taskRepository.update(
+            { task_id: t.task_id },
+            { status: TaskStatus.ASSIGNED },
+          );
+        });
+      }
+    }
+
+    for (const task of cancelledOriginalTasksToPickEntry) {
+      await this.recreateOriginalCrossdockTask(task);
+    }
   }
 }

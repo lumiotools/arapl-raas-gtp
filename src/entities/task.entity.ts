@@ -45,7 +45,8 @@ export  enum MOVE_TYPE {
   EMPTY_TO_EMPTY_LOCATION = 'EmptyToEmptyLocation',
   WAITING_TO_WAITING_LOCATION = 'WaitingToWaitingLocation',
   PICK_ENTRY = 'PickEntry',
-  DROP_ENTRY = 'DropEntry',
+  ZONE_TO_DROP_ENTRY = 'ZoneToDropEntry',
+  DROP_ENTRY_TO_ZONE = 'DropEntryToZone',
 }
 
 
@@ -86,6 +87,9 @@ export class Task {
 
   @Column({ type: 'varchar', length: 64, nullable: true })
   fms_batch_id: string;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  wms_task_id: string;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
   origin_location: string;
