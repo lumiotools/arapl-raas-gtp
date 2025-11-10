@@ -67,6 +67,7 @@ export interface TaskDetails{
   display_task_id: number;
   batch_id: string;
   fms_batch_id?: string | null;
+  wms_batch_id?: string | null;
   origin_location: string;
   robot_id: string;
   move_type: MOVE_TYPE;
@@ -2254,11 +2255,16 @@ export class OrchestratorService {
             [MOVE_TYPE.STATION_TO_WAITING_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
             [MOVE_TYPE.WAITING_LOCATION_TO_STATION]: {'total_tasks': 0, 'travel_times': [] },
             [MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
-          }: {
+          } : module === OperationType.BASEOPS ? {
             [MOVE_TYPE.ZONE_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
             [MOVE_TYPE.ZONE_TO_WAIT]: {'total_tasks': 0, 'travel_times': [] },
             [MOVE_TYPE.WAIT_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
-          }
+          } : module === OperationType.CROSSDOCK ? {
+            [MOVE_TYPE.PICK_ENTRY]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.ZONE_TO_DROP_ENTRY]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.DROP_ENTRY_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.ZONE_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
+          } : {}
         };
       }
       // get travel_time
@@ -2455,10 +2461,14 @@ export class OrchestratorService {
       "ZoneToZone": [],
     } : module === OperationType.CROSSDOCK ? {
       "ZoneToZone": [],
+      "PickEntry": [],
+      "ZoneToDropEntry": [],
+      "DropEntryToZone": []
     } : {};
 
     if(module === OperationType.FLOWOPS){
     for (const task of allTasks){
+      if (task.task_type != TaskType.GOODS_TO_PERSON) continue;
       if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION){
         if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
@@ -2509,7 +2519,8 @@ export class OrchestratorService {
     }
   }  else if (module === OperationType.BASEOPS){
     for (const task of allTasks){
-      if (task.task_type === TaskType.BASEOPS){
+      if (task.task_type != TaskType.BASEOPS) continue;
+      if (task.move_type === MOVE_TYPE.ZONE_TO_ZONE){
         if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res.ZoneToZone.push(travelTime);
@@ -2518,10 +2529,26 @@ export class OrchestratorService {
     } 
   } else if (module === OperationType.CROSSDOCK){
     for (const task of allTasks){
-      if (task.task_type === TaskType.CROSSDOCK){
+      if (task.task_type != TaskType.CROSSDOCK) continue;
+      if (task.move_type === MOVE_TYPE.ZONE_TO_ZONE){
         if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res.ZoneToZone.push(travelTime);
+        }
+      } else if (task.move_type === MOVE_TYPE.PICK_ENTRY){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.PickEntry.push(travelTime);
+        }
+      } else if (task.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.ZoneToDropEntry.push(travelTime);
+        }
+      } else if (task.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.DropEntryToZone.push(travelTime);
         }
       }
     } 
@@ -2595,11 +2622,13 @@ export class OrchestratorService {
     }
     console.log(`first task: ${JSON.stringify(TaskItems[0])}`);
     for (const task of TaskItems) {
+      console.log(task.batch)
       const taskDetails: TaskDetails = {
         task_id: task.task_id,
         display_task_id: task.display_task_id,
         batch_id: task.batch_id,
         fms_batch_id: task.fms_batch_id,
+        wms_batch_id: task.batch.wms_batch_id,
         origin_location: task.origin_location,
         move_type: task.move_type,
         status: task.status,

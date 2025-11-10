@@ -1483,11 +1483,14 @@ export class TaskService implements OnModuleInit {
     return batchId;
   }
   async processTasks(tasks: any[], priority: number, batch_job_id?: string): Promise<any> {
-    
-    const existingBatch = await this.batchRepository.findOne({ where: { wms_batch_id: batch_job_id } });
-    if (existingBatch) {
-      throw new Error(`Batch ID ${batch_job_id} already exists. Please use a unique batch ID.`);
+
+    if(batch_job_id) {
+      const existingBatch = await this.batchRepository.findOne({ where: { wms_batch_id: batch_job_id } });
+      if (existingBatch) {
+        throw new Error(`Batch ID ${batch_job_id} already exists. Please use a unique batch ID.`);
+      }
     }
+    
     // Generate a batch
     const batch_id = await this.generateBatchId();
     const batch = this.batchRepository.create({
