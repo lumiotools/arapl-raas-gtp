@@ -275,7 +275,7 @@ export class OrdersCancelService {
         station_id: await this.gtpLocationRepository.findOne({ where: { gtp_location_id: orderItem.destination_pallet_slot_id } }).then(loc => loc?.station_id || ''),
       });
     }
-    if (task?.move_type === MOVE_TYPE.TO_QUARANTINE && task.status === TaskStatus.CANCELLED ){
+    if (task?.move_type === MOVE_TYPE.TO_QUARANTINE && (task.status === TaskStatus.CANCELLED || task.status === TaskStatus.PROCESSING)){
       const inventoryId = task.origin_location;
       await this.inventoryService.makeInventoryProcessing(inventoryId);
     }

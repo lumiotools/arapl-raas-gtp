@@ -333,10 +333,9 @@ export class InventoryService {
             .createQueryBuilder()
             .update(Inventory)
             .set({ status: LocationStatus.RESERVED })
-            .where("id = :id AND status = :status AND is_active = :is_active", {
+            .where("id = :id AND status = :status", {
                 id: id,
                 status: LocationStatus.AVAILABLE,
-                is_active: true
             })
             .execute();
 
@@ -402,7 +401,7 @@ export class InventoryService {
   }
 
   async makeInventoryProcessing(id: string) {
-    const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id: id } });
     if (!existingInventory) {
       throw new NotFoundException(`Inventory with ID ${id} not found`);
     }

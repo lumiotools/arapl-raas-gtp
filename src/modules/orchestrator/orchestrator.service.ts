@@ -594,7 +594,7 @@ export class OrchestratorService {
         where: { type: WaitingLocationType.INVENTORY_TO_STATION, status: LocationStatus.AVAILABLE}
       });
       for (const waitingLocation of inventory_to_station_waiting_location) {
-        if (waitingLocation.status !== LocationStatus.AVAILABLE || waitingLocation.holded_by !== null) {continue;} // a task is already holded by this waiting location
+        if (waitingLocation.status !== LocationStatus.AVAILABLE ) {continue;} // a task is already holded by this waiting location
         let reserved = await this.waitingLocationService.reserveWaitingLocation(waitingLocation.location_id);
         if (!reserved) {
           continue;
@@ -886,7 +886,7 @@ export class OrchestratorService {
     }
     else if (task.move_type === MOVE_TYPE.STATION_TO_INVENTORY
       || task.move_type === MOVE_TYPE.INVENTORY_TO_INVENTORY || task.move_type === MOVE_TYPE.STATION_TO_EMPTY_LOCATION || task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION ||
-      task.move_type === MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION || task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION
+      task.move_type === MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION || task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION || task.move_type === MOVE_TYPE.TO_QUARANTINE
     ){
       const completedTask = await this.taskRepository.findOne({ where: { task_id: task.task_id }, relations: ['orderItems'] });
       if (!completedTask) { return; }
@@ -956,8 +956,6 @@ export class OrchestratorService {
       taskData.destinationInventoryId ? 'inventory' : taskData.destinationStationId ? 'station' : taskData.destinationWaitingLocationId ? 'waiting_location' : taskData.destinationEmptyLocationId ? 'empty_location' : 'quarantine',
       this.getLocationAction(taskData, 'end')
     );
-    console.log(`startLocation: ${JSON.stringify(startLocation)}`);
-    console.log(`endLocation: ${JSON.stringify(endLocation)}`);
 
     if (!taskData.cargos && startLocation.location_attribute.attribute_value === 'inventory') {
       const inventory = await this.inventoryRepository.findOne({ where: { id: startLocation.location_id } });
