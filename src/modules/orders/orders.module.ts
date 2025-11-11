@@ -1,4 +1,4 @@
-import { Logger, Module } from '@nestjs/common';
+import { forwardRef, Logger, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
@@ -19,10 +19,12 @@ import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
   imports: [JwtModule.register(jwtConfig),
-    TypeOrmModule.forFeature([OrderItem, Product, GtpLocation, User, Log, ScheduleMapping, Task, ProductRequirement, Station]),OrchestratorModule,
+    TypeOrmModule.forFeature([OrderItem, Product, GtpLocation, User, Log, ScheduleMapping, Task, ProductRequirement, Station])
+    ,forwardRef(() => OrchestratorModule),
     InventoryModule
   ],
   controllers: [OrdersController],
   providers: [OrdersService, LoggingService, OrdersCancelService],
+  exports: [OrdersService, OrdersCancelService],
 })
 export class OrdersModule {}

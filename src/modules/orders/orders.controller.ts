@@ -14,6 +14,7 @@ import {
   UseGuards,
   Query,
   Patch,
+  NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -34,12 +35,17 @@ import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
 import { Role } from 'src/entities/user.entity';
 import { OrdersCancelService } from './orders-cancel.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { OrderItem, OrderItemStatus } from 'src/entities';
+import { Repository } from 'typeorm';
 
 
 @ApiTags('Orders')
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService,
+    @InjectRepository(OrderItem)
+    private readonly orderItemRepository: Repository<OrderItem>,
     private readonly ordersCancelService: OrdersCancelService
   ) {}
 
@@ -475,7 +481,20 @@ export class OrdersController {
     if (!orderItemId) {
       throw new BadRequestException('order_item_id is required');
     }
-    return await this.ordersCancelService.retryOrderItem(orderItemId);
+    const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
+    if (!orderItem){ throw new BadRequestException(`Order item with ID ${orderItemId} not found`);}
+    if (orderItem && orderItem.status !== OrderItemStatus.CANCELLED){
+      throw new BadRequestException(`Order item with ID ${orderItemId} is not in CANCELLED status`);
+    }
+    const cancelledOrderItems = await this.orderItemRepository.find({
+      where: { merged_order_item_id: orderItem.merged_order_item_id || orderItemId , status: OrderItemStatus.CANCELLED }
+    });
+    for (const item of cancelledOrderItems){
+      item.retry = true;
+      await this.orderItemRepository.save(item);
+    }
+    orderItem.retry = true;
+    await this.orderItemRepository.save(orderItem);
   }
 
   @Post('reassign-order-item/:order_item_id/:location_id')
@@ -489,7 +508,11 @@ export class OrdersController {
     if (!orderItemId || !locationId) {
       throw new BadRequestException('order_item_id and location_id are required');
     }
-    return await this.ordersCancelService.reassignOrderItemLocation(orderItemId, locationId);
+    const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
+    if (!orderItem){ throw new NotFoundException(`Order item with ID ${orderItemId} not found`);}
+    orderItem.reassign = true;
+    orderItem.reassigned_location_id = locationId;
+    await this.orderItemRepository.save(orderItem);
   }
 
   @Post('reassign-task/:task_id/:location_id')

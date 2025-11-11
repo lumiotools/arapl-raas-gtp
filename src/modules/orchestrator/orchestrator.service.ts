@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, Move, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, Move, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, IsNull, LessThan, LessThanOrEqual, MoreThan, MoreThanOrEqual, Not, OneToOne, Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
@@ -31,6 +31,7 @@ import { truncate } from 'fs';
 import { Settings } from 'src/entities/settings.entity';
 import { SettingsService } from '../settings/settings.service';
 import { Robot, RobotStatus } from 'src/entities/robots.entity';
+import { OrdersCancelService } from '../orders/orders-cancel.service';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -126,6 +127,8 @@ export class OrchestratorService {
     private readonly emptyLocationService: EmptyLocationsService,
     private readonly baseOpsService: BaseopsTaskService,
     private readonly settingsService: SettingsService,
+    @Inject(forwardRef(() => OrdersCancelService))
+    private readonly ordersCancelService: OrdersCancelService,
   ) {}
 
   async processAssignedOrderItems() {
@@ -167,7 +170,7 @@ export class OrchestratorService {
 
           // the product at waiting location has no requirement and it is not paused as well - return to inventory.
           if (!hasRequirement) {
-            await this.createSendToEmptyLocationTask(task, true);
+            await this.createReturnToInventoryTask(task);
           }
           else{
             const inventoryID = task.origin_location;
@@ -568,16 +571,18 @@ export class OrchestratorService {
 
     console.log(`sorted Stations: ${JSON.stringify(sortedStations)}`);
 
-    const isWaiting = await this.checkIfSystemIsInWaitingState();
-    if (isWaiting){return;}
-    const isRobotAvailable = await this.isRobotAvailable();
-    if (!isRobotAvailable){return;}
-
     const inventory = await this.inventoryRepository.findOne({ where: { id: inventoryID, isProcessing: false, status: LocationStatus.AVAILABLE, is_active: true } });
     if (!inventory) {
       await this.processCancelledTaskRequirement(inventoryID);
       return;
     }
+
+    const isWaiting = await this.checkIfSystemIsInWaitingState();
+    if (isWaiting){return;}
+    const isRobotAvailable = await this.isRobotAvailable();
+    if (!isRobotAvailable){return;}
+
+    
 
     const taskID = await this.createSingleTaskToFirstAvailableStation(
       inventory,
@@ -645,6 +650,7 @@ export class OrchestratorService {
       where: { origin_location: inventoryID },
       order: { created_at: 'DESC' },
     });
+    if (!previouslyCancelledTask) { return ; }
     if (previouslyCancelledTask && previouslyCancelledTask.status !== TaskStatus.CANCELLED) {
       // There is an active task for this inventory - skip processing cancelled requirements
       return;
@@ -1613,7 +1619,7 @@ export class OrchestratorService {
   private async handleTriggerStations(){
     const now = new Date();
     const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
-    const oneMinuteAgo = new Date(now.getTime() - 1 * 60 * 1000);
+    const oneMinuteAgo = new Date(now.getTime() - 1  * 60 * 1000);
     const triggeredTasks = await this.taskRepository.find({
       where: {
         status: TaskStatus.TRIGERRED,
@@ -1674,57 +1680,9 @@ export class OrchestratorService {
 
         await this.handleStationToWaitToEmptyCancel();
 
-        const cancelledStationIds = await this.stationService.getCancelledStations(); // get all the cancelled stations.
+        await this.handleRetriedOrderItems();
 
-        // create tasks from all the cancelled stations to their respective inventories
-        for (const stationId of cancelledStationIds) {
-          await this.stationService.removeProductRequirment(stationId);
-          const station  =  await this.stationRepository.findOne({
-            where: { station_id: stationId }
-          });
-          if (station) {
-            const task_id = station.holded_by;
-            if (task_id) {
-              const lastTask = await this.taskRepository.findOne({
-                where: { task_id: task_id }
-              });
-              const firstTask = await this.taskRepository.findOne({
-                where: { batch_id: lastTask?.batch_id, sequence_order: 1 }
-              });
-              const inventory = await this.inventoryRepository.findOne({
-                where: { id: firstTask?.start_location?.location_id}
-              });
-              if (firstTask && lastTask && inventory && inventory.status === LocationStatus.AVAILABLE) {
-                const reserved = await this.inventoryService.reserveInventory(inventory.id);
-                if (!reserved) {
-                  this.logger.warn(`Inventory ${inventory.id} couldn't be reserved.`);
-                  continue;
-                }
-                const [newTaskID, newTask] = await this.createTask({
-                  batchId: lastTask.batch_id,
-                  originLocation: lastTask.origin_location,
-                  sourceStationId: station.station_id,
-                  destinationInventoryId: firstTask.start_location.location_id,
-                  taskType: TaskType.GOODS_TO_PERSON,
-                  move_type: MOVE_TYPE.STATION_TO_INVENTORY,
-                  sequenceOrder: lastTask.sequence_order + 1,
-                  taskDependency: lastTask.task_id,
-                  robotId: lastTask.robot_id,
-                  cargos: lastTask.cargos
-                });
-                if (!newTask){console.error(`New task ${newTaskID} not found after creation`); break;}
-                await this.sendSingleTaskToWms(newTask);
-                this.loggingService.log(`New Task: ${newTaskID} created for cancelled station ${stationId} - returning to inventory`,
-                  newTask.task_type,
-                  newTask.task_id,
-                  null
-                );
-              }
-            }
-          } else {
-            this.logger.warn(`Station ${stationId} not found for cancellation`);
-          }
-        }
+        await this.handleReassignedOrderItems();
         
         const res = await this.processAssignedOrderItems();
         // now process all the order items that are in assigned state.
@@ -1741,7 +1699,22 @@ export class OrchestratorService {
         this.orchestratorWorking = false;
       }
       
+  }
+
+  async handleRetriedOrderItems(){
+    this.logger.log('Handling retried order items...');
+    const retriedItems = await this.orderItemRepository.find({where: { retry: true}});
+    for (const orderItem of retriedItems){
+      await this.ordersCancelService.retryOrderItem(orderItem.order_item_id);
     }
+  }
+  
+  async handleReassignedOrderItems(){
+    const reassignedItems = await this.orderItemRepository.find({where: { reassign: true}});
+    for (const orderItem of reassignedItems){
+      await this.ordersCancelService.reassignOrderItemLocation(orderItem.order_item_id, orderItem.reassigned_location_id || '');
+    }
+  }
 
   async resendPendingTasks() {
     try {
@@ -2507,7 +2480,8 @@ export class OrchestratorService {
       "StationToInventory": [],
       "WaitingLocationToInventory": [],
       "StationToEmpty": [],
-      "EmptyToEmptyLocation": []
+      "EmptyToEmptyLocation": [],
+      "ToQuarantine": [],
     }: module === "BaseOps" ? {
       "ZoneToZone": [],
     }:{};
@@ -2559,6 +2533,12 @@ export class OrchestratorService {
         if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res.EmptyToEmptyLocation.push(travelTime);
+        }
+      }
+      else if (task.move_type === MOVE_TYPE.TO_QUARANTINE){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.ToQuarantine.push(travelTime);
         }
       }
     }

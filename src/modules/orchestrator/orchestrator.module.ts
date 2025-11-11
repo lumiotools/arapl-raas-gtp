@@ -28,6 +28,7 @@ import { Settings } from 'src/entities/settings.entity';
 import { SettingsModule } from '../settings/settings.module';
 import { Robot } from 'src/entities/robots.entity';
 import { WebhookModule } from '../webhook/webhook.module';
+import { OrdersModule } from '../orders/orders.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { WebhookModule } from '../webhook/webhook.module';
     InventoryModule,
     BaseopsTaskModule,
     EmptyLocationsModule,
+    forwardRef(() => OrdersModule),
     SettingsModule,
     forwardRef(() => WebhookModule),
   ],

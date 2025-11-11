@@ -92,7 +92,7 @@ export class InventoryService {
         }
       }
     }
-    console.log(`inventories: ${JSON.stringify(inventories)}`);
+    // console.log(`inventories: ${JSON.stringify(inventories)}`);
     return inventories;
     try{
       const inventory_object = await this.getAllInventoryLocations();
@@ -407,6 +407,7 @@ export class InventoryService {
       throw new NotFoundException(`Inventory with ID ${id} not found`);
     }
     existingInventory.isProcessing = true;
+    existingInventory.is_active = true;
     await this.inventoryRepository.save(existingInventory);
   }
 }

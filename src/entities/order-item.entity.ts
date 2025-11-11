@@ -45,8 +45,14 @@ export class OrderItem {
   @Column({ type: 'int', default: null, nullable: true })
   merged_order_item_id: number | null;
 
-  @Column({ type: 'int', default: 0})
-  retry_reassign_attempts: number;
+  @Column({ type: 'boolean', default: false })
+  retry: boolean;
+
+  @Column({ type: 'boolean', default: false})
+  reassign: boolean;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  reassigned_location_id: string | null;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
