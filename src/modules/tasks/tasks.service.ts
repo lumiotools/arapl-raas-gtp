@@ -354,8 +354,9 @@ export class TaskService implements OnModuleInit {
       return zoneName
         ? `No directly accessible locations in ${zoneName}`
         : 'No directly accessible locations in target zone';
+    } else {
+      return `Location ${t.end_location.display_name} is not directly accessible`;
     }
-    return 'Destination location is occupied';
   }
 
   async findBatchTasksActivities(batch_id: string, task_id: string) {
@@ -431,7 +432,7 @@ export class TaskService implements OnModuleInit {
         ? `No directly accessible locations in ${zoneName}`
         : 'No directly accessible locations in target zone';
         } else {
-          activityReason = 'Destination location is occupied';
+          activityReason = `Location ${t.end_location.display_name} is not directly accessible`;
         }
       } else {
         activityReason = undefined;
@@ -1250,7 +1251,19 @@ export class TaskService implements OnModuleInit {
         { end_location: task.end_location },
       );
     } else {
-      end_location_id = task.end_location.location_id;
+      const end_location = await this.LocationManagerService.getLocation(
+        task.end_location.location_id,
+      );
+      if(end_location?.location_type === LocationType.PALLET) {
+        const is_accessible = (await this.LocationManagerService.checkDropLocationsDirectAccessibility([task.end_location.location_id]))[0];
+        if(is_accessible === true) {
+          end_location_id = task.end_location.location_id;
+        } else {
+          return;
+        }
+      } else {
+        end_location_id = task.end_location.location_id;
+      }
     }
 
     const reserveStartLocation =
@@ -1935,8 +1948,7 @@ export class TaskService implements OnModuleInit {
         originalTask.task_dependency = dependentTask.task_id;
         originalTask.end_location = {
           location_id:
-            dependentTask.end_location.location_attribute.attribute_name ===
-            LocationType.PALLET
+            dependentTask.end_location.location_attribute.attribute_name === 'Pallet'
               ? dependentTask.end_location.location_attribute.attribute_value
               : 'To be decided',
           location_type: LocationType.PALLET,
@@ -2051,7 +2063,7 @@ export class TaskService implements OnModuleInit {
       let dropEntryToZoneTask = structuredClone(dependentTask);
       dropEntryToZoneTask.task_id = undefined as any;
       dropEntryToZoneTask.status = TaskStatus.PENDING;
-      dropEntryToZoneTask.end_location.location_id = 'To be decided';
+      dropEntryToZoneTask.end_location.location_id = dependentTask.end_location.location_attribute.attribute_name === 'Pallet' ? dependentTask.end_location.location_id : 'To be decided';
       dropEntryToZoneTask.end_location.location_action = LocationAction.DROP;
       dropEntryToZoneTask.task_dependency = zoneToDropEntryTask.task_id;
       dropEntryToZoneTask.sequence_order = zoneToDropEntryTask.sequence_order + 1;
@@ -2096,7 +2108,7 @@ export class TaskService implements OnModuleInit {
       let dropEntryToZoneTask = structuredClone(dependentTask);
       dropEntryToZoneTask.task_id = undefined as any;
       dropEntryToZoneTask.status = TaskStatus.PENDING;
-      dropEntryToZoneTask.end_location.location_id = 'To be decided';
+      dropEntryToZoneTask.end_location.location_id = dependentTask.end_location.location_attribute.attribute_name === 'Pallet' ? dependentTask.end_location.location_id : 'To be decided';
       dropEntryToZoneTask.end_location.location_action = LocationAction.DROP;
       dropEntryToZoneTask.task_dependency = zoneToDropEntryTask.task_id;
       dropEntryToZoneTask.sequence_order = zoneToDropEntryTask.sequence_order + 1;
@@ -2144,7 +2156,7 @@ export class TaskService implements OnModuleInit {
     newNextTask.status = TaskStatus.PENDING;
     newNextTask.start_location.location_id = currentTask.end_location.location_id;
     newNextTask.start_location.location_action = LocationAction.NOP;
-    newNextTask.end_location.location_id = 'To be decided';
+    newNextTask.end_location.location_id = nextTask.end_location.location_attribute.attribute_name === 'Pallet' ? nextTask.end_location.location_id : 'To be decided';
     newNextTask.task_dependency = currentTask.task_id;
     newNextTask.sequence_order = nextTask.sequence_order + 1;
     newNextTask = await this.taskRepository.save(newNextTask);
