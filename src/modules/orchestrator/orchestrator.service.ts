@@ -222,7 +222,7 @@ export class OrchestratorService {
                   await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
                   continue;
                 }
-                await this.reserveStationAndSendTask(returnTask, station); // Reserve the station and send task to WMS
+                await this.sendSingleTaskToWms(returnTask);
                 await this.loggingService.log(`Station ${station.station_id}: Marked as Occupied`, returnTask.task_type, returnTask.task_id, null); 
                 this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${task.origin_location}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
                 await this.loggingService.log(`New Task: ${returnTaskId}, Origin Location: ${task.origin_location}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`
@@ -455,7 +455,7 @@ export class OrchestratorService {
               }
               await this.inventoryRepository.update(inventory.id, { status: LocationStatus.AVAILABLE });
               await this.taskRepository.update({task_id: taskComingToInventory.task_id},{status: TaskStatus.CANCELLED});
-              await this.reserveStationAndSendTask(returnTask, station); // Reserve the station and send task to WMS
+              await this.sendSingleTaskToWms(returnTask);
               // remove the robotIdToUse from idleRobot list
               // Remove this station from sortedStations to prevent creating another task for the same station
               sortedStations = sortedStations.filter(st => st.station_id !== station.station_id);
@@ -565,7 +565,7 @@ export class OrchestratorService {
             }
             await this.waitingLocationRepository.update({ location_id: taskToWaitingLocation.end_location.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
             await this.taskRepository.update({task_id: taskToWaitingLocation.task_id},{status: TaskStatus.CANCELLED});
-            await this.reserveStationAndSendTask(returnTask, station); // Reserve the station and send task to WMS
+            await this.sendSingleTaskToWms(returnTask);
             // remove the robotIdToUse from idleRobot list
             this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${taskToWaitingLocation.origin_location}, start location: ${taskToWaitingLocation.end_location.location_id} (waiting location), destination location: ${station.station_id} (station)`);
             await this.loggingService.log(`Cancel Task: ${taskToWaitingLocation.task_id} and create new Task: ${returnTaskId}, start location: ${taskToWaitingLocation.end_location.location_id} (inventory), destination location: ${station.station_id} (station)`, TaskType.GOODS_TO_PERSON, returnTaskId,null);
@@ -759,7 +759,7 @@ export class OrchestratorService {
       const fetchStation = await this.stationRepository.findOne({
         where: { station_id },
       });
-      if (fetchStation && fetchStation.status === LocationStatus.AVAILABLE && await this.stationService.reserveStation(station_id)) {
+      if (fetchStation && fetchStation.status === LocationStatus.AVAILABLE) {
         targetStation = fetchStation;
         break; // Take the first available station, don't skip to lower priority
       }
@@ -796,7 +796,7 @@ export class OrchestratorService {
       await this.loggingService.log(`System marked as waiting state.`, TaskType.GOODS_TO_PERSON, taskId, null);
       await this.incrementRobotInUse();
       await this.loggingService.log(`Robot in use incremented. Current robot in use: ${await this.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, taskId, null);
-      await this.reserveStationAndSendTask(task, targetStation);
+      await this.sendSingleTaskToWms(task);
       await this.loggingService.log(`Station ${targetStation.station_id}: Marked as Occupied`, task.task_type, task.task_id, null);
       this.logger.log(`New Task: ${taskId}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`);
       await this.loggingService.log(`New Task: ${taskId}, start location: ${inventory.id} (inventory), destination location: ${targetStation.station_id} (station)`,
@@ -1021,23 +1021,6 @@ export class OrchestratorService {
     });
 
     await this.batchRepository.save(batch);
-  }
-
-  private async reserveStationAndSendTask(task: Task, station: Station): Promise<void> {
-    this.logger.log(`Reserving station ${station.station_id} for task ${task.task_id}`);
-    
-    // Mark station as reserved and set holded_by to task ID
-    await this.stationRepository.update(
-      { station_id: station.station_id },
-      {
-        holded_by: task.task_id
-      }
-    );
-
-    // Note: Product requirement will be removed when task completes at station
-
-    // Send single task to WMS
-    await this.sendSingleTaskToWms(task);
   }
 
   public async sendSingleTaskToWms(task: Task): Promise<void> {

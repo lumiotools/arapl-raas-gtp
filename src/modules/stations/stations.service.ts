@@ -342,52 +342,53 @@ export class StationsService {
     const tasks = await this.taskRepository.find({
       where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]), task_type: TaskType.GOODS_TO_PERSON },
     });
-    let robot_id : string | null = null;
-    let robot_task : Task | null = null;
+    const results: any[] = [];
     for (const task of tasks){
+      let robot_id : string | null = null;
+      let robot_task : Task | null = null;
       if (task.end_location.location_attribute.attribute_value=='station' && task.end_location.location_id==station_id){
         robot_id = task.robot_id;
         robot_task = task;
-        break;
-      }
-    }
-    const station = await this.stationRepository.findOne({
-      where: { station_id },
-      relations: ['gtpLocations']
-    });
-    if (!station) {
-      throw new BadRequestException("Station not found")
-    }
-    let required_quantity = 0;
-    for (const gtpLocation of station?.gtpLocations || []) {
-      console.log(`Checking GTP Location: ${gtpLocation.gtp_location_id}`);
-      if (gtpLocation) {
-        const inProgressOrderItems = await this.orderItemRepository.find({
-          where: { 
-            destination_pallet_slot_id: gtpLocation.gtp_location_id,
-            status: OrderItemStatus.IN_PROGRESS,
-          }
+        const station = await this.stationRepository.findOne({
+          where: { station_id },
+          relations: ['gtpLocations']
         });
-        required_quantity += inProgressOrderItems.reduce((sum, item) => sum , 0);
+        if (!station) {
+          continue;
+        }
+        let required_quantity = 0;
+        for (const gtpLocation of station?.gtpLocations || []) {
+          console.log(`Checking GTP Location: ${gtpLocation.gtp_location_id}`);
+          if (gtpLocation) {
+            const inProgressOrderItems = await this.orderItemRepository.find({
+              where: { 
+                destination_pallet_slot_id: gtpLocation.gtp_location_id,
+                status: OrderItemStatus.IN_PROGRESS,
+              }
+            });
+            required_quantity += inProgressOrderItems.reduce((sum, item) => sum , 0);
+          }
+        }
+        let status: TaskStatus | null | string = null;
+        if (robot_task) {
+          status = robot_task.status;
+          if (status === TaskStatus.PROCESSING) {
+            status = "COMING";
+          }
+          else if (status === TaskStatus.COMPLETED) {
+            status = "REACHED";
+          }
+        }
+        console.log(`status: ${status}`)
+        if (!robot_id){continue;}
+        results.push({
+          robot_id: robot_id,
+          source: robot_task?.start_location.location_id || null,
+          status: status
+        });
       }
     }
-    let status: TaskStatus | null | string = null;
-    if (robot_task) {
-      status = robot_task.status;
-      if (status === TaskStatus.PROCESSING) {
-        status = "COMING";
-      }
-      else if (status === TaskStatus.COMPLETED) {
-        status = "REACHED";
-      }
-    }
-    console.log(`status: ${status}`)
-    if (!robot_id){return {robot_id: null}}
-    return {
-      robot_id: robot_id,
-      source: robot_task?.start_location.location_id || null,
-      status: status
-    }
+    return results;
   }
 
   async getUnloadingTimes(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps" = "FlowOps"): Promise<any> {
