@@ -152,9 +152,17 @@ export class OrchestratorService {
       if (waitingLocations.length > 0) {
         // this.logger.log(`Found ${waitingLocations.length} waiting locations with tasks holded by product ${productId}`);
         for (const waitingLocation of waitingLocations) {
-          const taskId = waitingLocation.holded_by;
-          if (!taskId){continue;}
-          const task = await this.taskRepository.findOne({where: { task_id: taskId }});
+          const activity = await this.waitingLocationService.getActiveRobotAtWaiting(waitingLocation.location_id);
+          const robot_id = activity?.robot_id;
+          if (!robot_id){continue;}
+
+          const task = await this.taskRepository.findOne({
+            where: {
+              robot_id: robot_id,
+              // move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION, MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION, MOVE_TYPE.WAITING_TO_WAITING_LOCATION]),
+            },
+            order: { created_at: 'DESC' }
+          });
           if (!task){continue;}
 
           const nextTaskOfSequence = await this.taskRepository.findOne({where: { batch_id: task.batch_id, task_dependency: task.task_id }});
@@ -2829,7 +2837,7 @@ export class OrchestratorService {
     if (task.status !== TaskStatus.CANCELLED) { throw new BadRequestException(`Task with ID ${taskID} is not in CANCELLED status`); }
     if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || task.move_type === MOVE_TYPE.WAITING_LOCATION_TO_STATION || task.move_type === MOVE_TYPE.STATION_TO_STATION){
       const destinationLocation = task.end_location.location_id;
-      if (task.start_location.location_id != task.end_location.location_id && !await this.stationService.reserveStation(destinationLocation)){
+      if (!await this.stationService.reserveStation(destinationLocation)){
         throw new BadRequestException(`Destination location for this task is not available right now.`);
       }
       const task_obj = {
