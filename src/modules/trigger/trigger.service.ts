@@ -7,6 +7,7 @@ import { Task, TaskStatus } from '../../entities/task.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { LoggingService } from '../../services/logging.service';
 import { MessageCode } from './trigger.controller';
+import { StationsService } from '../stations/stations.service';
 
 @Injectable()
 export class TriggerService {
@@ -15,11 +16,13 @@ export class TriggerService {
     private readonly stationRepository: Repository<Station>,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
+    
 
     @Inject(forwardRef(() => OrchestratorService))
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly httpService: HttpService,
+    private readonly stationService: StationsService,
   ) {}
 
   async triggerStationAction(stationId: string, message_code: MessageCode) {
@@ -36,13 +39,18 @@ export class TriggerService {
       }
       throw new ConflictException(`Can't trigger - station ${stationId} is not occupied (current status: ${station.status})`);
     }
-
-    // Find the task that is holding this station
-    if (!station.holded_by) {
-      throw new NotFoundException(`No task is currently holding station ${stationId}`);
+    const activity = await this.stationService.getActiveRobotAtStation(stationId);
+    const robot_id = activity?.robot_id || null;
+    if (!robot_id) {
+      throw new ConflictException(`No robot found at occupied station ${stationId}`);
     }
-    // find the task that is holding the station
-    const currentTask = await this.taskRepository.findOne({where: { task_id: station.holded_by },});
+    // Find the current task holding this station
+    const currentTask = await this.taskRepository.findOne({
+      where: {
+        robot_id: robot_id, 
+      },
+      order: { created_at: 'DESC' }
+    });
     if (!currentTask) {throw new NotFoundException(`No task found holding station ${stationId}`);}
     // check if task is already triggered.
     if (currentTask && currentTask.status === TaskStatus.TRIGERRED) {

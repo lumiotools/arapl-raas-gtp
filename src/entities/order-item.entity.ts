@@ -19,6 +19,9 @@ export enum OrderItemStatus {
   IN_PROGRESS = 'IN_PROGRESS',
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
+  RETRY = 'RETRY',
+  REASSIGN = 'REASSIGN',
+  BACK_TO_INVENTORY = 'BACK_TO_INVENTORY',
 }
 
 @Entity('order_items')
@@ -50,6 +53,9 @@ export class OrderItem {
 
   @Column({ type: 'boolean', default: false})
   reassign: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  back_to_inventory: boolean;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   reassigned_location_id: string | null;

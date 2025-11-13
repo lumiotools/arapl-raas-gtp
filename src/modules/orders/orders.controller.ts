@@ -446,11 +446,19 @@ export class OrdersController {
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   async cancelOrderByTaskId(
     @Param('task_id') taskId: string,
+    @Query('reason') reason : 'retry' | 'reassign' | 'back_to_inventory' | 'cancel',
+    @Query('location_id') location_id?: string,
   ) {
     if (!taskId) {
       throw new BadRequestException('task_id is required');
     }
-    return await this.ordersCancelService.cancelOrderByTaskId(taskId);
+    if (!reason || !['retry', 'reassign', 'back_to_inventory', 'cancel'].includes(reason)){
+      throw new BadRequestException('Valid reason is required: retry, reassign, back_to_inventory, cancel');
+    }
+    if (reason === 'reassign' && !location_id){
+      throw new BadRequestException('location_id is required for reassign reason');
+    }
+    return await this.ordersCancelService.cancelOrderByTaskId(taskId, reason, location_id);
   }
 
   @Post('retry/:task_id')

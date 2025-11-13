@@ -19,6 +19,7 @@ import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { MOVE_TYPE } from 'src/entities/task.entity';
 import { retry } from 'rxjs';
 import { InventoryService } from '../inventory/inventory.service';
+import { WebhookService } from '../webhook/webhook.service';
 
 
 
@@ -42,7 +43,8 @@ export class OrdersCancelService {
     @Inject(forwardRef(() => OrchestratorService))
     private readonly orchestrationService: OrchestratorService,
     private readonly loggingService: LoggingService,
-    private readonly inventoryService: InventoryService
+    private readonly inventoryService: InventoryService,
+    private readonly webhookService: WebhookService,
   ) {}
 
   async cancelOneOrderItem(OrderItemId: number) {
@@ -129,10 +131,15 @@ export class OrdersCancelService {
 
   }
 
-  async cancelOrderByTaskId(taskId: string){
+  async cancelOrderByTaskId(taskId: string, reason: 'retry' | 'reassign' | 'back_to_inventory' | 'cancel',location_id?:string) {
     const task = await this.taskRepository.findOne({ where: { task_id: taskId } });
     if (!task){
       throw new NotFoundException(`Task with ID ${taskId} not found`);
+    }
+    if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || task.move_type === MOVE_TYPE.STATION_TO_STATION){
+      if (!task.processing && reason === 'reassign'){
+        throw new BadRequestException(`Cannot reassign because the pallet has not been picked up yet.`);
+      }
     }
     if (task.status === TaskStatus.CANCELLED || task.status === TaskStatus.COMPLETED){
       throw new BadRequestException(`Cannot cancel task with status ${task.status}`);
@@ -143,12 +150,13 @@ export class OrdersCancelService {
     const station = await this.stationRepository.findOne({ where: { station_id: destination_location_id }, relations: ['gtpLocations'] });
     let orderItems: OrderItem[] = [];
     if (!station){
-      orderItems = await this.orderItemRepository.find({
-        where: {
-          source_location_id: source_location_id,
-          status: In([OrderItemStatus.IN_PROGRESS])
-        },
-      });
+      // current task is not going to a station
+      // cancel the task and call the function to handle that cancelled flow (recreating that flow)
+      await this.orchestrationService.CancelTask(task);
+      task.status = TaskStatus.CANCELLED;
+      await this.taskRepository.save(task);
+      await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
+      await this.orchestrationService.handleErroneousTask(taskId);
     }
     else{
       orderItems = await this.orderItemRepository.find({
@@ -160,27 +168,37 @@ export class OrdersCancelService {
       });
     }
     for (const orderItem of orderItems){
-      await this.cancelOneOrderItem(orderItem.order_item_id);
-      await this.loggingService.log(`Order Item ID ${orderItem.order_item_id} cancelled (via task ID ${taskId})`,
+      if (reason === 'retry'){
+        orderItem.status = OrderItemStatus.RETRY;
+        orderItem.retry = true;
+      }else if (reason === 'reassign'){
+        orderItem.status = OrderItemStatus.REASSIGN;
+        orderItem.reassigned_location_id = location_id || '';
+        orderItem.reassign = true;
+      }
+      else if (reason === 'back_to_inventory'){
+        orderItem.status = OrderItemStatus.BACK_TO_INVENTORY;
+        orderItem.back_to_inventory = true;
+      }
+      else{
+        orderItem.status = OrderItemStatus.CANCELLED;
+      }
+      await this.orderItemRepository.save(orderItem);
+      await this.loggingService.log(`Order Item ID ${orderItem.order_item_id} ${reason} (via task ID ${taskId})`,
       TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
     }
-    // await this.orchestrationService.decrementRobotInUse();
-    // if (any_retry_exceed){
-    if (station){
-      await this.productRequirementRepository.delete({ source_location_id: source_location_id, station_id: station.station_id });
-    }
-    else{
-      await this.productRequirementRepository.delete({ source_location_id: source_location_id });
-    }
-    
+    // if (station){
+    //   await this.productRequirementRepository.delete({ source_location_id: source_location_id, station_id: station.station_id });
     // }
-    // await this.productRequirementRepository.delete({ source_location_id: source_location_id });
+    // else{
+    //   await this.productRequirementRepository.delete({ source_location_id: source_location_id });
+    // }
     await this.orchestrationService.CancelTask(task);
 
   }
   
   async retryOrderByTaskId(taskId: string){
-    await this.isRetryReassignEnabled(taskId, undefined, 'retry');
+    // await this.isRetryReassignEnabled(taskId, undefined, 'retry');
     const task = await this.taskRepository.findOne({ where: { task_id: taskId } });
     if (!task){
       throw new NotFoundException(`Task with ID ${taskId} not found`);
@@ -212,44 +230,31 @@ export class OrdersCancelService {
       if (orderItems.length === 0){
         throw new NotFoundException(`No Order Items found in PROGRESS for source location ID ${task.origin_location} at station ID ${task.end_location.location_id}`);
       }
-      const requirement = await this.productRequirementRepository.findOne({ where: {
-        source_location_id: orderItems[0]?.source_location_id || '',
-        station_id: gtpLocations[0].station_id,
-      } });
-      if (!requirement){
-          await this.productRequirementRepository.save({
-          source_location_id: orderItems[0]?.source_location_id || '',
-          station_id: gtpLocations[0].station_id,
-        });
-      }
-      
     }
     return await this.orchestrationService.handleErroneousTask(taskId);
   }
 
   async retryOrderItem(orderItemId: number) {
-    await this.isRetryReassignEnabled(undefined, orderItemId, 'retry');
+    // await this.isRetryReassignEnabled(undefined, orderItemId, 'retry');
     const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
     if (!orderItem){
       throw new NotFoundException(`Order item with ID ${orderItemId} not found`);
     }
-    if (orderItem.status !== OrderItemStatus.CANCELLED){
-      throw new BadRequestException(`Order item with ID ${orderItemId} is not in CANCELLED status`);
+    if (orderItem.status !== OrderItemStatus.RETRY){
+      throw new BadRequestException(`Order item with ID ${orderItemId} is not in RETRY status`);
     }
     const cancelledOrderItems = await this.orderItemRepository.find({
-      where: { merged_order_item_id: orderItem.merged_order_item_id || orderItemId , status: OrderItemStatus.CANCELLED }
+      where: { merged_order_item_id: orderItem.merged_order_item_id || orderItemId , status: OrderItemStatus.RETRY }
     });
 
     for (const item of cancelledOrderItems){
       item.status = OrderItemStatus.IN_PROGRESS;
-      item.retry = false;
       await this.orderItemRepository.save(item);
       await this.loggingService.log(`Order Item ID ${item.order_item_id} set to IN_PROGRESS for retry`,
         TaskType.GOODS_TO_PERSON, null, item.order_batch_id || '');
     }
 
     orderItem.status = OrderItemStatus.IN_PROGRESS;
-    orderItem.retry = false;
     await this.orderItemRepository.save(orderItem);
     await this.loggingService.log(`Order Item ID ${orderItem.order_item_id} set to IN_PROGRESS for retry`,
       TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
@@ -285,12 +290,11 @@ export class OrdersCancelService {
       if (gtpLocations.includes(orderItem.destination_pallet_slot_id) === true){
         await this.orchestrationService.handleErroneousTask(task.task_id);
       }
-      
     }
   }
 
   async reassignOrderItemLocation(orderItemId: number, quarantineLocationId: string) {
-    await this.isRetryReassignEnabled(undefined, orderItemId, 'reassign');
+    // await this.isRetryReassignEnabled(undefined, orderItemId, 'reassign');
     const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
     if (!orderItem){
       throw new NotFoundException(`Order item with ID ${orderItemId} not found`);
@@ -347,7 +351,7 @@ export class OrdersCancelService {
     }
 
     await this.orchestrationService.sendSingleTaskToWms(newTask);
-    orderItem.reassign = false;
+    orderItem.status = OrderItemStatus.CANCELLED;
     await this.orderItemRepository.save(orderItem);
 
     await this.loggingService.log(`Reassigned Order Item ID ${orderItem.order_item_id} to quarantine location ID ${quarantineLocationId}`,
