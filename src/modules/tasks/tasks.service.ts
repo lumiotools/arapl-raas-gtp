@@ -36,7 +36,7 @@ export class TaskService implements OnModuleInit {
     @InjectRepository(Task)
     readonly taskRepository: Repository<Task>,
     @InjectRepository(Batch)
-    private readonly batchRepository: Repository<Batch>,
+    readonly batchRepository: Repository<Batch>,
     @InjectRepository(RobotCount)
     private readonly robotRepository: Repository<RobotCount>,
     private readonly loggingService: LoggingService,

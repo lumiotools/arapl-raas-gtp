@@ -202,15 +202,17 @@ export class CrossdockTaskService {
     }
   }
 
-  async getWMSBatchJob(batch_id: string): Promise<WMSBatchJob> {
+  async getWMSBatchJob(wms_batch_id: string): Promise<WMSBatchJob> {
     
-    const crossdock_batch = await this.taskService.findBatchById(batch_id);
+    const crossdock_batch = await this.taskService.batchRepository.findOne({
+      where: { wms_batch_id: wms_batch_id },
+    });
 
     if (!crossdock_batch) {
-      throw new BadRequestException(`Batch with ID '${batch_id}' not found`);
+      throw new BadRequestException(`Batch with ID '${wms_batch_id}' not found`);
     }
     
-    const tasks =  await this.findBatchTasks(batch_id);
+    const tasks =  await this.findBatchTasks(crossdock_batch.batch_id);
 
     const batch_job_tasks: WMSBatchJob["tasks"] = []
 
@@ -260,7 +262,7 @@ export class CrossdockTaskService {
     if(crossdock_batch?.status === BatchStatus.COMPLETED) batch_job_status = WMSBatchJobStatus.TASK_COMPLETED;
 
     const batch_job: WMSBatchJob = {
-      batch_job_id: batch_id,
+      batch_job_id: wms_batch_id,
       batch_job_status: batch_job_status,
       tasks: batch_job_tasks,
     }
