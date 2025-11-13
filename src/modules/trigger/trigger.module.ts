@@ -10,7 +10,7 @@ import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { Inventory } from 'src/entities';
 import { LoggingModule } from '../logging/logging.module';
 import { User } from 'src/entities/user.entity';
-import { StationsService } from '../stations/stations.service';
+import { StationsModule } from '../stations/stations.module';
 
 @Module({
   imports: [
@@ -18,7 +18,7 @@ import { StationsService } from '../stations/stations.service';
     forwardRef(() => OrchestratorModule),
     HttpModule,
     LoggingModule,
-    StationsService
+    StationsModule
   ],
   controllers: [TriggerController],
   providers: [TriggerService],

@@ -62,7 +62,7 @@ export class WaitingLocationService {
     for (const missingId of missingBinIds) {
       await this.create({
         location_id: missingId,
-        location_name: missingId,
+        location_name: waiting_bin_locations.filter(bin => bin.location_id === missingId)[0].customer_location_id,
         type: WaitingLocationType.STATION_TO_STATION
       });
     }

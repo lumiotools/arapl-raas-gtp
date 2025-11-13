@@ -91,7 +91,7 @@ export class StationsService {
         const missingId = missingBinIds[i];
         await this.create({
           station_id: missingId,
-          station_name: missingId,
+          location_name: station_bin_locations.filter(bin => bin.location_id === missingId)[0].customer_location_id,
           priority: i + 1,
         });
       }
@@ -159,7 +159,7 @@ export class StationsService {
       if (!station) {
         station = await this.create({
           station_id: id,
-          station_name: id,
+          location_name: id,
           priority: 1,
         });
       }

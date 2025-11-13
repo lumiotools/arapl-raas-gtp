@@ -69,7 +69,7 @@ export class EmptyLocationsService {
     for (const missingId of missingBinIds) {
       await this.create({
         location_id: missingId,
-        location_name: missingId,
+        location_name: empty_bin_locations.filter(bin => bin.location_id === missingId)[0].customer_location_id,
         is_active: true,
         priority: priority++
       });

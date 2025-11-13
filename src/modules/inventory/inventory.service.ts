@@ -248,8 +248,8 @@ export class InventoryService {
       };
       const inventory_object = await this.getAllInventoryLocations();
       const bin_locations = inventory_object.available_location_types || [];
-      const bin_ids = bin_locations.map(bin => bin.location_id);
-
+      const customer_location_ids = bin_locations.map(bin => bin.customer_location_id);
+      console.log(`customer_location_ids: ${JSON.stringify(customer_location_ids)}`);
       // Process each row (skip header)
       for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(',').map(v => v.trim());
@@ -270,17 +270,22 @@ export class InventoryService {
         }
 
         try {
-          if (bin_ids.includes(invLocation) === false) {continue;}
+          if (customer_location_ids.includes(invLocation) === false) {continue;}
           // Check if inventory exists
           // Try to update existing inventory first
           const existingInventory = await this.inventoryRepository.findOne({ 
-            where: { id: invLocation } 
+            where: { location_name: invLocation } 
           });
+
+          console.log(`existingInventory: ${JSON.stringify(existingInventory)}`);
+          console.log(`invLocation: ${invLocation}, barcodeNumber: ${barcodeNumber}`);
+          console.log(`${bin_locations.filter(bin => bin.customer_location_id === invLocation)[0]}`);
 
           if (existingInventory) {
             // Update existing inventory
             const inventoryData = {
-              id: invLocation,
+              id: bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].location_id,
+              location_name: bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].customer_location_id,
               barcode_number: barcodeNumber,
             } as Inventory;
 
@@ -289,9 +294,12 @@ export class InventoryService {
           } else {
             // Create new inventory entry if it doesn't exist
             const inventoryData = {
-              id:  invLocation,
+              id:  bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].location_id,
+              location_name: bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].customer_location_id,
               barcode_number: barcodeNumber,
             } as Inventory;
+
+            console.log(`Creating inventory: ${JSON.stringify(inventoryData)}`);
 
             await this.createInventoryForUpload(inventoryData);
             results.successful++;

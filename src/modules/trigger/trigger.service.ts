@@ -123,7 +123,7 @@ export class TriggerService {
       message: `Status retrieved for station ${stationId}`,
       station: {
         station_id: station.station_id,
-        station_name: station.station_name,
+        station_name: station.location_name,
         status: station.status,
         holded_by: station.holded_by,
         priority: station.priority,

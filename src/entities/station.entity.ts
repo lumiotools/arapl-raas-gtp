@@ -21,7 +21,7 @@ export class Station {
   station_id: string;
 
   @Column({ type: 'varchar', length: 100 })
-  station_name: string;
+  location_name: string;
 
   @Column({ type: 'enum', enum: LocationStatus, default: LocationStatus.AVAILABLE })
   status: LocationStatus;

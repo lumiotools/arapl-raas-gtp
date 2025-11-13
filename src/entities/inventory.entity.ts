@@ -15,6 +15,9 @@ export class Inventory {
   @PrimaryColumn({ type: 'varchar', length: 10 })
   id: string;
 
+  @Column({ type: 'varchar', length: 10 })
+  location_name: string;
+
   @Column({ type: 'boolean', default: false })
   isProcessing: boolean;
 

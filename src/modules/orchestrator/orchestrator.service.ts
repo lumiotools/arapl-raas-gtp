@@ -75,6 +75,8 @@ export interface TaskDetails{
   created_at: Date;
   updated_at: Date;
   pallet_id: string | null;
+  start_location_attribute_value: string;
+  end_location_attribute_value: string;
   priority: number;
   batch_priority: number;
   orderItems: OrderItem[];
@@ -2593,6 +2595,8 @@ export class OrchestratorService {
         robot_id: task.robot_id,
         start_location_id: task.start_location.location_id,
         end_location_id: task.end_location.location_id,
+        start_location_attribute_value: task.start_location.location_attribute?.attribute_value || '',
+        end_location_attribute_value: task.end_location.location_attribute?.attribute_value || '',
         created_at: task.created_at,
         updated_at: task.updated_at,
         pallet_id: task.cargos ? task.cargos[0].cargo_code : '',
@@ -2760,7 +2764,7 @@ export class OrchestratorService {
       });
       if (inventory) { inventory_info = inventory;}
     }
-    let station_info: Station | WaitingLocation | EmptyLocation | null = null;
+    let station_info: Station | WaitingLocation | EmptyLocation | Inventory | null = null;
     let station_id : string | null = null;
     let isStation = false;
     if (currentTask && currentTask.end_location.location_attribute.attribute_value === 'station') {
@@ -2788,6 +2792,14 @@ export class OrchestratorService {
         station_id = empty_location.location_id;
       }
     }
+    if (currentTask && currentTask.end_location.location_attribute.attribute_value === 'inventory') {
+      const inventory_location = await this.inventoryRepository.findOne({
+        where: { id: currentTask.end_location.location_id }
+      });
+      if (inventory_location) { station_info = inventory_location;
+        station_id = inventory_location.id;
+      }
+    }
 
     let gtp_location_mapping : any[] = [];
     let destination_order_items: any[] = [];
@@ -2805,7 +2817,8 @@ export class OrchestratorService {
       gtp_location_mapping.push({
         "order_item_id": item.order_item_id,
         "gtp_location_id": item.destination_pallet_slot_id,
-        "station_id": station_id
+        "station_id": station_id,
+        "station_name": station_info ? station_info.location_name : null,
       });
       if (isStation){
           destination_order_items.push({
