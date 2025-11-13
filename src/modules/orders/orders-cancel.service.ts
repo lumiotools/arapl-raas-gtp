@@ -157,6 +157,8 @@ export class OrdersCancelService {
       await this.taskRepository.save(task);
       await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
       await this.orchestrationService.handleErroneousTask(taskId);
+      await this.orchestrationService.CancelTask(task);
+      return;
     }
     else{
       orderItems = await this.orderItemRepository.find({
@@ -187,13 +189,13 @@ export class OrdersCancelService {
       await this.loggingService.log(`Order Item ID ${orderItem.order_item_id} ${reason} (via task ID ${taskId})`,
       TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
     }
-    // if (station){
-    //   await this.productRequirementRepository.delete({ source_location_id: source_location_id, station_id: station.station_id });
-    // }
-    // else{
-    //   await this.productRequirementRepository.delete({ source_location_id: source_location_id });
-    // }
+    if (reason !== 'retry'){
+      await this.productRequirementRepository.delete({ source_location_id: source_location_id, station_id: station.station_id });
+    }
+    task.status = TaskStatus.CANCELLED;
+    await this.taskRepository.save(task);
     await this.orchestrationService.CancelTask(task);
+    await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
 
   }
   

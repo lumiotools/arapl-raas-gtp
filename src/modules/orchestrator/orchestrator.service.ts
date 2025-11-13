@@ -156,6 +156,7 @@ export class OrchestratorService {
           const activity = await this.waitingLocationService.getActiveRobotAtWaiting(waitingLocation.location_id);
           const robot_id = activity?.robot_id;
           if (!robot_id){continue;}
+          if (activity?.status === "COMING") {continue;}
 
           const task = await this.taskRepository.findOne({
             where: {
@@ -189,11 +190,20 @@ export class OrchestratorService {
             });
             const stationIds = databaseRequirement.map(pr => pr.station_id);// get all station IDs from the requirements
             const sortedStations = await this.getStationsSortedByPriority(stationIds);// sort stations by priority
-            console.log(`sorted stations: ${JSON.stringify(sortedStations)}`)
             for (const stat in sortedStations){
               const stationID = sortedStations[stat].station_id;
-              const station = await  this.stationRepository.findOne({where: { station_id: stationID }});
+              const station = await  this.stationRepository.findOne({where: { station_id: stationID }, relations: ['gtpLocations']});
               if (!station){continue;}
+              
+              // check if there is any retry requirement for this station
+              const retry_order = await this.orderItemRepository.findOne({
+                where:{
+                  destination_pallet_slot_id: In(station.gtpLocations.map(loc => loc.gtp_location_id)),
+                  status: OrderItemStatus.RETRY,
+                }
+              })
+              console.log(`wait retry: ${JSON.stringify(retry_order)}`);
+              if (retry_order) { continue; } // skip this station if there is a retry order for this station
               if (station.status === LocationStatus.AVAILABLE) {
                 const reserved = await this.stationService.reserveStation(station.station_id);
                 if (!reserved) {
@@ -522,13 +532,22 @@ export class OrchestratorService {
 
     if (databaseRequirement.length > 0){
       const taskToWaitingLocation = await this.taskRepository.findOne({
-        where: { origin_location: inventoryID, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION]) }
+        where: { origin_location: inventoryID, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION, MOVE_TYPE.WAITING_TO_WAITING_LOCATION]) }
       });
       if (taskToWaitingLocation && taskToWaitingLocation.robot_id) {
         // If a task is found, we can use it
         this.logger.log(`Found existing task for product ${inventoryID}: ${taskToWaitingLocation.task_id}`);
         for (const station of sortedStations){
           if (station.status === LocationStatus.AVAILABLE) {
+            // check for retry order at this station
+            const retry_order = await this.orderItemRepository.findOne({
+              where:{
+                destination_pallet_slot_id: In(station.gtpLocations.map(loc => loc.gtp_location_id)),
+                status: OrderItemStatus.RETRY,
+              }
+            });
+            console.log(`wait retry: ${JSON.stringify(retry_order)}`);
+            if (retry_order) { continue; } // skip this station if there is a retry order for this station
             const reserved = await this.stationService.reserveStation(station.station_id);
             if (!reserved) {  
               continue;
@@ -785,7 +804,7 @@ export class OrchestratorService {
 
   private async getStationsSortedByPriority(stationIds: string[]): Promise<Station[]> {
     const stations = await this.stationRepository.find({
-      where: stationIds.map(id => ({ station_id: id }))
+      where: stationIds.map(id => ({ station_id: id })), relations: ['gtpLocations'],
     });
 
     // Sort by priority in ascending order (lower priority number = higher priority)
@@ -2078,7 +2097,7 @@ export class OrchestratorService {
     for (const requirement of prdReqForStation) {
       const origin_location = requirement.source_location_id;
       const carrying_task = await this.taskRepository.findOne({
-        where: { origin_location: origin_location, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION, MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION, MOVE_TYPE.WAITING_TO_WAITING_LOCATION]) }
+        where: { origin_location: origin_location, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION]) }
       });
       try{
         if (carrying_task && carrying_task.robot_id) {
