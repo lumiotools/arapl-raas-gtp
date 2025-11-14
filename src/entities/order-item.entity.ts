@@ -12,6 +12,7 @@ import {
 import type { Product } from './product.entity';
 import type { GtpLocation } from './gtp-location.entity';
 import { Task } from './task.entity';
+import { BaseEntity } from './base.entity';
 
 export enum OrderItemStatus {
   PENDING = 'PENDING',
@@ -22,7 +23,7 @@ export enum OrderItemStatus {
 }
 
 @Entity('order_items')
-export class OrderItem {
+export class OrderItem extends BaseEntity {
   @PrimaryGeneratedColumn()
   order_item_id: number;
 
@@ -44,16 +45,6 @@ export class OrderItem {
 
   @Column({ type: 'int', default: null, nullable: true })
   merged_order_item_id: number | null;
-
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  created_at: Date;
-
-  @UpdateDateColumn({
-    type: 'timestamp',
-    default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
-  })
-  updated_at: Date;
 
   @ManyToOne('GtpLocation', 'orderItems')
   @JoinColumn({ name: 'destination_pallet_slot_id' })

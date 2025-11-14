@@ -5,9 +5,10 @@ import {
   CreateDateColumn,
 } from 'typeorm';
 import { TaskType } from './task.entity';
+import { BaseEntity } from './base.entity';
 
 @Entity('logs')
-export class Log {
+export class Log extends BaseEntity{
   @PrimaryGeneratedColumn()
   log_id: number;
 

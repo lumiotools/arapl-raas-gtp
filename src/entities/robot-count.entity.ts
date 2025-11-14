@@ -6,6 +6,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { BaseEntity } from './base.entity';
 
 export enum OperationType{
   BASEOPS = "BASEOPS",
@@ -13,7 +14,7 @@ export enum OperationType{
 }
 
 @Entity('robot_counts')
-export class RobotCount {
+export class RobotCount extends BaseEntity {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
@@ -28,15 +29,5 @@ export class RobotCount {
 
     @Column({ type: 'boolean', nullable: false })
     is_waiting: boolean;
-
-    @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-      created_at: Date;
-    
-    @UpdateDateColumn({
-      type: 'timestamp',
-      default: () => 'CURRENT_TIMESTAMP',
-      onUpdate: 'CURRENT_TIMESTAMP',
-    })
-    updated_at: Date;
 
 }

@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import type { Station } from './station.entity';
 import type { OrderItem } from './order-item.entity';
+import { BaseEntity } from './base.entity';
 
 export enum GtpLocationStatus {
   AVAILABLE = 'AVAILABLE',
@@ -18,7 +19,7 @@ export enum GtpLocationStatus {
 }
 
 @Entity('gtp_locations')
-export class GtpLocation {
+export class GtpLocation extends BaseEntity {
   @PrimaryColumn({ type: 'varchar', length: 10 })
   gtp_location_id: string;
 
@@ -34,16 +35,6 @@ export class GtpLocation {
     default: GtpLocationStatus.AVAILABLE,
   })
   status: GtpLocationStatus;
-
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  created_at: Date;
-
-  @UpdateDateColumn({
-    type: 'timestamp',
-    default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
-  })
-  updated_at: Date;
 
   // Relations - using Relation type with type-only imports
   @ManyToOne('Station', 'gtpLocations')

@@ -3076,6 +3076,42 @@ export class OrchestratorService {
         await this.loggingService.log(`Retry Task: ${taskID}, New Task: ${newTaskId}, start location: ${newTask.start_location.location_id}, destination location: ${newTask.end_location.location_id}`, TaskType.GOODS_TO_PERSON,newTaskId,null);
       }
     }
+    else if (task.move_type === MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION){
+      const destinationLocation = task.end_location.location_id;
+      if (!await this.waitingLocationService.reserveWaitingLocation(destinationLocation)){
+        throw new BadRequestException(`Destination location for this task is not available right now.`);
+      }
+      const task_obj = {
+        batchId: task.batch_id,
+        originLocation: task.origin_location,
+        destinationWaitingLocationId: destinationLocation,
+        taskType: TaskType.GOODS_TO_PERSON,
+        move_type: MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION,
+        sequenceOrder: task.sequence_order+1,
+        taskDependency: task.task_id,
+        robotId: task.robot_id,
+        cargos: task.cargos,
+      };
+      let sourceLocationId : string | null = null;
+      if (task.processing) {
+        sourceLocationId = task.start_location.location_id;
+        task_obj['sourceWaitingLocationId'] = task.end_location.location_id;
+        task_obj['move_type'] = MOVE_TYPE.WAITING_TO_WAITING_LOCATION;
+      }
+      if  (!sourceLocationId){
+        if (task.move_type === MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION){
+          task_obj['sourceInventoryId'] = task.start_location.location_id;
+          task_obj['move_type'] = MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION;
+        }
+      }
+      console.log(`Creating new task with obj: ${JSON.stringify(task_obj)}`);
+      const [newTaskId,newTask] = await this.createTask(task_obj)
+      if (newTask && newTaskId) {
+        await this.sendSingleTaskToWms(newTask);
+        await this.loggingService.deleteErrorLogsForTask(taskID);
+        await this.loggingService.log(`Retry Task: ${taskID}, New Task: ${newTaskId}, start location: ${newTask.start_location.location_id}, destination location: ${newTask.end_location.location_id}`, TaskType.GOODS_TO_PERSON,newTaskId,null);
+      }
+    }
   }
   
 }

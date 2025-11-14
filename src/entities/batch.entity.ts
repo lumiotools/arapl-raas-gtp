@@ -8,6 +8,7 @@ import {
   Relation,
 } from 'typeorm';
 import { TaskType, type Task } from './task.entity';
+import { BaseEntity } from './base.entity';
 
 export enum BatchStatus {
   PENDING = 'PENDING',
@@ -25,7 +26,7 @@ export enum BatchStatus {
 }
 
 @Entity('batches')
-export class Batch {
+export class Batch extends BaseEntity {
   @PrimaryColumn({ type: 'varchar', length: 32 })
   batch_id: string;
   
@@ -56,16 +57,6 @@ export class Batch {
 
   @Column({ type: 'int', default: 0 })
   cancelled_tasks: number;
-
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  created_at: Date;
-
-  @UpdateDateColumn({
-    type: 'timestamp',
-    default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
-  })
-  updated_at: Date;
 
   // Relations
   @OneToMany('Task', 'batch')
