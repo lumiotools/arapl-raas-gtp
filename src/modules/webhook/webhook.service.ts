@@ -17,6 +17,7 @@ import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationAction } from 'src/entities';
+import { StationsService } from '../stations/stations.service';
 
 @Injectable()
 export class WebhookService {
@@ -43,6 +44,8 @@ export class WebhookService {
     private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
     @Inject(forwardRef(() => BaseopsTaskService))
     private readonly BaseOpsTaskService: BaseopsTaskService,
+
+    private readonly stationService: StationsService,
   ) {}
 
   async processWebhook(webhookData: any): Promise<{ message: string }> {
@@ -376,7 +379,10 @@ export class WebhookService {
     ) {
       // When task status becomes PROCESSING and source is station - mark station as OCCUPIED
       const stationId = task.start_location.location_id;
-      await this.orchestratorService.releaseStation(stationId);
+      if ((await this.stationService.getActiveRobotAtStation(stationId)).length === 0){
+        await this.orchestratorService.releaseStation(stationId);
+      }
+      
       await this.loggingService.log(`Task ${task.task_id}: Marking station ${stationId} as AVAILABLE.`, TaskType.GOODS_TO_PERSON, task.task_id, null);
     }
 

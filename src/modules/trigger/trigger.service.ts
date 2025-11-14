@@ -24,7 +24,7 @@ export class TriggerService {
     private readonly stationService: StationsService,
   ) {}
 
-  async triggerStationAction(stationId: string, message_code: MessageCode) {
+  async triggerStationAction(stationId: string, message_code: MessageCode, robotId?: string) {
     // Find the station from the station ID
     const station = await this.stationRepository.findOne({where: { station_id: stationId },});
     if (!station) {
@@ -39,55 +39,44 @@ export class TriggerService {
       throw new ConflictException(`Can't trigger - station ${stationId} is not occupied (current status: ${station.status})`);
     }
 
-    const activity = await this.stationService.getActiveRobotAtStation(stationId);
-    const robot_id = activity?.robot_id || null;
-    if (!robot_id) {
-      throw new ConflictException(`No robot found at occupied station ${stationId}`);
-    }
-    // Find the current task holding this station
-    const currentTask = await this.taskRepository.findOne({
-      where: {
-        robot_id: robot_id, 
-      },
-      order: { created_at: 'DESC' }
-    });
-    if (!currentTask) {throw new NotFoundException(`No task found holding station ${stationId}`);}
-
-    // check if task is already triggered.
-    if (currentTask && currentTask.status === TaskStatus.TRIGERRED) {
-      throw new ConflictException(`Task ${currentTask.task_id} is already triggered`);
-    }
-    // Update task status to TRIGGERED
-    await this.taskRepository.update(
-      { task_id: currentTask.task_id },
-      { 
-        status: TaskStatus.TRIGERRED,
-        triggered: new Date(),
+    const activities = await this.stationService.getActiveRobotAtStation(stationId);
+    for (const activity of activities){
+      const robot_id = activity?.robot_id || null;
+      if (!robot_id) {
+        continue;
       }
-    );
-    currentTask.triggered = currentTask.triggered || new Date();
-    currentTask.status = TaskStatus.TRIGERRED;
+      if (robot_id !== robotId) {
+        continue;
+      }
+      // Find the current task holding this station
+      const currentTask = await this.taskRepository.findOne({
+        where: {
+          robot_id: robot_id, 
+        },
+        order: { created_at: 'DESC' }
+      });
+      if (!currentTask) {continue;}
 
-    // Log trigger action
-    await this.loggingService.log(`Station ${stationId} Completed - Task ${currentTask.task_id} status updated to TRIGGERED`,
-      currentTask.task_type, currentTask.task_id, null
-    );
+      // Update task status to TRIGGERED
+      await this.taskRepository.update(
+        { task_id: currentTask.task_id },
+        { 
+          status: TaskStatus.TRIGERRED,
+          triggered: new Date(),
+        }
+      );
+      currentTask.triggered = currentTask.triggered || new Date();
+      currentTask.status = TaskStatus.TRIGERRED;
 
-    await this.processNextTask(currentTask, message_code);
+      await this.loggingService.log(`Station ${stationId} Completed - Task ${currentTask.task_id} status updated to TRIGGERED`,
+        currentTask.task_type, currentTask.task_id, null
+      );
 
-    // Free the robot holding this station
-    // if (currentTask.robot_id) {
-    //   await this.freeRobot(currentTask.robot_id);
-    // }
+      await this.orchestratorService.handleTaskCompletion(currentTask, message_code);
+    }
 
     return {
       message: `Station ${stationId} triggered successfully`,
-      triggered_task: {
-        task_id: currentTask.task_id,
-        batch_id: currentTask.batch_id,
-        previous_status: 'COMPLETED',
-        new_status: 'TRIGGERED',
-      },
       station: {
         station_id: stationId,
         status: station.status, // Station status remains the same until webhook processes next task
@@ -96,18 +85,6 @@ export class TriggerService {
       next_task_scheduled: true,
       timestamp: new Date(),
     };
-  }
-
-  private async processNextTask(completedTask: Task, message_code: MessageCode): Promise<void> {
-    try {
-      // Check if the completed task was at a station and handle station workflow
-      if (completedTask.end_location?.location_attribute?.attribute_value === 'station') {
-        await this.orchestratorService.handleTaskCompletion(completedTask, message_code);
-        return;
-      }
-    } catch (error) {
-      console.error(`Error processing next task for ${completedTask.task_id}:`, error.message);
-    }
   }
 
   async getStationStatus(stationId: string) {
@@ -134,26 +111,4 @@ export class TriggerService {
       timestamp: new Date(),
     };
   }
-
-  // Method to free robot by calling the external endpoint
-//   private async freeRobot(robotId: string): Promise<void> {
-//     if (!robotId) {
-//       // await this.loggingService.log('Cannot free robot: robot_id is null or empty');
-//       return;
-//     }
-//     try {
-//       const response = await this.httpService.post(`${process.env.WMS_BASE_URL}/orchestrator/robot/set-available`, {
-//         robot_id: robotId
-//       }).toPromise();
-
-//       if (response && response.data) {
-//         // await this.loggingService.log(`Robot ${robotId} freed successfully: ${response.data.message || 'Robot set to available'}`);
-//       } else {
-//         // await this.loggingService.log(`Robot ${robotId} freed successfully`);
-//       }
-//     } catch (error) {
-//       // await this.loggingService.log(`Failed to free robot ${robotId}: ${error.message}`);
-//       // Don't throw error to avoid breaking the main process
-//     }
-//   }
 }

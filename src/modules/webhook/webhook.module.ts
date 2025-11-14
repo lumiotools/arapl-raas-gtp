@@ -17,6 +17,8 @@ import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.
 import { LocationEntity } from 'src/entities/location.entity';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
+import { StationsService } from '../stations/stations.service';
+import { StationsModule } from '../stations/stations.module';
 
 @Module({
   imports: [
@@ -24,6 +26,7 @@ import { EmptyLocation } from 'src/entities/empty-location.entity';
     HttpModule,
     forwardRef(() => OrchestratorModule),
     LoggingModule,
+    StationsModule
   ],
   controllers: [WebhookController],
   providers: [WebhookService, WaitingLocationService, BaseOpsLocationManagerService, BaseopsTaskService],
