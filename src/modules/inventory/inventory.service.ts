@@ -92,7 +92,7 @@ export class InventoryService {
         }
       }
     }
-    console.log(`inventories: ${JSON.stringify(inventories)}`);
+    // console.log(`inventories: ${JSON.stringify(inventories)}`);
     return inventories;
     try{
       const inventory_object = await this.getAllInventoryLocations();

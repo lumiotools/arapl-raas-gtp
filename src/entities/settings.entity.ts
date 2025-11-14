@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { OperationType } from './robot-count.entity';
+import { BaseEntity } from './base.entity';
 
 export enum SettingType{
     EMPTY_LOCATION = "EMPTY_LOCATION",
@@ -13,7 +14,7 @@ export enum SettingType{
 
 
 @Entity('settings')
-export class Settings {
+export class Settings extends BaseEntity {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
@@ -22,15 +23,5 @@ export class Settings {
 
     @Column({ type: 'json', nullable: true })
     value: any;
-
-    @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-    created_at: Date;
-    
-    @UpdateDateColumn({
-      type: 'timestamp',
-      default: () => 'CURRENT_TIMESTAMP',
-      onUpdate: 'CURRENT_TIMESTAMP',
-    })
-    updated_at: Date;
 
 }

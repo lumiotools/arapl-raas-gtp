@@ -9,9 +9,10 @@ import {
   Relation,
 } from 'typeorm';
 import { LocationStatus } from './station.entity'
+import { BaseEntity } from './base.entity';
 
 @Entity('inventory')
-export class Inventory {
+export class Inventory extends BaseEntity {
   @PrimaryColumn({ type: 'varchar', length: 10 })
   id: string;
 
@@ -39,15 +40,5 @@ export class Inventory {
 
   @Column({ type: 'boolean', default: false})
   is_empty: boolean;
-
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  created_at: Date;
-
-  @UpdateDateColumn({
-    type: 'timestamp',
-    default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
-  })
-  updated_at: Date;
 
 }
