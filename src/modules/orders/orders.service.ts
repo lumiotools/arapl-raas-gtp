@@ -17,6 +17,8 @@ import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { MOVE_TYPE } from 'src/entities/task.entity';
+import { InventoryService } from '../inventory/inventory.service';
+import { WebhookService } from '../webhook/webhook.service';
 
 interface LicensePlateStats{
   license_plate_id: string;
@@ -55,7 +57,9 @@ export class OrdersService {
     @InjectRepository(ProductRequirement)
     private productRequirementRepository: Repository<ProductRequirement>,
     private readonly orchestrationService: OrchestratorService,
-    private readonly loggingService: LoggingService
+    private readonly loggingService: LoggingService,
+    private readonly inventoryService: InventoryService,
+    private readonly webhookService: WebhookService,
   ) {}
 
   async processFile(file: Express.Multer.File, body: any, upload_mode: 'merge' | 'transit'): Promise<UploadResponseDto> {
@@ -411,21 +415,28 @@ export class OrdersService {
     const task = await this.taskRepository.findOne({
       where: {
         origin_location: orderItem.source_location_id,
-        move_type: MOVE_TYPE.INVENTORY_TO_STATION
+        move_type: In([MOVE_TYPE.INVENTORY_TO_STATION, MOVE_TYPE.STATION_TO_STATION]),
       },
       order: { created_at: 'DESC' }
     });
-    console.log(`orderItem: ${orderItem.order_item_id}, found task: ${task ? task.task_id : 'none'}`);
-    console.log(`task status: ${task ? task.status : 'N/A'}`);
-    if (task && (task.status === TaskStatus.CANCELLED || task.status === TaskStatus.COMPLETED || task.status === TaskStatus.PROCESSING)){
-      throw new BadRequestException(`Cannot cancel tasks with status ${task.status}`);
-    }
+    try{
+      if (task){await this.orchestrationService.CancelTask(task);}
+    }catch{}
     await this.productRequirementRepository.delete({ source_location_id: orderItem.source_location_id });
-    if (!task){return;}
+    if (!task) { return ; }
+    if (!task.processing && task.start_location.location_attribute.attribute_value === 'inventory'){
+        // make the inventory available
+        await this.inventoryService.setInventoryAvailable(task.origin_location);
+        await this.orchestrationService.unmarkSystemAsWaiting();
+    }
+    else{
+        // make the inventory unavailable
+        await this.inventoryService.setInventoryUnavailable(task.origin_location);
+    }
     await this.orchestrationService.decrementRobotInUse();
+    await this.webhookService.updateRobotUsage(task.robot_id, false);
     await this.loggingService.log(`Cancelling Task ID ${task.task_id} related to Order Item ID ${orderItem.order_item_id}`,
       TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
-    await this.orchestrationService.CancelTask(task);
   }
 
   async cancelOrderItem(orderItemId: number, isGroup?: boolean) {

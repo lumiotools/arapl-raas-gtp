@@ -376,4 +376,34 @@ export class InventoryService {
       status: "HOLDED"
     }
   }
+
+  async setInventoryAvailable(inventoryId: string): Promise<void> {
+    const inventory = await this.inventoryRepository.findOne({
+      where: { id: inventoryId },
+    });
+    if (!inventory){
+      throw new BadRequestException("Inventory not found");
+    }
+    inventory.status = LocationStatus.AVAILABLE;
+    inventory.isProcessing = false;
+    inventory.holded_by = null;
+    inventory.is_active = true;
+    inventory.is_empty = false;
+    await this.inventoryRepository.save(inventory);
+  }
+
+  async setInventoryUnavailable(inventoryId: string): Promise<void> {
+    const inventory = await this.inventoryRepository.findOne({
+      where: { id: inventoryId },
+    });
+    if (!inventory){
+      throw new BadRequestException("Inventory not found");
+    }
+    inventory.status = LocationStatus.AVAILABLE;
+    inventory.isProcessing = false;
+    inventory.holded_by = null;
+    inventory.is_active = false;
+    inventory.is_empty = false;
+    await this.inventoryRepository.save(inventory);
+  }
 }

@@ -33,12 +33,16 @@ import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
 import { Role } from 'src/entities/user.entity';
+import { OrdersCancelService } from './orders-cancel.service';
 
 
 @ApiTags('Orders')
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly ordersCancelService: OrdersCancelService,
+  ) {}
 
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
@@ -429,5 +433,15 @@ export class OrdersController {
       throw new BadRequestException('order_item_id is required');
     }
     return await this.ordersService.cancelOrderItem(orderItemId, isGroup);
+  }
+
+  @Patch('cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancel(
+    @Query('task_id') task_id?: string,
+    @Query('order_item_id') order_item_id?: number,
+    @Query('reason') reason: 'retry' | 'reassign' | 'back_to_inventory' | 'just_cancel' = 'retry',
+  ) {
+    return await this.ordersCancelService.cancel(task_id, order_item_id, reason);
   }
 }

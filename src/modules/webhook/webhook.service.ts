@@ -513,7 +513,7 @@ export class WebhookService {
   
   }
 
-  private async updateRobotUsage(robotId: string, inUse: boolean): Promise<void> {
+  async updateRobotUsage(robotId: string, inUse: boolean): Promise<void> {
     try {
       if (!robotId) { return; }
       const robot = await this.robotRepository.findOne({ where: { robot_id: robotId } });
