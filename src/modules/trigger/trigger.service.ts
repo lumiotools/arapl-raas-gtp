@@ -32,12 +32,12 @@ export class TriggerService {
     }
 
     // Check if station is OCCUPIED (not RESERVED)
-    if (station.status !== LocationStatus.OCCUPIED) {
-      if (station.status === LocationStatus.RESERVED) {
-        throw new ConflictException(`Can't trigger now - station ${stationId} is reserved`);
-      }
-      throw new ConflictException(`Can't trigger - station ${stationId} is not occupied (current status: ${station.status})`);
-    }
+    // if (station.status !== LocationStatus.OCCUPIED) {
+    //   if (station.status === LocationStatus.RESERVED) {
+    //     throw new ConflictException(`Can't trigger now - station ${stationId} is reserved`);
+    //   }
+    //   throw new ConflictException(`Can't trigger - station ${stationId} is not occupied (current status: ${station.status})`);
+    // }
 
     const activities = await this.stationService.getActiveRobotAtStation(stationId);
     for (const activity of activities){

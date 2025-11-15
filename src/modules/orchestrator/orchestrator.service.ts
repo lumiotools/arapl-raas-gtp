@@ -407,122 +407,122 @@ export class OrchestratorService {
     // Get stations sorted by priority (ascending order) 
     const stationIds = databaseRequirement.map(pr => pr.station_id);
     let sortedStations = await this.getStationsSortedByPriority(stationIds);
-    if (databaseRequirement.length > 0) {
-      const taskComingToInventory = await this.taskRepository.findOne({
-        where:{origin_location: inventoryID, status:TaskStatus.PROCESSING , move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY])}
-      })
-      if (taskComingToInventory && taskComingToInventory.robot_id) {
-        try{
-          const inventory_id = taskComingToInventory.end_location.location_id;
-          const inventory = await this.inventoryRepository.findOne({ where: { id: inventory_id } });
-          if (inventory){
-            let is_station_task_created = false;
-            const robotIdToUse = taskComingToInventory.robot_id;
-            for (const station of sortedStations) {
-              if (station.status !== LocationStatus.AVAILABLE || !station.is_active) {
-                continue;
-              }
-              try{
-                await this.CancelTask(taskComingToInventory);
-              }
-              catch(error){
-                this.logger.error(`Error cancelling task ${taskComingToInventory.task_id} before creating new task to station ${station.station_id}: ${error.message}`);
-                await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
-                continue;
-              }
+    // if (databaseRequirement.length > 0) {
+    //   const taskComingToInventory = await this.taskRepository.findOne({
+    //     where:{origin_location: inventoryID, status:TaskStatus.PROCESSING , move_type: In([MOVE_TYPE.WAITING_LOCATION_TO_INVENTORY, MOVE_TYPE.STATION_TO_INVENTORY])}
+    //   })
+    //   if (taskComingToInventory && taskComingToInventory.robot_id) {
+    //     try{
+    //       const inventory_id = taskComingToInventory.end_location.location_id;
+    //       const inventory = await this.inventoryRepository.findOne({ where: { id: inventory_id } });
+    //       if (inventory){
+    //         let is_station_task_created = false;
+    //         const robotIdToUse = taskComingToInventory.robot_id;
+    //         for (const station of sortedStations) {
+    //           if (station.status !== LocationStatus.AVAILABLE || !station.is_active) {
+    //             continue;
+    //           }
+    //           try{
+    //             await this.CancelTask(taskComingToInventory);
+    //           }
+    //           catch(error){
+    //             this.logger.error(`Error cancelling task ${taskComingToInventory.task_id} before creating new task to station ${station.station_id}: ${error.message}`);
+    //             await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
+    //             continue;
+    //           }
               
-              if (!robotIdToUse) {
-                await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
-                return;
-              }
-              const batchId = taskComingToInventory.batch_id;
-              const [returnTaskId, returnTask] = await this.createTask({
-                batchId,
-                originLocation: taskComingToInventory.origin_location,
-                sourceStationId: station.station_id,
-                destinationStationId: station.station_id,
-                robotId: robotIdToUse,
-                taskType: TaskType.GOODS_TO_PERSON,
-                move_type: MOVE_TYPE.STATION_TO_STATION,
-                sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
-                taskDependency: taskComingToInventory.task_id, // Use last task of batch as dependency
-                cargos: taskComingToInventory.cargos,
-              });
-              if (!returnTask) {
-                // await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
-                continue;
-              }
-              await this.inventoryRepository.update(inventory.id, { status: LocationStatus.AVAILABLE });
-              await this.taskRepository.update({task_id: taskComingToInventory.task_id},{status: TaskStatus.CANCELLED});
-              await this.sendSingleTaskToWms(returnTask);
-              // remove the robotIdToUse from idleRobot list
-              // Remove this station from sortedStations to prevent creating another task for the same station
-              sortedStations = sortedStations.filter(st => st.station_id !== station.station_id);
-              await this.loggingService.log(`Cancel Task: ${taskComingToInventory.task_id} and create new Task: ${returnTaskId}, start location: ${taskComingToInventory.end_location.location_id} (inventory), destination location: ${station.station_id} (station)`, TaskType.GOODS_TO_PERSON, returnTaskId,null);
+    //           if (!robotIdToUse) {
+    //             await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
+    //             return;
+    //           }
+    //           const batchId = taskComingToInventory.batch_id;
+    //           const [returnTaskId, returnTask] = await this.createTask({
+    //             batchId,
+    //             originLocation: taskComingToInventory.origin_location,
+    //             sourceStationId: station.station_id,
+    //             destinationStationId: station.station_id,
+    //             robotId: robotIdToUse,
+    //             taskType: TaskType.GOODS_TO_PERSON,
+    //             move_type: MOVE_TYPE.STATION_TO_STATION,
+    //             sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
+    //             taskDependency: taskComingToInventory.task_id, // Use last task of batch as dependency
+    //             cargos: taskComingToInventory.cargos,
+    //           });
+    //           if (!returnTask) {
+    //             // await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
+    //             continue;
+    //           }
+    //           await this.inventoryRepository.update(inventory.id, { status: LocationStatus.AVAILABLE });
+    //           await this.taskRepository.update({task_id: taskComingToInventory.task_id},{status: TaskStatus.CANCELLED});
+    //           await this.sendSingleTaskToWms(returnTask);
+    //           // remove the robotIdToUse from idleRobot list
+    //           // Remove this station from sortedStations to prevent creating another task for the same station
+    //           sortedStations = sortedStations.filter(st => st.station_id !== station.station_id);
+    //           await this.loggingService.log(`Cancel Task: ${taskComingToInventory.task_id} and create new Task: ${returnTaskId}, start location: ${taskComingToInventory.end_location.location_id} (inventory), destination location: ${station.station_id} (station)`, TaskType.GOODS_TO_PERSON, returnTaskId,null);
 
-              await this.loggingService.log(`Reroute Task: ${taskComingToInventory.task_id}, Initial destination: ${taskComingToInventory.end_location.location_id}, New Destination: ${station.station_id}, new requirement found at destination`, TaskType.GOODS_TO_PERSON, taskComingToInventory.task_id,null);
-              is_station_task_created = true;
-              break;
-            }
-            const waitingLocations = await this.waitingLocationRepository.find({where: {status: LocationStatus.AVAILABLE}});
-            for (const waitLocation of waitingLocations){
-              if (is_station_task_created){break;}
-              let reserved = await this.waitingLocationService.reserveWaitingLocation(waitLocation.location_id);
-              if (!reserved){
-                continue;
-              }
-              if (!robotIdToUse) {
-                await this.waitingLocationRepository.update(waitLocation.location_id, { status: LocationStatus.AVAILABLE });
-                break;
-              }
-              const batchId = taskComingToInventory.batch_id;
-              try{
-                await this.CancelTask(taskComingToInventory);
-              }
-              catch(error){
-                this.logger.error(`Error cancelling task ${taskComingToInventory.task_id} before creating new task to waiting location ${waitLocation.location_id}: ${error.message}`);
-                await this.waitingLocationRepository.update(waitLocation.location_id, { status: LocationStatus.AVAILABLE });
-                continue;
-              }
+    //           await this.loggingService.log(`Reroute Task: ${taskComingToInventory.task_id}, Initial destination: ${taskComingToInventory.end_location.location_id}, New Destination: ${station.station_id}, new requirement found at destination`, TaskType.GOODS_TO_PERSON, taskComingToInventory.task_id,null);
+    //           is_station_task_created = true;
+    //           break;
+    //         }
+    //         const waitingLocations = await this.waitingLocationRepository.find({where: {status: LocationStatus.AVAILABLE}});
+    //         for (const waitLocation of waitingLocations){
+    //           if (is_station_task_created){break;}
+    //           let reserved = await this.waitingLocationService.reserveWaitingLocation(waitLocation.location_id);
+    //           if (!reserved){
+    //             continue;
+    //           }
+    //           if (!robotIdToUse) {
+    //             await this.waitingLocationRepository.update(waitLocation.location_id, { status: LocationStatus.AVAILABLE });
+    //             break;
+    //           }
+    //           const batchId = taskComingToInventory.batch_id;
+    //           try{
+    //             await this.CancelTask(taskComingToInventory);
+    //           }
+    //           catch(error){
+    //             this.logger.error(`Error cancelling task ${taskComingToInventory.task_id} before creating new task to waiting location ${waitLocation.location_id}: ${error.message}`);
+    //             await this.waitingLocationRepository.update(waitLocation.location_id, { status: LocationStatus.AVAILABLE });
+    //             continue;
+    //           }
               
-              console.log(`cancelling at db_req > 0 - waiting location`)
-              const [returnTaskId, returnTask] = await this.createTask({
-                batchId: batchId,
-                originLocation: taskComingToInventory.origin_location,
-                sourceWaitingLocationId: waitLocation.location_id,
-                destinationWaitingLocationId: waitLocation.location_id,
-                robotId: robotIdToUse,
-                taskType: TaskType.GOODS_TO_PERSON,
-                move_type: MOVE_TYPE.WAITING_TO_WAITING_LOCATION,
-                sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
-                taskDependency: taskComingToInventory.task_id ,// Use last task of batch as dependency
-                cargos: taskComingToInventory.cargos
-              });
-              if (returnTask) {
-                await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.RESERVED, holded_by: returnTask.task_id});
-                await this.inventoryRepository.update(inventory.id, { status: LocationStatus.AVAILABLE });
-                await this.sendSingleTaskToWms(returnTask);
-                await this.taskRepository.update({task_id: taskComingToInventory.task_id},{status: TaskStatus.CANCELLED});
-                this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${returnTask.origin_location}, Start Location: ${returnTask.start_location.location_id} (inventory), Destination Location: ${waitLocation.location_id} (waiting location)`);
-                await this.loggingService.log(`Cancel Task: ${taskComingToInventory.task_id} and create new Task: ${returnTaskId}, start location: ${taskComingToInventory.end_location.location_id} (inventory), destination location: ${waitLocation.location_id} (station)`, TaskType.GOODS_TO_PERSON, returnTaskId,null);
+    //           console.log(`cancelling at db_req > 0 - waiting location`)
+    //           const [returnTaskId, returnTask] = await this.createTask({
+    //             batchId: batchId,
+    //             originLocation: taskComingToInventory.origin_location,
+    //             sourceWaitingLocationId: waitLocation.location_id,
+    //             destinationWaitingLocationId: waitLocation.location_id,
+    //             robotId: robotIdToUse,
+    //             taskType: TaskType.GOODS_TO_PERSON,
+    //             move_type: MOVE_TYPE.WAITING_TO_WAITING_LOCATION,
+    //             sequenceOrder: taskComingToInventory.sequence_order + 1, // Next sequence order
+    //             taskDependency: taskComingToInventory.task_id ,// Use last task of batch as dependency
+    //             cargos: taskComingToInventory.cargos
+    //           });
+    //           if (returnTask) {
+    //             await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.RESERVED, holded_by: returnTask.task_id});
+    //             await this.inventoryRepository.update(inventory.id, { status: LocationStatus.AVAILABLE });
+    //             await this.sendSingleTaskToWms(returnTask);
+    //             await this.taskRepository.update({task_id: taskComingToInventory.task_id},{status: TaskStatus.CANCELLED});
+    //             this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${returnTask.origin_location}, Start Location: ${returnTask.start_location.location_id} (inventory), Destination Location: ${waitLocation.location_id} (waiting location)`);
+    //             await this.loggingService.log(`Cancel Task: ${taskComingToInventory.task_id} and create new Task: ${returnTaskId}, start location: ${taskComingToInventory.end_location.location_id} (inventory), destination location: ${waitLocation.location_id} (station)`, TaskType.GOODS_TO_PERSON, returnTaskId,null);
 
-                await this.loggingService.log(`Reroute Task: ${taskComingToInventory.task_id}, Initial destination: ${taskComingToInventory.end_location.location_id}, New Destination: ${waitLocation.location_id}, there is requirement in system but station is not available`, TaskType.GOODS_TO_PERSON, taskComingToInventory.task_id,null);
-                is_station_task_created = true;
-                break;
-                }
-              if (!returnTask){
-                await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.AVAILABLE, holded_by: null});
-                // await this.stationRepository.update(taskComingToInventory.start_location.location_id, { status: LocationStatus.AVAILABLE, holded_by: null });
-              }
-            }
-          }
-        }
-        catch (error) {
-          this.logger.error(`Error cancelling task ${taskComingToInventory.task_id}: ${error.message}`);
-        }
-      }
+    //             await this.loggingService.log(`Reroute Task: ${taskComingToInventory.task_id}, Initial destination: ${taskComingToInventory.end_location.location_id}, New Destination: ${waitLocation.location_id}, there is requirement in system but station is not available`, TaskType.GOODS_TO_PERSON, taskComingToInventory.task_id,null);
+    //             is_station_task_created = true;
+    //             break;
+    //             }
+    //           if (!returnTask){
+    //             await this.waitingLocationRepository.update({location_id: waitLocation.location_id},{status:LocationStatus.AVAILABLE, holded_by: null});
+    //             // await this.stationRepository.update(taskComingToInventory.start_location.location_id, { status: LocationStatus.AVAILABLE, holded_by: null });
+    //           }
+    //         }
+    //       }
+    //     }
+    //     catch (error) {
+    //       this.logger.error(`Error cancelling task ${taskComingToInventory.task_id}: ${error.message}`);
+    //     }
+    //   }
       
-    }
+    // }
 
     if (databaseRequirement.length > 0){
       const taskToWaitingLocation = await this.taskRepository.findOne({
@@ -1592,7 +1592,7 @@ export class OrchestratorService {
 
         const stations = await this.stationRepository.find();
         for (const station of stations) {
-          if (station.status === LocationStatus.AVAILABLE){
+          if (station.is_active === true){
             await this.handleStationToWaitCancel(station.station_id);
           }
         }
@@ -2033,13 +2033,15 @@ export class OrchestratorService {
     for (const requirement of prdReqForStation) {
       const origin_location = requirement.source_location_id;
       const carrying_task = await this.taskRepository.findOne({
-        where: { origin_location: origin_location, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION, MOVE_TYPE.WAITING_TO_WAITING_LOCATION]) }
+        where: { origin_location: origin_location, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION, MOVE_TYPE.WAITING_TO_WAITING_LOCATION, MOVE_TYPE.STATION_TO_INVENTORY, MOVE_TYPE.INVENTORY_TO_INVENTORY]) }
       });
+      console.log(`carrying task: ${JSON.stringify(carrying_task)}`);
       try{
         if (carrying_task && carrying_task.robot_id) {
           const firstTask = await this.taskRepository.findOne({where: { batch_id: carrying_task.batch_id, sequence_order: 1 }});
           const inventoryId = firstTask?.start_location?.location_id;
           const inventory = await this.inventoryRepository.findOne({where: { id: inventoryId }});
+          if (inventory && inventory.is_empty){continue;}
           if (!inventory){continue;}
           console.log(`cancel at release station.`)
           // reserve the current station
