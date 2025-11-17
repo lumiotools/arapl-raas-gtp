@@ -2951,7 +2951,7 @@ export class OrchestratorService {
         batchId: task.batch_id,
         originLocation: task.origin_location,
         sourceInventoryId: task.start_location.location_id,
-        destinationStationId: task.end_location.location_id,
+        destinationInventoryId: task.end_location.location_id,
         taskType: TaskType.GOODS_TO_PERSON,
         move_type: MOVE_TYPE.INVENTORY_TO_INVENTORY,
         sequenceOrder: task.sequence_order+1,
@@ -2985,6 +2985,10 @@ export class OrchestratorService {
       }
     }
     else if (task.move_type === MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION){
+      const reserve = await this.emptyLocationsService.reserveEmptyLocation(task.end_location.location_id);
+      if (!reserve){
+        throw new BadRequestException(`Destination location for this task is not available right now.`);
+      }
       const [newTaskId,newTask] = await this.createTask({
         batchId: task.batch_id,
         originLocation: task.origin_location,

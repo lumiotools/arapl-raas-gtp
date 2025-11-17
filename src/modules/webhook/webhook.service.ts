@@ -254,7 +254,7 @@ export class WebhookService {
     );
   }
 
-  private async handleCancelledUpdateds(task: Task, mappedStatus: TaskStatus): Promise<void> {
+  async handleCancelledUpdateds(task: Task, mappedStatus: TaskStatus): Promise<void> {
     if (mappedStatus !== TaskStatus.CANCELLED){ return; }
     await this.loggingService.log(`Task ${task.task_id}: Task Cancelled`, task.task_type, task.task_id, null);
     if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION || task.move_type === MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION){

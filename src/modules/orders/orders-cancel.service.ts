@@ -56,7 +56,10 @@ export class OrdersCancelService {
         if (!task) { throw new NotFoundException(`Task with id ${taskId} not found`); }
         if (reason === 'just_cancel'){
             // cancel the task
-            await this.orchestrationService.CancelTask(task);
+            try{
+              await this.orchestrationService.CancelTask(task);
+            }
+            catch { throw new BadRequestException(`Task with id ${taskId} could not be cancelled`); }
             // if the task is moving to station - cancel the task and order and make the inventory unavailable
             const end_type = task.end_location.location_attribute.attribute_value;
             if (end_type === 'station'){
@@ -81,6 +84,20 @@ export class OrdersCancelService {
             }
             await this.orchestrationService.decrementRobotInUse();
             await this.webhookService.updateRobotUsage(task.robot_id, false);
+        }
+        else if (reason === 'retry'){
+          if (task.status === TaskStatus.CANCELLED || task.status === TaskStatus.COMPLETED){
+            throw new BadRequestException(`Task with id ${taskId} is already ${task.status} and cannot be retried`);
+          }
+          // cancel the task
+          try{
+            await this.orchestrationService.CancelTask(task);
+          }
+          catch { throw new BadRequestException(`Task with id ${taskId} could not be cancelled`); }
+          task.status = TaskStatus.CANCELLED;
+          await this.taskRepository.save(task);
+          await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
+          return await this.orchestrationService.handleErroneousTask(taskId);
         }
     }
   }
