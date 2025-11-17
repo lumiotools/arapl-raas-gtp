@@ -41,4 +41,7 @@ export class Inventory extends BaseEntity {
   @Column({ type: 'boolean', default: false})
   is_empty: boolean;
 
+  @Column( { type: 'boolean', default: false} )
+  is_quarantine: boolean;
+
 }

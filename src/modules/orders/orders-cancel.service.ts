@@ -47,7 +47,16 @@ export class OrdersCancelService {
     private readonly webhookService: WebhookService,
   ) {}
 
-  async cancel(taskId ?: string, orderItemId ?: number, reason: 'retry' | 'reassign' | 'back_to_inventory' | 'just_cancel' = 'retry'): Promise<void> {
+  async cancelOneOrderItem(OrderItemId: number) {
+    const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: OrderItemId } });
+    if (!orderItem) {
+      throw new NotFoundException(`Order item with ID ${OrderItemId} not found`);
+    }
+    orderItem.status = OrderItemStatus.CANCELLED; 
+    await this.orderItemRepository.save(orderItem);
+  }
+
+  async cancel(taskId ?: string, orderItemId ?: number, reason: 'retry' | 'reassign' | 'back_to_inventory' | 'just_cancel' = 'retry', quarantine_location_id?: string): Promise<void> {
     if (!taskId && !orderItemId) {
       throw new BadRequestException('Either taskId or orderItemId must be provided');
     }
@@ -156,6 +165,56 @@ export class OrdersCancelService {
 
             await this.orchestrationService.sendSingleTaskToWms(newTask);
           }
+        }
+        else if (reason === 'reassign'){
+          if (!quarantine_location_id){
+            throw new BadRequestException(`Quarantine Location ID must be provided for reassignment`);
+          }
+          if (await this.inventoryService.reserveInventory(quarantine_location_id) === false){
+            throw new BadRequestException(`Failed to reserve inventory for Quarantine Location ID ${quarantine_location_id}`);
+          }
+          try{
+            await this.orchestrationService.CancelTask(task);
+          }
+          catch { 
+            await this.inventoryService.makeInventoryAvailable(quarantine_location_id);
+            throw new BadRequestException(`Task with id ${taskId} could not be cancelled`); 
+          }
+          await this.inventoryService.makeInventoryProcessing(quarantine_location_id);
+          const orderItems = await this.orderItemRepository.find({
+            where: {
+              source_location_id: task.origin_location,
+              status: In([OrderItemStatus.IN_PROGRESS])
+            },
+          });
+          // make the source location unavailable
+          await this.inventoryService.makeInventoryUnavailable(task.origin_location);
+          if (orderItems.length > 0){
+            orderItems.forEach(async (orderItem) => {
+              await this.cancelOneOrderItem(orderItem.order_item_id);
+              await this.loggingService.log(`Incremented retry_reassign_attempts for Order Item ID ${orderItem.order_item_id} due to reassignment`,
+                TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
+            });
+            await this.productRequirementRepository.delete({ source_location_id: task.origin_location });
+          }
+          
+          const [newTaskId, newTask] = await this.orchestrationService.createTask({
+            batchId: task.batch_id,
+            originLocation: task.origin_location,
+            sourceQuarantineLocationId: quarantine_location_id,
+            destinationQuarantineLocationId: quarantine_location_id,
+            taskType: TaskType.GOODS_TO_PERSON,
+            move_type: MOVE_TYPE.TO_QUARANTINE,
+            robotId: task.robot_id,
+            sequenceOrder: task.sequence_order + 1,
+            taskDependency: task.task_id,
+            cargos: task.cargos,
+            orderItems: null,
+          });
+          if (!newTask){
+            throw new BadRequestException(`Failed to create new task for Task ID ${taskId}`);
+          }
+          await this.orchestrationService.sendSingleTaskToWms(newTask);
         }
     }
   }

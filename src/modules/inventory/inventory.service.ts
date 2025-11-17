@@ -418,4 +418,36 @@ export class InventoryService {
     inventory.is_empty = false;
     await this.inventoryRepository.save(inventory);
   }
+
+  async makeInventoryProcessing(id: string) {
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id: id } });
+    if (!existingInventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+    existingInventory.isProcessing = true;
+    existingInventory.is_active = true;
+    await this.inventoryRepository.save(existingInventory);
+  }
+
+  async makeInventoryUnavailable(id: string) {
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
+    if (!existingInventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+    existingInventory.is_active = false;
+    existingInventory.is_empty = false;
+    await this.inventoryRepository.save(existingInventory);
+  }
+
+  async makeInventoryAvailable(id: string) {
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
+    if (!existingInventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+    existingInventory.is_active = true;
+    existingInventory.is_empty = false;
+    existingInventory.isProcessing = false;
+    existingInventory.status = LocationStatus.AVAILABLE;
+    await this.inventoryRepository.save(existingInventory);
+  }
 }

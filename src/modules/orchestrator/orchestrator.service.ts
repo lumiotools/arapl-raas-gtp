@@ -876,10 +876,12 @@ export class OrchestratorService {
     sourceStationId?: string;
     sourceWaitingLocationId?: string;
     sourceEmptyLocationId?: string;
+    sourceQuarantineLocationId?: string;
     destinationStationId?: string;
     destinationInventoryId?: string;
     destinationWaitingLocationId?: string;
     destinationEmptyLocationId?: string;
+    destinationQuarantineLocationId?: string;
     taskType: TaskType;
     robotId?: string | null;
     move_type: MOVE_TYPE;
@@ -888,19 +890,19 @@ export class OrchestratorService {
     cargos?: Cargo[] | null;
     orderItems?: OrderItem[] | null;
   }): Promise<[string, Task | null]> {
-    // Create start location
     const startLocation = this.createLocation(
-      taskData.sourceInventoryId || taskData.sourceStationId || taskData.sourceWaitingLocationId || taskData.sourceEmptyLocationId!,
-      taskData.sourceInventoryId ? 'inventory' : taskData.sourceStationId ? 'station' : taskData.sourceWaitingLocationId ? 'waiting_location' : 'empty_location',
+      taskData.sourceInventoryId || taskData.sourceStationId || taskData.sourceWaitingLocationId || taskData.sourceEmptyLocationId || taskData.sourceQuarantineLocationId!,
+      taskData.sourceInventoryId ? 'inventory' : taskData.sourceStationId ? 'station' : taskData.sourceWaitingLocationId ? 'waiting_location' : taskData.sourceEmptyLocationId ? 'empty_location' : 'quarantine',
       this.getLocationAction(taskData, 'start')
     );
 
     // Create end location
     const endLocation = this.createLocation(
-      taskData.destinationInventoryId || taskData.destinationStationId || taskData.destinationWaitingLocationId || taskData.destinationEmptyLocationId!,
-      taskData.destinationInventoryId ? 'inventory' : taskData.destinationStationId ? 'station' : taskData.destinationWaitingLocationId ? 'waiting_location' : 'empty_location',
+      taskData.destinationInventoryId || taskData.destinationStationId || taskData.destinationWaitingLocationId || taskData.destinationEmptyLocationId || taskData.destinationQuarantineLocationId!,
+      taskData.destinationInventoryId ? 'inventory' : taskData.destinationStationId ? 'station' : taskData.destinationWaitingLocationId ? 'waiting_location' : taskData.destinationEmptyLocationId ? 'empty_location' : 'quarantine',
       this.getLocationAction(taskData, 'end')
     );
+
     console.log(`startLocation: ${JSON.stringify(startLocation)}`);
     console.log(`endLocation: ${JSON.stringify(endLocation)}`);
 
@@ -955,7 +957,7 @@ export class OrchestratorService {
 
   private createLocation(
     locationId: string,
-    locationType: 'inventory' | 'station' | 'waiting_location' | 'empty_location',
+    locationType: 'inventory' | 'station' | 'waiting_location' | 'empty_location' | 'quarantine',
     locationAction: LocationAction
   ): Location {
     return {
@@ -970,6 +972,7 @@ export class OrchestratorService {
   }
 
   private getLocationAction(taskData: any, position: 'start' | 'end'): LocationAction {
+    const isToQuarantine = taskData.destinationQuarantineLocationId;
     const isInventoryToStation = taskData.sourceInventoryId && taskData.destinationStationId;
     const isInventoryToWaitLocation = taskData.sourceInventoryId && taskData.destinationWaitingLocationId;
     const isStationToStation = taskData.sourceStationId && taskData.destinationStationId;
@@ -993,6 +996,7 @@ export class OrchestratorService {
     if (isToEmptyLocation) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
     if (isInventoryToInventory) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
     if (isWaitingToWaiting) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.NOP_PAUSE;
+    if (isToQuarantine) return position === 'start' ? LocationAction.NOP_RESUME : LocationAction.DROP;
 
     // Default fallback
     return LocationAction.NOP_PAUSE;
