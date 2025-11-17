@@ -346,9 +346,11 @@ export class StationsService {
     for (const task of tasks){
       let robot_id : string | null = null;
       let robot_task : Task | null = null;
+      let source_location_id: string | null = null;
       if (task.end_location.location_attribute.attribute_value=='station' && task.end_location.location_id==station_id){
         robot_id = task.robot_id;
         robot_task = task;
+        source_location_id = task.origin_location;
         const station = await this.stationRepository.findOne({
           where: { station_id },
           relations: ['gtpLocations']
@@ -384,7 +386,8 @@ export class StationsService {
         results.push({
           robot_id: robot_id,
           source: robot_task?.start_location.location_id || null,
-          status: status
+          status: status,
+          source_location_id: source_location_id,
         });
       }
     }

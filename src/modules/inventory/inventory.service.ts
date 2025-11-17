@@ -334,9 +334,10 @@ export class InventoryService {
             .createQueryBuilder()
             .update(Inventory)
             .set({ status: LocationStatus.RESERVED })
-            .where("id = :id AND status = :status", {
+            .where("id = :id AND status = :status AND is_active = :is_active", {
                 id: id,
-                status: LocationStatus.AVAILABLE
+                status: LocationStatus.AVAILABLE,
+                is_active: true
             })
             .execute();
 

@@ -420,10 +420,11 @@ export class OrdersService {
       order: { created_at: 'DESC' }
     });
     try{
-      if (task){await this.orchestrationService.CancelTask(task);}
-    }catch{}
+      if (task && task.status !== TaskStatus.CANCELLED && task.status !== TaskStatus.COMPLETED){await this.orchestrationService.CancelTask(task);}
+    }catch{return;}
     await this.productRequirementRepository.delete({ source_location_id: orderItem.source_location_id });
     if (!task) { return ; }
+    if (task.status === TaskStatus.CANCELLED || task.status === TaskStatus.COMPLETED){ return ; }
     if (!task.processing && task.start_location.location_attribute.attribute_value === 'inventory'){
         // make the inventory available
         await this.inventoryService.setInventoryAvailable(task.origin_location);
