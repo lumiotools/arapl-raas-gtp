@@ -407,4 +407,15 @@ export class InventoryService {
     inventory.is_empty = false;
     await this.inventoryRepository.save(inventory);
   }
+
+  async removeInventoryFromEmpty(inventoryId: string): Promise<void> {
+    const inventory = await this.inventoryRepository.findOne({
+      where: { id: inventoryId },
+    });
+    if (!inventory){
+      throw new BadRequestException("Inventory not found");
+    }
+    inventory.is_empty = false;
+    await this.inventoryRepository.save(inventory);
+  }
 }

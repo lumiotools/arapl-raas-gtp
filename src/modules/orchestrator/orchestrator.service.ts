@@ -869,7 +869,7 @@ export class OrchestratorService {
     }
   }
 
-  private async createTask(taskData: {
+  async createTask(taskData: {
     batchId: string;
     originLocation?: string;
     sourceInventoryId?: string;

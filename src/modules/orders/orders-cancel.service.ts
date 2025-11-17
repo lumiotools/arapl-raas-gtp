@@ -99,6 +99,64 @@ export class OrdersCancelService {
           await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
           return await this.orchestrationService.handleErroneousTask(taskId);
         }
+        else if (reason=== 'back_to_inventory'){
+          const destionation_location_type = task.end_location.location_attribute.attribute_value;
+          if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION && !task.processing){
+            // pickup has not been done yet - throw the exception
+            throw new BadRequestException(`Pallet has not been picked up - cannot return to inventory`);
+          }
+          else if (destionation_location_type === 'inventory'){
+            throw new BadRequestException(`Task is already moving to inventory`);
+          }
+          else {
+            // cancel the current task
+            try{
+              await this.orchestrationService.CancelTask(task);
+            }
+            catch { throw new BadRequestException(`Task with id ${taskId} could not be cancelled`); }
+            task.status = TaskStatus.CANCELLED;
+            await this.taskRepository.save(task);
+            await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
+
+            
+
+            // create a new task to move back to inventory
+            const [task_id, newTask] = await this.orchestrationService.createTask({
+              batchId: task.batch_id,
+              originLocation: task.origin_location,
+              sourceInventoryId: task.origin_location,
+              destinationInventoryId: task.origin_location,
+              taskType: TaskType.GOODS_TO_PERSON,
+              robotId: task.robot_id,
+              move_type: MOVE_TYPE.INVENTORY_TO_INVENTORY,
+              sequenceOrder: task.sequence_order+1,
+              taskDependency: task.task_id,
+            }); 
+            if (!newTask){
+              throw new BadRequestException(`Could not create task to move back to inventory`);
+            }
+
+            // cancel the order Items
+            if (destionation_location_type ==='station'){
+              const station_id = task.end_location.location_id;
+              const orderItems = await this.orderItemRepository.find({where: {source_location_id: task.origin_location, status: OrderItemStatus.IN_PROGRESS }});
+              for (const orderItem of orderItems){
+                  orderItem.status = OrderItemStatus.CANCELLED;
+                  await this.orderItemRepository.save(orderItem);
+                  // remove the product requirement
+                  await this.productRequirementRepository.delete({source_location_id: orderItem.source_location_id, station_id: station_id});
+              }
+            }
+
+            if (destionation_location_type === 'empty_location'){
+              // release the empty location
+              await this.inventoryService.removeInventoryFromEmpty(task.origin_location);
+            }
+
+
+            await this.orchestrationService.sendSingleTaskToWms(newTask);
+          }
+        }
     }
   }
 }
