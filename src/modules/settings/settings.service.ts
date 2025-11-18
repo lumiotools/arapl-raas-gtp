@@ -6,12 +6,13 @@ import { Settings } from 'src/entities/settings.entity';
 import { In, Repository } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
-import { LocationAction, RobotCount, Task, TaskStatus, TaskType } from 'src/entities';
+import { Inventory, LocationAction, RobotCount, Station, Task, TaskStatus, TaskType, WaitingLocation } from 'src/entities';
 import { MOVE_TYPE } from 'src/entities/task.entity';
 import { isIn } from 'class-validator';
 import { Robot, RobotStatus } from 'src/entities/robots.entity';
 import { LoggingService } from 'src/services/logging.service';
 import { OperationType } from 'src/entities/robot-count.entity';
+import { EmptyLocation } from 'src/entities/empty-location.entity';
 
 @Injectable()
 export class SettingsService {
@@ -25,6 +26,14 @@ export class SettingsService {
     private robotRepository: Repository<Robot>,
     @InjectRepository(RobotCount)
     private robotCountRepository: Repository<RobotCount>,
+    @InjectRepository(Station)
+    private stationsRepository: Repository<Station>,
+    @InjectRepository(Inventory)
+    private inventoryRepository: Repository<Inventory>,
+    @InjectRepository(EmptyLocation)
+    private emptyLocationRepository: Repository<EmptyLocation>,
+    @InjectRepository(WaitingLocation)
+    private waitingLocationRepository: Repository<WaitingLocation>,
     private readonly loggingService: LoggingService,
   ){}
   create(createSettingDto: CreateSettingDto) {
@@ -63,11 +72,30 @@ export class SettingsService {
           order: { created_at: 'DESC' }
         });
       }
+      let end_location:any = null;
+      const destination_type: string | undefined = robot_task?.end_location.location_attribute?.attribute_value;
+      if (robot_task && destination_type && destination_type === 'station'){
+        end_location = await this.stationsRepository.findOne({
+          where: { station_id : robot_task.end_location.location_id },
+        });
+      } else if (robot_task && destination_type && (destination_type === 'inventory' || destination_type === 'quarantine')){
+        end_location = await this.inventoryRepository.findOne({
+          where: { id : robot_task.end_location.location_id },
+        });
+      } else if (robot_task && destination_type && destination_type === 'empty_location'){
+        end_location = await this.emptyLocationRepository.findOne({
+          where: { location_id : robot_task.end_location.location_id },
+        });
+      } else if (robot_task && destination_type && destination_type === 'waiting_location'){
+        end_location = await this.waitingLocationRepository.findOne({
+          where: { location_id : robot_task.end_location.location_id },
+        });
+      }
       res.push({
         'id': robot.robot_id,
         'robot_name': robot.robot_name || robot.robot_id,
         'status': robot.status,
-        'travel_status': robot_task ? ((robot_task.status === TaskStatus.PROCESSING || robot_task.status === TaskStatus.INQUEUE) ? `MOVING TO ${robot_task.end_location.location_id}` : (robot_task.status === TaskStatus.COMPLETED ? `REACHED ${robot_task.end_location.location_id}` : `ERROR`)) : (robot.status === RobotStatus.ONLINE ? '-' : 'INACTIVE'),
+        'travel_status': robot_task ? ((robot_task.status === TaskStatus.PROCESSING || robot_task.status === TaskStatus.INQUEUE) ? `MOVING TO ${end_location.location_name}` : (robot_task.status === TaskStatus.COMPLETED ? `REACHED ${end_location.location_name}` : `ERROR`)) : (robot.status === RobotStatus.ONLINE ? '-' : 'INACTIVE'),
         'current_status_time': robot.updated_at ? (Date.now() - new Date(robot.updated_at).getTime()) / 1000 : 0,
         'reason': robot.message_code ? robot.message_code : null
       });
