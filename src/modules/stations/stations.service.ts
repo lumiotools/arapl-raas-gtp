@@ -10,6 +10,7 @@ import { MOVE_TYPE, TaskStatus, TaskType } from 'src/entities/task.entity';
 import { firstValueFrom } from 'rxjs';
 import { ConflictError } from 'groq-sdk';
 import { LoggingService } from 'src/services/logging.service';
+import { Robot } from 'src/entities/robots.entity';
 
 @Injectable()
 export class StationsService {
@@ -25,6 +26,8 @@ export class StationsService {
     private readonly orderItemRepository: Repository<OrderItem>,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
+    @InjectRepository(Robot)
+    private readonly robotRepository: Repository<Robot>,
     private readonly loggingService: LoggingService,
   ) {}
 
@@ -378,8 +381,11 @@ export class StationsService {
         }
         console.log(`status: ${status}`)
         if (!robot_id){continue;}
+        const robot  = await this.robotRepository.findOne({ where: { robot_id } });
+        if (!robot){continue;}
         results.push({
-          robot_id: robot_id,
+          robot_name: robot.robot_name,
+          robot_id: robot.robot_id,
           source: robot_task?.start_location.location_id || null,
           status: status,
           source_location_id: source_location_id,

@@ -218,4 +218,39 @@ export class OrdersCancelService {
         }
     }
   }
+
+  async precancel(taskId ?: string, orderItemId ?: number, reason: 'retry' | 'reassign' | 'back_to_inventory' | 'just_cancel' = 'retry', quarantine_location_id?: string){
+    if (!taskId && !orderItemId) {
+      throw new BadRequestException('Either taskId or orderItemId must be provided');
+    }
+    if (taskId){
+        const task = await this.taskRepository.findOne({where: {task_id: taskId}, relations: ['orderItems']});
+        if (!task) { throw new NotFoundException(`Task with id ${taskId} not found`); }
+        if (reason === 'just_cancel'){
+          // no precondition is there for now.
+        }
+        else if (reason === 'retry'){
+          if (task.status === TaskStatus.CANCELLED || task.status === TaskStatus.COMPLETED){
+            throw new BadRequestException(`Task with id ${taskId} is already ${task.status} and cannot be retried`);
+          }
+        }
+        else if (reason=== 'back_to_inventory'){
+          const destionation_location_type = task.end_location.location_attribute.attribute_value;
+          if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION && !task.processing){
+            // pickup has not been done yet - throw the exception
+            throw new BadRequestException(`Pallet has not been picked up - cannot return to inventory`);
+          }
+          else if (destionation_location_type === 'inventory'){
+            throw new BadRequestException(`Task is already moving to inventory`);
+          }
+        }
+        else if (reason === 'reassign'){
+          if (!quarantine_location_id){
+            throw new BadRequestException(`Quarantine Location ID must be provided for reassignment`);
+          }
+        }
+        
+      }
+    
+  }
 }

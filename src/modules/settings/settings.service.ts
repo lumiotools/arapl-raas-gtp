@@ -59,21 +59,21 @@ export class SettingsService {
       let robot_task: Task | null = null;
       if (robot.status === RobotStatus.INUSE){
         robot_task = await this.taskRepository.findOne({
-          where: { robot_id: robot.robot_id, status: In([TaskStatus.PROCESSING, TaskStatus.COMPLETED]) },
+          where: { robot_id: robot.robot_id },
           order: { created_at: 'DESC' }
         });
       }
       res.push({
         'id': robot.robot_id,
+        'robot_name': robot.robot_name || robot.robot_id,
         'status': robot.status,
-        'travel_status': robot_task ? (robot_task.status === TaskStatus.PROCESSING ? `MOVING TO ${robot_task.end_location.location_id}` : (robot_task.status === TaskStatus.COMPLETED ? `REACHED ${robot_task.end_location.location_id}` : `IDLE`)) : (robot.status === RobotStatus.ONLINE ? '-' : 'INACTIVE'),
+        'travel_status': robot_task ? ((robot_task.status === TaskStatus.PROCESSING || robot_task.status === TaskStatus.INQUEUE) ? `MOVING TO ${robot_task.end_location.location_id}` : (robot_task.status === TaskStatus.COMPLETED ? `REACHED ${robot_task.end_location.location_id}` : `ERROR`)) : (robot.status === RobotStatus.ONLINE ? '-' : 'INACTIVE'),
         'current_status_time': robot.updated_at ? (Date.now() - new Date(robot.updated_at).getTime()) / 1000 : 0,
         'reason': robot.message_code ? robot.message_code : null
       });
     }
     return res;
   }
-
   async updateRobot(robotId: string, status: RobotStatus, reason: string|null) {
     try{
       const robot = await this.robotRepository.findOne({ where: { robot_id: robotId } });

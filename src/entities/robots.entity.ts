@@ -22,6 +22,9 @@ export class Robot extends BaseEntity {
     @PrimaryColumn({ type: 'varchar', length: 50 })
     robot_id: string;
 
+    @Column({ type: 'varchar', length: 100, unique: true, nullable: true })
+    robot_name: string;
+
     @Column({ type: 'enum', enum: RobotStatus, default: RobotStatus.ONLINE })
     status: RobotStatus;
 

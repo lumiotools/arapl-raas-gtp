@@ -445,4 +445,15 @@ export class OrdersController {
   ) {
     return await this.ordersCancelService.cancel(task_id, order_item_id, reason, quarantine_location_id);
   }
+
+  @Patch('pre-cancel')
+  @HttpCode(HttpStatus.OK)
+  async preCancel(
+    @Query('task_id') task_id?: string,
+    @Query('order_item_id') order_item_id?: number,
+    @Query('quarantine_location_id') quarantine_location_id?: string,
+    @Query('reason') reason: 'retry' | 'reassign' | 'back_to_inventory' | 'just_cancel' = 'retry',
+  ) {
+    return await this.ordersCancelService.precancel(task_id, order_item_id, reason, quarantine_location_id);
+  }
 }

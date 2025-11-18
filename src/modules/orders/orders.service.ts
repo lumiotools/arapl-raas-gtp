@@ -19,6 +19,7 @@ import { OrchestratorService } from '../orchestrator/orchestrator.service';
 import { MOVE_TYPE } from 'src/entities/task.entity';
 import { InventoryService } from '../inventory/inventory.service';
 import { WebhookService } from '../webhook/webhook.service';
+import { Robot } from 'src/entities/robots.entity';
 
 interface LicensePlateStats{
   license_plate_id: string;
@@ -56,6 +57,8 @@ export class OrdersService {
     private taskRepository: Repository<Task>,
     @InjectRepository(ProductRequirement)
     private productRequirementRepository: Repository<ProductRequirement>,
+    @InjectRepository(Robot)
+    private robotRepository: Repository<Robot>,
     private readonly orchestrationService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly inventoryService: InventoryService,
@@ -293,6 +296,13 @@ export class OrdersService {
       const robotIds = Array.isArray(completedTasks) 
         ? Array.from(new Set(completedTasks.map(task => task.robot_id).filter(id => id))) 
         : [];
+      const robot_names: string[] = [];
+      for (const robot_id of robotIds){
+        const robot  = await this.robotRepository.findOne({ where: { robot_id } });
+        if (robot && robot.robot_name){
+          robot_names.push(robot.robot_name);
+        }
+      }
       
       let totalUnloadingTime = 0;
       let wait_time = 0;
@@ -322,7 +332,7 @@ export class OrdersService {
         source_location_id: order.source_location_id,
         destination_station_id: station_id,
         status: order.status,
-        robot_ids: robotIds,
+        robot_ids: robot_names,
         total_unloading_time: totalUnloadingTime,
         start_time: start_time,
         end_time: end_time,

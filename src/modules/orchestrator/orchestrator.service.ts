@@ -68,6 +68,7 @@ export interface TaskDetails{
   fms_batch_id?: string | null;
   origin_location: string;
   robot_id: string;
+  robot_name: string;
   move_type: MOVE_TYPE;
   status: TaskStatus;
   start_location_id: string;
@@ -2238,6 +2239,7 @@ export class OrchestratorService {
       if (!res[robotId]) {
         res[robotId] = {
           totalTasks: filteredTasks.length,
+          robot_name: repoRobot.robot_name || robotId,
           travel_time: [],
           wait_time: [],
           unloading_time: {},
@@ -2566,6 +2568,8 @@ export class OrchestratorService {
     }
     console.log(`first task: ${JSON.stringify(TaskItems[0])}`);
     for (const task of TaskItems) {
+      const robot = await this.robotRepository.findOne({ where: { robot_id: task.robot_id } });
+      if (!robot) {continue;}
       const taskDetails: TaskDetails = {
         task_id: task.task_id,
         display_task_id: task.display_task_id,
@@ -2575,6 +2579,7 @@ export class OrchestratorService {
         move_type: task.move_type,
         status: task.status,
         robot_id: task.robot_id,
+        robot_name: robot.robot_name || task.robot_id,
         start_location_id: task.start_location.location_id,
         end_location_id: task.end_location.location_id,
         start_location_attribute_value: task.start_location.location_attribute?.attribute_value || '',
@@ -2813,11 +2818,15 @@ export class OrchestratorService {
       
     }
 
+    const robot = await this.robotRepository.findOne({where: {robot_id: robotId}});
+    if (!robot) { return; }
+
     return {
       "success": true,
       "message": "Robot status retrieved successfully",
       "data": {
         "current_task": currentTask,
+        "robot_name": robot.robot_name || robot.robot_id,
         "inventory": inventory_info,
         "station_info": station_info,
         "gtp_location_mappings": gtp_location_mapping,

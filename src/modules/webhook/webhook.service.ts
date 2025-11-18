@@ -114,13 +114,14 @@ export class WebhookService {
   
     task.status = mappedStatus;
     task.robot_id = taskStatusData.robot_id || null;
+    const robot_name = taskStatusData.robot_name || null;
     task.fms_batch_id = fms_batch_id;
-    if (task.robot_id){
-      await this.addRobotIfNotExists(task.robot_id, task.task_type);
+    if (task.robot_id && robot_name){
+      await this.addRobotIfNotExists(task.robot_id, task.task_type, robot_name);
       if (task.end_location.location_action === LocationAction.DROP && mappedStatus === TaskStatus.COMPLETED) {
         await this.updateRobotUsage(task.robot_id, false);
       }
-      else{ this.updateRobotUsage(task.robot_id, true); }
+      else{ await this.updateRobotUsage(task.robot_id, true); }
     }
     
     const currentTime = new Date();
@@ -500,13 +501,14 @@ export class WebhookService {
     }
   }
 
-  private async addRobotIfNotExists(robotId: string, taskType: TaskType): Promise<void> {
+  private async addRobotIfNotExists(robotId: string, taskType: TaskType, robotName: string): Promise<void> {
     try {
       const existingRobot = await this.robotRepository.findOne({ where: { robot_id: robotId } });
       if (!existingRobot) {
         const newRobot = new Robot();
         newRobot.robot_id = robotId;
         newRobot.task_type = taskType;
+        newRobot.robot_name = robotName;
         await this.robotRepository.save(newRobot);
         this.logger.log(`Added new robot ${robotId} of type ${taskType} to the system.`);
         await this.loggingService.log(`Added new robot ${robotId} of type ${taskType} to the system.`, taskType, null, null);
