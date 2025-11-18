@@ -37,81 +37,82 @@ export class EmptyLocationsService {
   }
 
   async getAllWmsEmtpy(){
-    try{
-      const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
-      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
-      console.log(`Fetching WMS locations from ${wms_base_url}`);
-      const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=empty&location_type=empty`, {
-        method: 'GET',
-        headers: {
-          'authorization': `${warehosue_key}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      const data = await response.json();
-      console.log(`response: ${JSON.stringify(data)}`);
-      return data;
-    }catch{
-      throw new BadRequestException('Failed to fetch WMS stations');
-    }
+    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+    const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
+    console.log(`Fetching WMS locations from ${wms_base_url}`);
+    const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=empty&location_type=empty`, {
+      method: 'GET',
+      headers: {
+        'authorization': `${warehosue_key}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    const data = await response.json();
+    console.log(`response: ${JSON.stringify(data)}`);
+    return data;
   }
 
   async findAll() {
-    const empty_object = (await this.getAllWmsEmtpy());
-    const empty_bin_locations = empty_object.available_location_types || [];
-    const bin_ids = empty_bin_locations.map(bin => bin.location_id);
-    const allEmptyLocations: any[] = await this.emptyLocationRepository.find();
+    try{
+      const empty_object = (await this.getAllWmsEmtpy());
+      const empty_bin_locations = empty_object.available_location_types || [];
+      const bin_ids = empty_bin_locations.map(bin => bin.location_id);
+      const allEmptyLocations: any[] = await this.emptyLocationRepository.find();
 
-    // find bin_ids that are not in allEmptyLocations
-    const missingBinIds = bin_ids.filter(id => !allEmptyLocations.some(location => location.location_id === id));
-    let priority = 1;
-    for (const missingId of missingBinIds) {
-      await this.create({
-        location_id: missingId,
-        location_name: empty_bin_locations.filter(bin => bin.location_id === missingId)[0].customer_location_id,
-        is_active: true,
-        priority: priority++
+      // find bin_ids that are not in allEmptyLocations
+      const missingBinIds = bin_ids.filter(id => !allEmptyLocations.some(location => location.location_id === id));
+      let priority = 1;
+      for (const missingId of missingBinIds) {
+        await this.create({
+          location_id: missingId,
+          location_name: empty_bin_locations.filter(bin => bin.location_id === missingId)[0].customer_location_id,
+          is_active: true,
+          priority: priority++
+        });
+      }
+      // find allEmptyLocations ids that are not in bin_ids
+      const existingEmptyLocationIds = allEmptyLocations.map(location => location.location_id);
+      const missingEmptyLocationIds = existingEmptyLocationIds.filter(id => !bin_ids.includes(id));
+      if (missingEmptyLocationIds.length > 0) {
+        // await this.waitingLocationRepository.delete(missingWaitingLocationIds);
+        for (const id of missingEmptyLocationIds) {
+          // await this.remove(id);
+          this.emptyLocationRepository.update(
+            { location_id: id },
+            { is_active: false }
+          );
+        }
+      }
+
+      // find intersecting location IDs
+      const intersectingLocationIds = bin_ids.filter(id => existingEmptyLocationIds.includes(id));
+      for (const id of intersectingLocationIds) {
+        const emptyLocation = allEmptyLocations.filter(location => location.location_id === id)[0];
+        if (emptyLocation.is_active === false) {
+          await this.emptyLocationRepository.update(
+            { location_id: id },
+            { is_active: true }
+          );
+        }
+      }
+      const recentTasks = await this.taskRepository.find({
+        where: { move_type: In([MOVE_TYPE.STATION_TO_EMPTY_LOCATION, MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION, MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION]) }, order: {created_at: 'DESC'}
       });
-    }
-    // find allEmptyLocations ids that are not in bin_ids
-    const existingEmptyLocationIds = allEmptyLocations.map(location => location.location_id);
-    const missingEmptyLocationIds = existingEmptyLocationIds.filter(id => !bin_ids.includes(id));
-    if (missingEmptyLocationIds.length > 0) {
-      // await this.waitingLocationRepository.delete(missingWaitingLocationIds);
-      for (const id of missingEmptyLocationIds) {
-        // await this.remove(id);
-        this.emptyLocationRepository.update(
-          { location_id: id },
-          { is_active: false }
-        );
+      const currentEmptyLocations: any[] = await this.emptyLocationRepository.find();
+      for (let i = 0; i < currentEmptyLocations.length; i++) {
+        currentEmptyLocations[i].current_pallet = null;
+        const requiredTask = recentTasks.find(task => task.end_location.location_id === currentEmptyLocations[i].location_id);
+        if (!requiredTask || currentEmptyLocations[i].status === LocationStatus.AVAILABLE) {
+          continue;
+        }
+        currentEmptyLocations[i].current_pallet = requiredTask.cargos ? requiredTask?.cargos[0]?.cargo_code : null;
       }
+      return currentEmptyLocations;
+    }catch{
+      throw new BadRequestException('Failed to fetch WMS empty locations');
     }
-
-    // find intersecting location IDs
-    const intersectingLocationIds = bin_ids.filter(id => existingEmptyLocationIds.includes(id));
-    for (const id of intersectingLocationIds) {
-      const emptyLocation = allEmptyLocations.filter(location => location.location_id === id)[0];
-      if (emptyLocation.is_active === false) {
-        await this.emptyLocationRepository.update(
-          { location_id: id },
-          { is_active: true }
-        );
-      }
-    }
-    const recentTasks = await this.taskRepository.find({
-      where: { move_type: In([MOVE_TYPE.STATION_TO_EMPTY_LOCATION, MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION, MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION]) }, order: {created_at: 'DESC'}
-    });
-    const currentEmptyLocations: any[] = await this.emptyLocationRepository.find();
-    for (let i = 0; i < currentEmptyLocations.length; i++) {
-      currentEmptyLocations[i].current_pallet = null;
-      const requiredTask = recentTasks.find(task => task.end_location.location_id === currentEmptyLocations[i].location_id);
-      if (!requiredTask || currentEmptyLocations[i].status === LocationStatus.AVAILABLE) {
-        continue;
-      }
-      currentEmptyLocations[i].current_pallet = requiredTask.cargos ? requiredTask?.cargos[0]?.cargo_code : null;
-    }
-    return currentEmptyLocations;
+    
   }
 
   async reserveEmptyLocation(location_id: string): Promise<boolean> {

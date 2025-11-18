@@ -204,22 +204,18 @@ export class InventoryService {
   }
 
   async getAllInventoryLocations(){
-    try{
-      const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
-      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
-      const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=inventory&location_type=inventory`, {
-        method: 'GET',
-        headers: {
-          'authorization': `${warehosue_key}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      const data = await response.json();
-      return data;
-    }catch{
-      throw new BadRequestException('Failed to fetch WMS inventory locations');
-    }
+    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+    const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
+    const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=inventory&location_type=inventory`, {
+      method: 'GET',
+      headers: {
+        'authorization': `${warehosue_key}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    const data = await response.json();
+    return data;
   }
 
 

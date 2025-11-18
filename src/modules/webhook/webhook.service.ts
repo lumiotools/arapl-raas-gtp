@@ -92,9 +92,13 @@ export class WebhookService {
       return;
     }
 
-    task.robot_id = taskStatusData.robot_id || null;
-    if (task.robot_id){
-      await this.taskRepository.save(task);
+    // task.robot_id = taskStatusData.robot_id || null;
+    // if (task.robot_id){
+    //   await this.taskRepository.save(task);
+    // }
+    if (mappedStatus === TaskStatus.INQUEUE && !taskStatusData.robot_id){
+      this.logger.log(`Skipping INQUEUE status update for task ${taskStatusData.task_id} as no robot_id provided in webhook`);
+      return;
     }
     
 
@@ -197,7 +201,7 @@ export class WebhookService {
           );
         }
 
-        if (destinationType === 'inventory'){
+        if (destinationType === 'inventory' || destinationType === 'quarantine'){
           await this.orchestratorService.decrementRobotInUse();
           await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
         }
