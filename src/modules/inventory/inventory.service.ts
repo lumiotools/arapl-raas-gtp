@@ -423,7 +423,7 @@ export class InventoryService {
     existingInventory.is_active = true;
     existingInventory.is_empty = false;
     existingInventory.barcode_number = barcode_number;
-    existingInventory.status = LocationStatus.OCCUPIED;
+    existingInventory.status = LocationStatus.AVAILABLE;
     existingInventory.is_quarantine = true;
     existingInventory.isProcessing = true;
     await this.inventoryRepository.save(existingInventory);
