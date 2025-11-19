@@ -1415,11 +1415,11 @@ export class OrchestratorService {
     const originalInventoryId = completedTask.origin_location;
     const nextSequenceOrder = completedTask.sequence_order + 1;
 
-    const reserved = await this.inventoryService.reserveInventory(originalInventoryId);
-    if (!reserved) {
-      this.logger.error(`Failed to reserve inventory ${originalInventoryId} for task ${completedTask.task_id}`);
-      return;
-    }
+    // const reserved = await this.inventoryService.reserveInventory(originalInventoryId);
+    // if (!reserved) {
+    //   this.logger.error(`Failed to reserve inventory ${originalInventoryId} for task ${completedTask.task_id}`);
+    //   return;
+    // }
 
     // Create return task only if there's quantity to return or to complete the batch workflow
     const [returnTaskId, returnTask] = await this.createTask({
@@ -1627,11 +1627,11 @@ export class OrchestratorService {
                 where: { id: firstTask?.start_location?.location_id}
               });
               if (firstTask && lastTask && inventory && inventory.status === LocationStatus.AVAILABLE) {
-                const reserved = await this.inventoryService.reserveInventory(inventory.id);
-                if (!reserved) {
-                  this.logger.warn(`Inventory ${inventory.id} couldn't be reserved.`);
-                  continue;
-                }
+                // const reserved = await this.inventoryService.reserveInventory(inventory.id);
+                // if (!reserved) {
+                //   this.logger.warn(`Inventory ${inventory.id} couldn't be reserved.`);
+                //   continue;
+                // }
                 const [newTaskID, newTask] = await this.createTask({
                   batchId: lastTask.batch_id,
                   originLocation: lastTask.origin_location,
@@ -2891,9 +2891,9 @@ export class OrchestratorService {
     }
     else if (task.move_type === MOVE_TYPE.STATION_TO_INVENTORY){
       const destinationLocation = task.end_location.location_id;
-      if (!await this.inventoryService.reserveInventory(destinationLocation)){
-        throw new BadRequestException(`Destination location for this task is not available right now.`);
-      }
+      // if (!await this.inventoryService.reserveInventory(destinationLocation)){
+      //   throw new BadRequestException(`Destination location for this task is not available right now.`);
+      // }
       const task_obj = {
         batchId: task.batch_id,
         originLocation: task.origin_location,

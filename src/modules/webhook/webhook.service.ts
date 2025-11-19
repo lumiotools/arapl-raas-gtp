@@ -254,14 +254,14 @@ export class WebhookService {
     return mapped;
   }
 
-  private async releaseProcessingInventory(inventoryLocationId: any): Promise<void> {
+  private async releaseProcessingInventory(inventoryLocationId: any, attributeValue?: string): Promise<void> {
 
     await this.inventoryRepository.update(
       { 
         id: inventoryLocationId,
       },
       {
-        isProcessing: true,
+        isProcessing: attributeValue === 'quarantine' ? false: true,
         status: LocationStatus.AVAILABLE,
       }
     );
@@ -340,11 +340,7 @@ export class WebhookService {
     try {
       // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
       if ((newStatus === TaskStatus.PROCESSING || newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
-        await this.releaseProcessingInventory(task.start_location.location_id);
-        if (newStatus === TaskStatus.PROCESSING){
-          await this.orchestratorService.unmarkSystemAsWaiting();
-          await this.loggingService.log(`Task ${task.task_id}: System removed from waiting state.`, task.task_type, task.task_id, null);
-        }
+        await this.releaseProcessingInventory(task.start_location.location_id, task.start_location.location_attribute?.attribute_value);
       }
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
           await this.updateInventoryWithTaskQuantity(task);
@@ -357,7 +353,7 @@ export class WebhookService {
 
   private isTaskFromInventory(task: Task): boolean {
     // Check if start_location has inventory attribute
-    return task.start_location?.location_attribute?.attribute_value === 'inventory';
+    return task.start_location?.location_attribute?.attribute_value === 'inventory' || task.start_location?.location_attribute?.attribute_value === 'quarantine';
   }
 
   private isTaskToInventory(task: Task): boolean {
