@@ -329,10 +329,10 @@ export class InventoryService {
         const result = await queryRunner.manager
             .createQueryBuilder()
             .update(Inventory)
-            .set({ status: LocationStatus.RESERVED })
-            .where("id = :id AND status = :status AND is_active = :is_active", {
+            .set({ isProcessing: true })
+            .where("id = :id AND isProcessing = :isProcessing AND is_active = :is_active", {
                 id: id,
-                status: LocationStatus.AVAILABLE,
+                isProcessing: false,  // Parameter name can stay camelCase
                 is_active: true
             })
             .execute();
@@ -342,7 +342,7 @@ export class InventoryService {
             await queryRunner.rollbackTransaction();
             return false;
         }
-
+        console.log(`result: ${JSON.stringify(result)}`);
         await queryRunner.commitTransaction();
         return true;
 

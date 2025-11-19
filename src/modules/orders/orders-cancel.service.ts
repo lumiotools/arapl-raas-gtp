@@ -174,6 +174,7 @@ export class OrdersCancelService {
           if (!quarantine_location_id){
             throw new BadRequestException(`Quarantine Location ID must be provided for reassignment`);
           }
+          console.log(`Reserving inventory for Quarantine Location ID ${quarantine_location_id} for reassignment of Task ID ${taskId}`);
           if (await this.inventoryService.reserveInventory(quarantine_location_id) === false){
             throw new BadRequestException(`Failed to reserve inventory for Quarantine Location ID ${quarantine_location_id}`);
           }
@@ -184,7 +185,7 @@ export class OrdersCancelService {
             await this.inventoryService.makeInventoryAvailable(quarantine_location_id);
             throw new BadRequestException(`Task with id ${taskId} could not be cancelled`); 
           }
-          await this.inventoryService.makeInventoryProcessing(quarantine_location_id);
+          // await this.inventoryService.makeInventoryProcessing(quarantine_location_id);
           const orderItems = await this.orderItemRepository.find({
             where: {
               source_location_id: task.origin_location,

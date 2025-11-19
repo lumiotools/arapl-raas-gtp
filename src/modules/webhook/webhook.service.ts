@@ -169,7 +169,7 @@ export class WebhookService {
     // Handle waiting location updates
     await this.handleWaitingLocationStatusUpdates(task, mappedStatus);
 
-    await this.handleCancelledUpdateds(task, mappedStatus);
+    await this.handleCancelledUpdateds(task, mappedStatus); 
 
     // Handle task completion based on destination type
     if (mappedStatus === TaskStatus.COMPLETED) {
@@ -261,7 +261,7 @@ export class WebhookService {
         id: inventoryLocationId,
       },
       {
-        isProcessing: attributeValue === 'quarantine' ? false: true,
+        isProcessing: true,
         status: LocationStatus.AVAILABLE,
       }
     );
@@ -333,6 +333,13 @@ export class WebhookService {
         destinationEmptyLocation.status = LocationStatus.AVAILABLE;
         await this.emptyLocationRepository.save(destinationEmptyLocation);
       }
+    }else if (task.move_type===MOVE_TYPE.TO_QUARANTINE){
+      const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id } });
+      if (destinationInventoryLocation){
+        destinationInventoryLocation.status = LocationStatus.AVAILABLE;
+        destinationInventoryLocation.isProcessing = false;
+        await this.inventoryRepository.save(destinationInventoryLocation);
+      }
     }
   }
 
@@ -340,7 +347,7 @@ export class WebhookService {
     try {
       // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
       if ((newStatus === TaskStatus.PROCESSING || newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
-        await this.releaseProcessingInventory(task.start_location.location_id, task.start_location.location_attribute?.attribute_value);
+        // await this.releaseProcessingInventory(task.start_location.location_id, task.start_location.location_attribute?.attribute_value);
       }
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
           await this.updateInventoryWithTaskQuantity(task);
@@ -358,7 +365,7 @@ export class WebhookService {
 
   private isTaskToInventory(task: Task): boolean {
     // Check if end_location has inventory attribute
-    return task.end_location?.location_attribute?.attribute_value === 'inventory';
+    return task.end_location?.location_attribute?.attribute_value === 'inventory' || task.end_location?.location_attribute?.attribute_value === 'quarantine';
   }
 
   private async updateInventoryWithTaskQuantity(task: Task): Promise<void> {
@@ -375,7 +382,7 @@ export class WebhookService {
       },
       {
         status: LocationStatus.AVAILABLE,
-        isProcessing: false,
+        isProcessing: inventory.is_quarantine ? true: false,
         holded_by: null,
       }
     );
