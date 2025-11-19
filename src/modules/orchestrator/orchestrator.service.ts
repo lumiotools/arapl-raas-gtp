@@ -330,29 +330,29 @@ export class OrchestratorService {
   }
 
   async markSystemAsWaiting(): Promise<void> {
-    const queryRunner = this.robotCountRepository.manager.connection.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    // const queryRunner = this.robotCountRepository.manager.connection.createQueryRunner();
+    // await queryRunner.connect();
+    // await queryRunner.startTransaction();
     
-    try {
-      const robots = await queryRunner.manager.find(RobotCount, {
-        where: { operation_type: OperationType.FLOWOPS }
-      });
-      if (robots.length === 0) {
-      throw new Error('No Robot Entry Found');
-      }
-      await queryRunner.manager.update(
-        RobotCount,
-        { id: robots[0].id, operation_type: OperationType.FLOWOPS },
-        { is_waiting: true }
-      );
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    // try {
+    //   const robots = await queryRunner.manager.find(RobotCount, {
+    //     where: { operation_type: OperationType.FLOWOPS }
+    //   });
+    //   if (robots.length === 0) {
+    //   throw new Error('No Robot Entry Found');
+    //   }
+    //   await queryRunner.manager.update(
+    //     RobotCount,
+    //     { id: robots[0].id, operation_type: OperationType.FLOWOPS },
+    //     { is_waiting: true }
+    //   );
+    //   await queryRunner.commitTransaction();
+    // } catch (error) {
+    //   await queryRunner.rollbackTransaction();
+    //   throw error;
+    // } finally {
+    //   await queryRunner.release();
+    // }
   }
 
   public async unmarkSystemAsWaiting(): Promise<void> {
