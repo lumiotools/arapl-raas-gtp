@@ -18,6 +18,7 @@ import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationAction } from 'src/entities';
 import { StationsService } from '../stations/stations.service';
+import { InventoryService } from '../inventory/inventory.service';
 
 @Injectable()
 export class WebhookService {
@@ -46,6 +47,7 @@ export class WebhookService {
     private readonly BaseOpsTaskService: BaseopsTaskService,
 
     private readonly stationService: StationsService,
+    private readonly inventoryService: InventoryService,
   ) {}
 
   async processWebhook(webhookData: any): Promise<{ message: string }> {
@@ -202,9 +204,15 @@ export class WebhookService {
           );
         }
 
-        if (destinationType === 'inventory' || destinationType === 'quarantine'){
+        if (destinationType === 'inventory'){
           await this.orchestratorService.decrementRobotInUse();
           await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
+        }
+        if (task.move_type === MOVE_TYPE.TO_QUARANTINE){
+          await this.orchestratorService.decrementRobotInUse();
+          const sourceInventoryId = task.start_location.location_id;
+          await this.inventoryService.occupyQuarantine(task.end_location.location_id, task.cargos[0].cargo_code);
+          // await this.inventoryService.makeInventoryUnavailable(task.origin_location);
         }
       }
     }

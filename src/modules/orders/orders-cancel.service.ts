@@ -167,6 +167,10 @@ export class OrdersCancelService {
           }
         }
         else if (reason === 'reassign'){
+          if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION && !task.processing){
+            // pickup has not been done yet - throw the exception
+            throw new BadRequestException(`Pallet has not been picked up - cannot reassign`);
+          }
           if (!quarantine_location_id){
             throw new BadRequestException(`Quarantine Location ID must be provided for reassignment`);
           }
@@ -245,6 +249,10 @@ export class OrdersCancelService {
           }
         }
         else if (reason === 'reassign'){
+          if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION && !task.processing){
+            // pickup has not been done yet - throw the exception
+            throw new BadRequestException(`Pallet has not been picked up - cannot reassign`);
+          }
           if (!quarantine_location_id){
             throw new BadRequestException(`Quarantine Location ID must be provided for reassignment`);
           }

@@ -415,6 +415,20 @@ export class InventoryService {
     await this.inventoryRepository.save(inventory);
   }
 
+  async occupyQuarantine(id: string, barcode_number: string) {
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
+    if (!existingInventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+    existingInventory.is_active = true;
+    existingInventory.is_empty = false;
+    existingInventory.barcode_number = barcode_number;
+    existingInventory.status = LocationStatus.OCCUPIED;
+    existingInventory.is_quarantine = true;
+    existingInventory.isProcessing = true;
+    await this.inventoryRepository.save(existingInventory);
+  }
+
   async makeInventoryProcessing(id: string) {
     const existingInventory = await this.inventoryRepository.findOne({ where: { id: id } });
     if (!existingInventory) {
