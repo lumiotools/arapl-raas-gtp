@@ -694,6 +694,7 @@ export class OrchestratorService {
       }
       
       console.log(`cancel response: ${JSON.stringify(res)}`);
+      await this.taskRepository.update({ task_id: parking_task.task_id }, { is_gtp_cancelled: true });
       return res;
       
     } catch (error) {
@@ -1521,6 +1522,7 @@ export class OrchestratorService {
   async checkForErrorTasks(){
     const errorTasks = await this.taskRepository.find({
       where: { status: TaskStatus.CANCELLED,
+        is_gtp_cancelled: false,
         updated_at: Between(new Date(Date.now() - 5 * 60 * 1000), new Date(Date.now() - 1 * 60 * 1000)),
         task_type: TaskType.GOODS_TO_PERSON
       },

@@ -150,6 +150,9 @@ export class Task extends BaseEntity {
   @Column({ type: 'timestamptz', precision: 3, nullable: true })
   triggered: Date;
 
+  @Column({ type: 'boolean', default: false })
+  is_gtp_cancelled: boolean;
+
   @ManyToMany(() => OrderItem, (orderItem) => orderItem.completedTasks)
   @JoinTable() // This should be on one side of the ManyToMany relation
   orderItems: Relation<OrderItem[]>;

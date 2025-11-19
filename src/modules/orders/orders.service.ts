@@ -430,8 +430,15 @@ export class OrdersService {
       order: { created_at: 'DESC' }
     });
     try{
-      if (task && task.status !== TaskStatus.CANCELLED && task.status !== TaskStatus.COMPLETED){await this.orchestrationService.CancelTask(task);}
-    }catch{return;}
+      if (task && task.status !== TaskStatus.CANCELLED && task.status !== TaskStatus.COMPLETED){
+        await this.orchestrationService.CancelTask(task);
+        await this.taskRepository.update({ task_id: task.task_id }, { is_gtp_cancelled: true } );
+      }
+    }catch{
+      await this.loggingService.log(`Failed to cancel Task ID ${task?.task_id} related to Order Item ID ${orderItem.order_item_id}`,
+        TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
+      throw new BadRequestException(`Failed to cancel Task ID ${task?.task_id} related to Order Item ID ${orderItem.order_item_id}`);
+    }
     await this.productRequirementRepository.delete({ source_location_id: orderItem.source_location_id });
     if (!task) { return ; }
     if (task.status === TaskStatus.CANCELLED || task.status === TaskStatus.COMPLETED){ return ; }
