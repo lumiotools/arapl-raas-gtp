@@ -765,15 +765,30 @@ export class TaskService implements OnModuleInit {
       },
     });
 
-    for (const task of haultedTasks) {
-      if (!task.end_location) {
-        continue;
+    // Determine the first eligible halted task to process this cycle.
+    const taskToProcess = haultedTasks.find((task) => {
+      // Must have an end location to proceed.
+      if (!task.end_location) return false;
+      // For CROSSDOCK: if this is a DROP_ENTRY_TO_ZONE while its paired ZONE_TO_DROP_ENTRY (same priority) exists, skip it for now.
+      if (
+        task.task_type === TaskType.CROSSDOCK &&
+        task.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE &&
+        haultedTasks.some(
+          (t) =>
+            t.priority === task.priority &&
+            t.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY
+        )
+      ) {
+        return false;
       }
-      if (task.task_type === TaskType.CROSSDOCK) {
-        if(task.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE && haultedTasks.find(t => t.priority === task.priority && t.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY)) continue;
-        await this.processCrossdockTask(task);
+      return true;
+    });
+
+    if (taskToProcess) {
+      if (taskToProcess.task_type === TaskType.CROSSDOCK) {
+        await this.processCrossdockTask(taskToProcess);
       } else {
-        await this.processBaseopsTask(task);
+        await this.processBaseopsTask(taskToProcess);
       }
     }
   }

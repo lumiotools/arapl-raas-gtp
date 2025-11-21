@@ -497,6 +497,8 @@ export class LocationManagerService {
                     console.log(`Created new location ${location.location_id} under zone ${zone_id}`);
                     await this.loggingService.log(`Created new location ${location.location_id} under zone ${zone_id} from FMS sync`, this.taskType, null, null);
                 } else {
+                    existingLocation.row = location.location_row != null ? Number(location.location_row) : existingLocation.row;
+                    existingLocation.column = location.location_column != null ? Number(location.location_column) : existingLocation.column;
                     existingLocation.location_status = location.location_attribute?.attribute_value === "Empty" ? LocationStatus.AVAILABLE : LocationStatus.OCCUPIED;
                     await this.locationRepository.save(existingLocation);
                     console.log(`Updated location ${location.location_id} status under zone ${zone_id}`);
