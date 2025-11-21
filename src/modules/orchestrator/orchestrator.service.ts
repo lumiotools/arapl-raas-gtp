@@ -574,15 +574,17 @@ export class OrchestratorService {
       }
     }
 
-    console.log(`sorted Stations: ${JSON.stringify(sortedStations)}`);
-
     const isWaiting = await this.checkIfSystemIsInWaitingState();
     if (isWaiting){return;}
     const isRobotAvailable = await this.isRobotAvailable();
     if (!isRobotAvailable){return;}
 
-    const inventory = await this.inventoryRepository.findOne({ where: { id: inventoryID, isProcessing: false, status: LocationStatus.AVAILABLE, is_active: true } });
+    const inventory = await this.inventoryRepository.findOne({ where: { id: inventoryID, isProcessing: false, is_active: true } });
     if (!inventory) {return;}
+    if (!inventory.barcode_number) {
+      console.log(`Inventory ${inventoryID} has no barcode number, skipping.`);
+      return;
+    }
 
     const taskID = await this.createSingleTaskToFirstAvailableStation(
       inventory,
@@ -785,10 +787,7 @@ export class OrchestratorService {
         await this.stationRepository.update(targetStation.station_id, { status: LocationStatus.AVAILABLE });
         return null;
       }
-      // reserve the inventory location
-      inventory.isProcessing = true;
-      inventory.status = LocationStatus.RESERVED;
-      await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true, status: LocationStatus.RESERVED, holded_by: taskId });
+      await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true });
       await this.markSystemAsWaiting();
       await this.loggingService.log(`System marked as waiting state.`, TaskType.GOODS_TO_PERSON, taskId, null);
       await this.incrementRobotInUse();
@@ -1129,7 +1128,10 @@ export class OrchestratorService {
         where: { id: inventoryId }
       });
       if (!inventory) {return;}
-      if (send_to_empty){inventory.is_empty = true;}
+      if (send_to_empty){
+        inventory.is_empty = true;
+        inventory.barcode_number = null;
+      }
       await this.inventoryRepository.save(inventory);
 
       // Remove the fulfilled product requirement from database (quantity has been dropped at this station)

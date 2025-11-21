@@ -23,7 +23,7 @@ export class Inventory extends BaseEntity {
   isProcessing: boolean;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  barcode_number: string;
+  barcode_number: string | null;
 
   @Column({
     type: 'enum',

@@ -432,7 +432,8 @@ export class OrdersService {
     try{
       if (task && task.status !== TaskStatus.CANCELLED && task.status !== TaskStatus.COMPLETED){
         await this.orchestrationService.CancelTask(task);
-        await this.taskRepository.update({ task_id: task.task_id }, { is_gtp_cancelled: true } );
+        await this.taskRepository.update(task.task_id, { status: TaskStatus.CANCELLED } );
+        await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
       }
     }catch{
       await this.loggingService.log(`Failed to cancel Task ID ${task?.task_id} related to Order Item ID ${orderItem.order_item_id}`,

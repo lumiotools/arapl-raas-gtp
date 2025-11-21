@@ -176,6 +176,7 @@ export class InventoryService {
   }
 
   async update(id: string, updateInventoryDto: any) {
+    console.log('callingg update', id);
     const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
     
     if (!existingInventory) {
@@ -257,14 +258,21 @@ export class InventoryService {
         }
 
         const invLocation = values[0]; // Inv Locations
-        const barcodeNumber = values[1]; // Barcode number
+        let barcodeNumber: string | null = values[1]; // Barcode number
 
-        if (!invLocation || !barcodeNumber) {
+        // if (!invLocation || !barcodeNumber) {
+        //   results.failed++;
+        //   results.errors.push(`Row ${i + 1}: Missing required fields (Inv Locations or Barcode Number)`);
+        //   continue;
+        // }
+        if (!invLocation) {
           results.failed++;
-          results.errors.push(`Row ${i + 1}: Missing required fields (Inv Locations or Barcode Number)`);
+          results.errors.push(`Row ${i + 1}: Missing required field Inv Locations`);
           continue;
         }
-
+        if (!barcodeNumber) {
+          barcodeNumber = null;
+        }
         try {
           if (customer_location_ids.includes(invLocation) === false) {continue;}
           // Check if inventory exists
@@ -273,19 +281,20 @@ export class InventoryService {
             where: { location_name: invLocation } 
           });
 
-          console.log(`existingInventory: ${JSON.stringify(existingInventory)}`);
-          console.log(`invLocation: ${invLocation}, barcodeNumber: ${barcodeNumber}`);
-          console.log(`${bin_locations.filter(bin => bin.customer_location_id === invLocation)[0]}`);
-
           if (existingInventory) {
             // Update existing inventory
+            const id = bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].location_id;
             const inventoryData = {
-              id: bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].location_id,
+              id: id,
               location_name: bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].customer_location_id,
               barcode_number: barcodeNumber,
+              isProcessing: false,
+              is_active: true,
+              is_empty: false,
             } as Inventory;
 
-            await this.update(invLocation, inventoryData);
+            const updatedResult = await this.update(id, inventoryData);
+            console.log(`Updated inventory: ${JSON.stringify(updatedResult)}`);
             results.successful++;
           } else {
             // Create new inventory entry if it doesn't exist
@@ -399,8 +408,9 @@ export class InventoryService {
     inventory.status = LocationStatus.AVAILABLE;
     inventory.isProcessing = false;
     inventory.holded_by = null;
-    inventory.is_active = false;
+    inventory.is_active = true;
     inventory.is_empty = false;
+    inventory.barcode_number = null;
     await this.inventoryRepository.save(inventory);
   }
 
@@ -444,8 +454,10 @@ export class InventoryService {
     if (!existingInventory) {
       throw new NotFoundException(`Inventory with ID ${id} not found`);
     }
-    existingInventory.is_active = false;
+    existingInventory.is_active = true;
     existingInventory.is_empty = false;
+    existingInventory.isProcessing = false;
+    existingInventory.barcode_number = null;
     await this.inventoryRepository.save(existingInventory);
   }
 
@@ -457,7 +469,6 @@ export class InventoryService {
     existingInventory.is_active = true;
     existingInventory.is_empty = false;
     existingInventory.isProcessing = false;
-    existingInventory.status = LocationStatus.AVAILABLE;
     await this.inventoryRepository.save(existingInventory);
   }
 }

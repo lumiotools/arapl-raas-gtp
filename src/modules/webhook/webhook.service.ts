@@ -89,17 +89,17 @@ export class WebhookService {
     const oldStatus = task.status;
     const mappedStatus = this.mapTaskStatus(taskStatusData.status);
 
-    if (statusPriority[mappedStatus] < statusPriority[oldStatus]) {
-      this.logger.log(`Skipping status update for task ${taskStatusData.task_id}: new status ${mappedStatus} (priority ${statusPriority[mappedStatus]}) has lower priority than current status ${oldStatus} (priority ${statusPriority[oldStatus]})`);
-      return;
+    if (taskStatusData.robot_id){
+      console.log('taskstatus status', taskStatusData.status);
+      console.log(`Updating robot_id for task ${taskStatusData.task_id} to ${taskStatusData.robot_id}`);
+      task.robot_id = taskStatusData.robot_id;
+      await this.taskRepository.save(task);
+      const test_task = await this.taskRepository.findOne({ where: { task_id: taskStatusData.task_id } });
+      console.log('Updated task robot_id:', test_task?.robot_id);
     }
 
-    // task.robot_id = taskStatusData.robot_id || null;
-    // if (task.robot_id){
-    //   await this.taskRepository.save(task);
-    // }
-    if (mappedStatus === TaskStatus.INQUEUE && !taskStatusData.robot_id){
-      this.logger.log(`Skipping INQUEUE status update for task ${taskStatusData.task_id} as no robot_id provided in webhook`);
+    if (statusPriority[mappedStatus] < statusPriority[oldStatus]) {
+      this.logger.log(`Skipping status update for task ${taskStatusData.task_id}: new status ${mappedStatus} (priority ${statusPriority[mappedStatus]}) has lower priority than current status ${oldStatus} (priority ${statusPriority[oldStatus]})`);
       return;
     }
     
@@ -115,7 +115,9 @@ export class WebhookService {
     );
   
     task.status = mappedStatus;
-    task.robot_id = taskStatusData.robot_id || null;
+    if (taskStatusData.robot_id){
+      task.robot_id = taskStatusData.robot_id;
+    }
     const robot_name = taskStatusData.robot_name || null;
     task.fms_batch_id = fms_batch_id;
     if (task.robot_id && robot_name){
@@ -192,9 +194,7 @@ export class WebhookService {
           );
         }
 
-        if (task.move_type===MOVE_TYPE.STATION_TO_EMPTY_LOCATION || task.move_type===MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION
-          || task.move_type===MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION
-        ){
+        if (destinationType === 'empty_location'){
           await this.orchestratorService.decrementRobotInUse();
           await this.loggingService.log(`Task ${task.task_id}: Empty location ${task.end_location.location_id} marked as OCCUPIED.`, task.task_type, task.task_id, null);
           await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
@@ -204,15 +204,9 @@ export class WebhookService {
           );
         }
 
-        if (destinationType === 'inventory'){
+        if (destinationType === 'inventory' || destinationType === 'quarantine'){
           await this.orchestratorService.decrementRobotInUse();
           await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
-        }
-        if (task.move_type === MOVE_TYPE.TO_QUARANTINE){
-          await this.orchestratorService.decrementRobotInUse();
-          const sourceInventoryId = task.start_location.location_id;
-          await this.inventoryService.occupyQuarantine(task.end_location.location_id, task.cargos[0].cargo_code);
-          // await this.inventoryService.makeInventoryUnavailable(task.origin_location);
         }
       }
     }
@@ -345,10 +339,6 @@ export class WebhookService {
 
   private async handleInventoryUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus, batchId: string): Promise<void> {
     try {
-      // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
-      if ((newStatus === TaskStatus.PROCESSING || newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
-        // await this.releaseProcessingInventory(task.start_location.location_id, task.start_location.location_attribute?.attribute_value);
-      }
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
           await this.updateInventoryWithTaskQuantity(task);
           await this.loggingService.log(`Task ${task.task_id}: Inventory ${task.end_location.location_id} set to AVAILABLE (task completed).`, task.task_type, task.task_id, null);
@@ -356,11 +346,6 @@ export class WebhookService {
     } catch (error) {
       this.logger.error(`Error handling inventory updates for task ${task.task_id}:`, error.message);
     }
-  }
-
-  private isTaskFromInventory(task: Task): boolean {
-    // Check if start_location has inventory attribute
-    return task.start_location?.location_attribute?.attribute_value === 'inventory' || task.start_location?.location_attribute?.attribute_value === 'quarantine';
   }
 
   private isTaskToInventory(task: Task): boolean {
@@ -381,9 +366,8 @@ export class WebhookService {
         id: inventoryLocationId,
       },
       {
-        status: LocationStatus.AVAILABLE,
-        isProcessing: inventory.is_quarantine ? true: false,
-        holded_by: null,
+        isProcessing: false,
+        barcode_number: task.cargos[0]?.cargo_code || inventory.barcode_number,
       }
     );
   }

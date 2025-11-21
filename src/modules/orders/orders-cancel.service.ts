@@ -67,6 +67,8 @@ export class OrdersCancelService {
             // cancel the task
             try{
               await this.orchestrationService.CancelTask(task);
+              await this.taskRepository.update(task.task_id, { status: TaskStatus.CANCELLED } );
+              await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
             }
             catch { throw new BadRequestException(`Task with id ${taskId} could not be cancelled`); }
             // if the task is moving to station - cancel the task and order and make the inventory unavailable
@@ -85,7 +87,7 @@ export class OrdersCancelService {
             if (!task.processing && task.start_location.location_attribute.attribute_value === 'inventory'){
                 // make the inventory available
                 await this.inventoryService.setInventoryAvailable(task.origin_location);
-                await this.orchestrationService.unmarkSystemAsWaiting();
+                // await this.orchestrationService.unmarkSystemAsWaiting();
             }
             else{
                 // make the inventory unavailable
@@ -180,12 +182,14 @@ export class OrdersCancelService {
           }
           try{
             await this.orchestrationService.CancelTask(task);
+            await this.taskRepository.update(task.task_id, { status: TaskStatus.CANCELLED } );
+            await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
           }
           catch { 
             await this.inventoryService.makeInventoryAvailable(quarantine_location_id);
             throw new BadRequestException(`Task with id ${taskId} could not be cancelled`); 
           }
-          // await this.inventoryService.makeInventoryProcessing(quarantine_location_id);
+          await this.inventoryService.makeInventoryProcessing(quarantine_location_id);
           const orderItems = await this.orderItemRepository.find({
             where: {
               source_location_id: task.origin_location,
