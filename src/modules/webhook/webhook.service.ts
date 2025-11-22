@@ -66,6 +66,7 @@ export class WebhookService {
   }
 
   private async updateTaskStatus(fms_batch_id: string, taskStatusData: any): Promise<void> {
+    console.log(`taskStatus status: ${taskStatusData.status}, robot_id: ${taskStatusData.robot_id}`);
     // Find task by task_id only (ignore batch_id as instructed)
     const task = await this.taskRepository.findOne({
       where: { task_id: taskStatusData.task_id }
@@ -90,12 +91,8 @@ export class WebhookService {
     const mappedStatus = this.mapTaskStatus(taskStatusData.status);
 
     if (taskStatusData.robot_id){
-      console.log('taskstatus status', taskStatusData.status);
-      console.log(`Updating robot_id for task ${taskStatusData.task_id} to ${taskStatusData.robot_id}`);
       task.robot_id = taskStatusData.robot_id;
       await this.taskRepository.save(task);
-      const test_task = await this.taskRepository.findOne({ where: { task_id: taskStatusData.task_id } });
-      console.log('Updated task robot_id:', test_task?.robot_id);
     }
 
     if (statusPriority[mappedStatus] < statusPriority[oldStatus]) {
