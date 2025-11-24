@@ -10,7 +10,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { jwtConfig } from 'src/config/jwt.config';
 import { User } from 'src/entities/user.entity';
 import { LoggingService } from 'src/services/logging.service';
-import { Log, ProductRequirement, Station, Task } from 'src/entities';
+import { Inventory, Log, ProductRequirement, Station, Task } from 'src/entities';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { OrdersCancelService } from './orders-cancel.service';
@@ -21,7 +21,7 @@ import { Robot } from 'src/entities/robots.entity';
 
 @Module({
   imports: [JwtModule.register(jwtConfig),
-    TypeOrmModule.forFeature([OrderItem,Robot, Product, GtpLocation, User, Log, ScheduleMapping, Task, ProductRequirement, Station])
+    TypeOrmModule.forFeature([OrderItem,Robot, Product, GtpLocation,Inventory, User, Log, ScheduleMapping, Task, ProductRequirement, Station])
     ,forwardRef(() => OrchestratorModule),
     InventoryModule,
     WebhookModule

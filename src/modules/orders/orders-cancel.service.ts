@@ -12,7 +12,7 @@ import {
   ProcessedOrderItemDto,
   UploadResponseDto,
 } from './dto/upload-order.dto';
-import { Log, ProductRequirement, Station, Task, TaskStatus, TaskType } from 'src/entities';
+import { Inventory, Log, ProductRequirement, Station, Task, TaskStatus, TaskType } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
@@ -40,6 +40,8 @@ export class OrdersCancelService {
     private productRequirementRepository: Repository<ProductRequirement>,
     @InjectRepository(Station)
     private stationRepository: Repository<Station>,
+    @InjectRepository(Inventory)
+    private inventoryRepository: Repository<Inventory>,
     @Inject(forwardRef(() => OrchestratorService))
     private readonly orchestrationService: OrchestratorService,
     private readonly loggingService: LoggingService,
@@ -129,6 +131,12 @@ export class OrdersCancelService {
             await this.taskRepository.save(task);
             await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
 
+            const inventory = await this.inventoryRepository.findOne({where: {id: task.origin_location}});
+            if (inventory){
+              inventory.isProcessing = true;
+              inventory.barcode_number = task.cargos[0].cargo_code;
+              await this.inventoryRepository.save(inventory);
+            }
             
 
             // create a new task to move back to inventory
@@ -142,6 +150,7 @@ export class OrdersCancelService {
               move_type: MOVE_TYPE.INVENTORY_TO_INVENTORY,
               sequenceOrder: task.sequence_order+1,
               taskDependency: task.task_id,
+              cargos: task.cargos,
             }); 
             if (!newTask){
               throw new BadRequestException(`Could not create task to move back to inventory`);
