@@ -501,15 +501,15 @@ export class LocationManagerService {
         return entry_location ? entry_location : null;
     }
 
-    async getStartZoneEntryPoint(start_zone_id: string, end_zone_id: string): Promise<LocationEntity|null> {
-        const zonePair = await this.zonePairRepository.findOne({ where: { start_zone_id, end_zone_id } });
+    async getStartZoneEntryPoint(zone_pair_id: string): Promise<LocationEntity|null> {
+        const zonePair = await this.zonePairRepository.findOne({ where: { id: zone_pair_id } });
         if (!zonePair || !zonePair.start_entry_point_location_id) return null;
         const entry_location = await this.locationRepository.findOne({ where: { location_id: zonePair.start_entry_point_location_id } });
         return entry_location ? entry_location : null;
     }
 
-    async getEndZoneEntryPoint(start_zone_id: string, end_zone_id: string): Promise<LocationEntity|null> {
-        const zonePair = await this.zonePairRepository.findOne({ where: { start_zone_id, end_zone_id } });
+    async getEndZoneEntryPoint(zone_pair_id: string): Promise<LocationEntity|null> {
+        const zonePair = await this.zonePairRepository.findOne({ where: { id: zone_pair_id } });
         if (!zonePair || !zonePair.end_entry_point_location_id) return null;
         const entry_location = await this.locationRepository.findOne({ where: { location_id: zonePair.end_entry_point_location_id } });
         return entry_location ? entry_location : null;

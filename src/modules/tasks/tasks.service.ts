@@ -1019,8 +1019,8 @@ export class TaskService implements OnModuleInit {
     let tasks: Task[] = [];
 
     if(originalTask.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
-      const startEntryLocation = await this.LocationManagerService.getEntryPoint(originalTask.start_location.location_attribute.attribute_value);
-      const endEntryLocation = await this.LocationManagerService.getEntryPoint(originalTask.end_location.location_attribute.attribute_value);
+      const startEntryLocation = await this.LocationManagerService.getStartZoneEntryPoint(originalTask.start_location.location_attribute.attribute_zone_pair_id!);
+      const endEntryLocation = await this.LocationManagerService.getEndZoneEntryPoint(originalTask.end_location.location_attribute.attribute_zone_pair_id!);
 
       const higherPriorityTasks = await this.taskRepository.find({
         where: {
@@ -1584,6 +1584,7 @@ export class TaskService implements OnModuleInit {
         location_attribute: {
           attribute_name: 'Pallet',
           attribute_value: task['start_location_location_id'],
+          attribute_zone_pair_id: zonePairId ?? undefined,
         },
       };
 
