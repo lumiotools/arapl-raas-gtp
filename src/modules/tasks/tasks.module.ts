@@ -4,6 +4,7 @@ import { HttpModule } from '@nestjs/axios';
 import { TaskService } from './tasks.service';
 import { LocationManagerService } from './location_manager.service';
 import { Task, Batch } from 'src/entities';
+import { ZonePairConfig } from 'src/entities/zone-pair-config.entity';
 import { RobotCount } from 'src/entities/robot-count.entity';
 import { LocationEntity } from 'src/entities/location.entity';
 import { TASK_CONFIG } from './constants';
@@ -17,7 +18,7 @@ export class TasksModule {
     return {
       module: TasksModule,
       imports: [
-        TypeOrmModule.forFeature([Task, Batch, RobotCount, LocationEntity]),
+        TypeOrmModule.forFeature([Task, Batch, RobotCount, LocationEntity, ZonePairConfig]),
         HttpModule,
         forwardRef(() => WebhookModule),
         LoggingModule,

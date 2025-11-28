@@ -89,13 +89,39 @@ export class CrossdockTaskService {
     // Remove the temporary row number field before processing
     tasks.forEach(task => delete task._rowNumber);
 
+    const startLocation = (await this.taskService.LocationManagerService.getLocation(tasks[0]['start_location_location_id']));
+    const startZoneId = startLocation?.parent_id || startLocation?.location_id;
+    const endLocation = (await this.taskService.LocationManagerService.getLocation(tasks[0]['end_location_location_id']));
+    const endZoneId = endLocation?.parent_id || endLocation?.location_id;
+
+    const zonePairId = await this.taskService.LocationManagerService.getZonePairId(startZoneId!, endZoneId!);
+
+    const isPickPriorityReversed = zonePairId ? await this.taskService.LocationManagerService.isPickPriorityReversed(zonePairId) : false;
+    const isDropPriorityReversed = zonePairId ? await this.taskService.LocationManagerService.isDropPriorityReversed(zonePairId) : false;
+
     // Resolve all pick/drop priorities first (cannot use async comparator in Array.sort)
-    const pickPriorities = await Promise.all(
-      tasks.map(t => this.taskService.LocationManagerService.getPickPriority(t['start_location_location_id']))
-    );
-    const dropPriorities = await Promise.all(
-      tasks.map(t => t['end_location_location_type'] === "PALLET" ? this.taskService.LocationManagerService.getDropPriority(t['end_location_location_id']) : undefined)
-    );
+    let pickPriorities: (number | null)[] = [];
+    if (isPickPriorityReversed) {
+      // When reversed mode is enabled, get a reversed mapping from LocationManagerService
+      pickPriorities = await Promise.all(
+        tasks.map(t => this.taskService.LocationManagerService.getReversePickPriority(t['start_location_location_id']))
+      );
+    } else {
+      pickPriorities = await Promise.all(
+        tasks.map(t => this.taskService.LocationManagerService.getPickPriority(t['start_location_location_id']))
+      );
+    }
+
+    let dropPriorities: (number | null | undefined)[] = [];
+    if (isDropPriorityReversed) {
+      dropPriorities = await Promise.all(
+        tasks.map(t => t['end_location_location_type'] === "PALLET" ? this.taskService.LocationManagerService.getReverseDropPriority(t['end_location_location_id']) : undefined)
+      );
+    } else {
+      dropPriorities = await Promise.all(
+        tasks.map(t => t['end_location_location_type'] === "PALLET" ? this.taskService.LocationManagerService.getDropPriority(t['end_location_location_id']) : undefined)
+      );
+    }
 
     // Assign pick/drop priority to each task for sorting/validation
     tasks.forEach((t, i) => {
@@ -134,7 +160,7 @@ export class CrossdockTaskService {
       .map(t => t['end_location_location_id']);
 
     if (endPalletIds.length > 0) {
-      const accessibility = await this.taskService.LocationManagerService.checkDropLocationsDirectAccessibility(endPalletIds);
+      const accessibility = await this.taskService.LocationManagerService.checkDropLocationsDirectAccessibility(endPalletIds, false, zonePairId);
       const blockedIds = endPalletIds.filter((id, idx) => !accessibility[idx]);
       if (blockedIds.length > 0) {
         // clean up temporary fields before throwing

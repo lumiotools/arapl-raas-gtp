@@ -12,3 +12,4 @@ export { Cargo, CargoDimension, CargoAttribute } from './cargo.entity';
 export { ProductRequirement } from './product-requirement.entity';
 export { Log } from './log.entity';
 export { RobotCount } from './robot-count.entity';
+export { ZonePairConfig } from './zone-pair-config.entity';

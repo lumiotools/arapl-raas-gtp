@@ -719,6 +719,7 @@ export class TaskService implements OnModuleInit {
         end_location_id =
           await this.LocationManagerService.findOptimalDropLocation(
             task.end_location.location_attribute?.attribute_value,
+            task.end_location.location_attribute?.attribute_zone_pair_id,
           );
         if (!end_location_id) {
           continue;
@@ -1021,7 +1022,7 @@ export class TaskService implements OnModuleInit {
       const startEntryLocation = await this.LocationManagerService.getEntryPoint(originalTask.start_location.location_attribute.attribute_value);
       const endEntryLocation = await this.LocationManagerService.getEntryPoint(originalTask.end_location.location_attribute.attribute_value);
 
-      const higherPriorityTask = await this.taskRepository.findOne({
+      const higherPriorityTasks = await this.taskRepository.find({
         where: {
           task_type: TaskType.CROSSDOCK,
           priority: MoreThan(originalTask.priority ?? Number.MAX_SAFE_INTEGER),
@@ -1030,7 +1031,9 @@ export class TaskService implements OnModuleInit {
         }
       });
 
-      if(higherPriorityTask && originalTask.end_location.location_attribute.attribute_name === 'ZONE') {
+      const validHigherPriorityTasks = higherPriorityTasks.filter(t => t.start_location.location_id === originalTask.start_location.location_id);
+
+      if(validHigherPriorityTasks.length > 0 && originalTask.end_location.location_attribute.attribute_name === 'ZONE') {
         await this.markSystemAsWaiting();
         const destinationZone = originalTask.end_location.location_attribute.attribute_value;
 
@@ -1226,15 +1229,19 @@ export class TaskService implements OnModuleInit {
       end_location_id =
         await this.LocationManagerService.findOptimalDropLocation(
           task.end_location.location_attribute?.attribute_value,
+          task.end_location.location_attribute?.attribute_zone_pair_id,
         );
       if (!end_location_id) {
         if(task.task_type === TaskType.CROSSDOCK) {
           return;
         }
         // no optimal drop location found in the zone, look for the location in wait zone
+        const startLocation = (await this.LocationManagerService.getLocation(task.start_location.location_id)) as LocationEntity;
+        const startZoneId = startLocation?.parent_id || startLocation?.location_id;
         end_location_id =
           await this.LocationManagerService.getOptimalWaitLocation(
             task.end_location.location_attribute?.attribute_value,
+            startZoneId,
           );
         if (!end_location_id) {
           // no wait location was found instead
@@ -1269,8 +1276,8 @@ export class TaskService implements OnModuleInit {
       const end_location = await this.LocationManagerService.getLocation(
         task.end_location.location_id,
       );
-      if(end_location?.location_type === LocationType.PALLET) {
-        const is_accessible = (await this.LocationManagerService.checkDropLocationsDirectAccessibility([task.end_location.location_id]))[0];
+      if(end_location?.location_type === LocationType.PALLET) { 
+        const is_accessible = (await this.LocationManagerService.checkDropLocationsDirectAccessibility([task.end_location.location_id], false, task.end_location.location_attribute?.attribute_zone_pair_id))[0];
         if(is_accessible === true) {
           end_location_id = task.end_location.location_id;
         } else {
@@ -1309,9 +1316,12 @@ export class TaskService implements OnModuleInit {
         );
         return;
       }
-      end_location_id =
+        const startLocation = (await this.LocationManagerService.getLocation(task.start_location.location_id)) as LocationEntity;
+        const startZoneId = startLocation?.parent_id || startLocation?.location_id;
+        end_location_id =
         await this.LocationManagerService.getOptimalWaitLocation(
           task.end_location.location_attribute?.attribute_value,
+          startZoneId,
         );
       if (!end_location_id) {
         console.log(
@@ -1538,6 +1548,14 @@ export class TaskService implements OnModuleInit {
     await this.batchRepository.save(batch);
 
     for (const task of tasks) {
+      const startLocation = await this.LocationManagerService.getLocation(task['start_location_location_id']);
+      const startZone = startLocation?.parent_id || startLocation?.location_id;
+
+      const endLocation = await this.LocationManagerService.getLocation(task['end_location_location_id']);
+      const endZone = endLocation?.parent_id || endLocation?.location_id;
+
+      const zonePairId = await this.LocationManagerService.getZonePairId(startZone!, endZone!);
+
       const newTask = new Task();
       newTask.batch_id = batch.batch_id;
       newTask.task_type = this.taskType;
@@ -1582,6 +1600,7 @@ export class TaskService implements OnModuleInit {
         location_attribute: {
           attribute_name: end_location_id === null ? 'ZONE' : 'Pallet',
           attribute_value: task['end_location_location_id'],
+          attribute_zone_pair_id: zonePairId ?? undefined,
         },
       };
 
@@ -2041,7 +2060,7 @@ export class TaskService implements OnModuleInit {
     //   }
     // }
 
-    if((await this.LocationManagerService.checkDropLocationsDirectAccessibility([dropLocation.location_id], true))[0]) return;
+    if((await this.LocationManagerService.checkDropLocationsDirectAccessibility([dropLocation.location_id], true, nextTask.end_location.location_attribute?.attribute_zone_pair_id))[0]) return;
 
     await this.cancelTaskFromWMS(nextTask);
     nextTask.status = TaskStatus.CANCELLED;

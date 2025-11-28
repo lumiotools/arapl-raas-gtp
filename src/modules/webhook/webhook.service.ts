@@ -647,7 +647,7 @@ export class WebhookService {
       // Gate: only act if there exists any CROSSDOCK task with lower priority than current
 
       if (task.move_type === MOVE_TYPE.PICK_ENTRY) {
-        const lowerPriorityTask = await this.taskRepository.findOne({
+        const lowerPriorityTasks = await this.taskRepository.find({
           where: {
             task_type: TaskType.CROSSDOCK,
             priority: LessThan(task.priority ?? Number.MAX_SAFE_INTEGER),
@@ -656,7 +656,9 @@ export class WebhookService {
           }
         });
 
-        if(lowerPriorityTask) {
+        const validLowerPriorityTasks = lowerPriorityTasks.filter(t => t.start_location.location_id === task.start_location.location_id);
+
+        if(validLowerPriorityTasks.length > 0) {
           await this.CrossdockTaskService.taskService.handleCrossdockPickEntryCancellation(task) as string;
 
           const dropLocationAffectedTasks = await this.taskRepository.find({

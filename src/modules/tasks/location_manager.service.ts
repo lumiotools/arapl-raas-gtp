@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Task, TaskStatus } from "src/entities";
+import { ZonePairConfig } from 'src/entities/zone-pair-config.entity';
 import { TaskType } from "src/entities/task.entity";
 import { OperationType } from 'src/entities/robot-count.entity';
 import { LocationEntity, LocationType } from "src/entities/location.entity";
@@ -22,6 +23,8 @@ export class LocationManagerService {
         private locationRepository: Repository<LocationEntity>,
         @InjectRepository(Task)
         private taskRepository: Repository<Task>,
+        @InjectRepository(ZonePairConfig)
+        private zonePairRepository: Repository<ZonePairConfig>,
         private readonly loggingService: LoggingService,
     ) {}
 
@@ -64,7 +67,7 @@ export class LocationManagerService {
         return true;
     }
 
-    async findOptimalDropLocation(zone_id: string): Promise<string | null> {
+    async findOptimalDropLocation(zone_id: string, zone_pair_id?: string): Promise<string | null> {
         const zone = await this.locationRepository.findOne({ where: { location_id: zone_id, location_type: LocationType.ZONE } });
         if (!zone) {
             console.log(`Zone with ID ${zone_id} not found.`);
@@ -72,6 +75,7 @@ export class LocationManagerService {
             return null;
         }
         const all_locations_directly_accessible = zone.attributes?.find(attr => attr.attribute_name === 'all_locations_directly_accessible')?.attribute_value ?? false;
+        const shouldReverseDrop = (zone_pair_id && zone_id) ? await this.isDropPriorityReversed(zone_pair_id) : false;
 
         // Fetch ALL pallet locations under the zone to understand blocking, not just available ones
         const allZoneLocations = await this.locationRepository.find({
@@ -91,7 +95,10 @@ export class LocationManagerService {
 
         // If everything is directly accessible, pick the smallest drop_priority among available
         if (all_locations_directly_accessible) {
-            const optimal = availableWithPriority.sort((a, b) => (a.drop_priority! - b.drop_priority!))[0];
+            const optimal = shouldReverseDrop
+                ? availableWithPriority.sort((a, b) => (b.drop_priority! - a.drop_priority!))[0]
+                : availableWithPriority.sort((a, b) => (a.drop_priority! - b.drop_priority!))[0];
+            console.log("priority,", shouldReverseDrop, availableWithPriority)
             if (optimal) {
                 await this.loggingService.log(`Selected drop location ${optimal.location_id} in zone ${zone_id} (direct access)`, this.taskType, null, null);
                 return optimal.location_id;
@@ -103,14 +110,23 @@ export class LocationManagerService {
         // Not all locations are directly accessible: simple rule
         // Reverse by drop_priority (high -> low), find first BLOCKED, pick the one just before it
         const withPriority = allZoneLocations.filter(l => l.drop_priority != null);
-        const desc = [...withPriority].sort((a, b) => (b.drop_priority! - a.drop_priority!));
-        const firstBlockedIdx = desc.findIndex(l => l.location_status !== LocationStatus.AVAILABLE);
+        // Order of locations from entrance depends on whether drop priorities are reversed
+        const entranceOrder = shouldReverseDrop
+            ? [...withPriority].sort((a, b) => (a.drop_priority! - b.drop_priority!))
+            : [...withPriority].sort((a, b) => (b.drop_priority! - a.drop_priority!));
+
+            console.log("entranceOrder",entranceOrder)
+            
+        const firstBlockedIdx = entranceOrder.findIndex(l => l.location_status !== LocationStatus.AVAILABLE);
 
         if (firstBlockedIdx === -1) {
-            // No blockers: choose the smallest drop_priority among available
-            const optimalNoBlock = availableWithPriority.sort((a, b) => (a.drop_priority! - b.drop_priority!))[0];
+            // No blockers: choose the smallest or largest drop_priority depending on reversal
+            const optimalNoBlock = shouldReverseDrop
+                ? availableWithPriority.sort((a, b) => (b.drop_priority! - a.drop_priority!))[0]
+                : availableWithPriority.sort((a, b) => (a.drop_priority! - b.drop_priority!))[0];
             if (optimalNoBlock) {
                 await this.loggingService.log(`Selected drop location ${optimalNoBlock.location_id} in zone ${zone_id} (no blockers)`, this.taskType, null, null);
+                console.log(`Selected drop location ${optimalNoBlock.location_id} in zone ${zone_id} (no blockers)`)
                 return optimalNoBlock.location_id;
             }
             await this.loggingService.log(`No priority-based drop locations available in zone ${zone_id} (no blockers)`, this.taskType, null, null);
@@ -122,9 +138,9 @@ export class LocationManagerService {
             return null;
         }
 
-        const candidate = desc[firstBlockedIdx - 1];
+        const candidate = entranceOrder[firstBlockedIdx - 1];
         if (candidate && candidate.location_status === LocationStatus.AVAILABLE) {
-            await this.loggingService.log(`Selected drop location ${candidate.location_id} in zone ${zone_id} (just before nearest block at priority ${desc[firstBlockedIdx].drop_priority})`, this.taskType, null, null);
+            await this.loggingService.log(`Selected drop location ${candidate.location_id} in zone ${zone_id} (just before nearest block at priority ${entranceOrder[firstBlockedIdx].drop_priority})`, this.taskType, null, null);
             return candidate.location_id;
         }
 
@@ -133,7 +149,7 @@ export class LocationManagerService {
     }
 
     // Accepts a list of location IDs (assumed to be from the same zone) and returns, in order, which are directly accessible/unblocked
-    async checkDropLocationsDirectAccessibility(location_ids: string[], ignoreReserved: boolean | null = false): Promise<boolean[]> {
+    async checkDropLocationsDirectAccessibility(location_ids: string[], ignoreReserved: boolean | null = false, zone_pair_id?: string): Promise<boolean[]> {
         if (!Array.isArray(location_ids) || location_ids.length === 0) {
             await this.loggingService.log(`Accessibility check: no location ids provided`, this.taskType, null, null);
             return [];
@@ -187,6 +203,7 @@ export class LocationManagerService {
 
         // 5) Build helper structures for blocking checks
         const palletsWithPriority = pallets.filter(l => l.drop_priority != null);
+        const shouldReverseDrop = zone_pair_id ? await this.isDropPriorityReversed(zone_pair_id) : false;
 
         // For a location L to be directly accessible: all pallets with drop_priority > L.drop_priority
         // must be AVAILABLE and not newly selected earlier in this list.
@@ -205,7 +222,13 @@ export class LocationManagerService {
             // Check any blocker in front (higher drop_priority)
             const isBlocked = palletsWithPriority.some(other => {
                 if (other.drop_priority == null) return false;
-                if (other.drop_priority! <= lp) return false; // not in front
+                // For normal zones, 'in front' means other.drop_priority > lp
+                // For reversed drop zones, 'in front' means other.drop_priority < lp
+                if (!shouldReverseDrop) {
+                    if (other.drop_priority! <= lp) return false; // not in front (normal)
+                } else {
+                    if (other.drop_priority! >= lp) return false; // not in front (reversed)
+                }
                 // Blocked if occupied/reserved/etc or if already selected earlier
                 return !isFree(other.location_status) || newlySelected.has(other.location_id);
             });
@@ -299,12 +322,17 @@ export class LocationManagerService {
         return endLocation;
     }
 
-    async getOptimalWaitLocation(required_location_id: string): Promise<string | null> {
+    async getOptimalWaitLocation(required_location_id: string, zone_pair_id: string): Promise<string | null> {
         console.log("Finding optimal wait location in end zone...");
 
         const requiredLocation = await this.locationRepository.findOne({ where: { location_id: required_location_id } });
 
         console.log(`Required location found: ${requiredLocation ? 'Yes' : 'No'}, Current Zone: `, requiredLocation?.location_type === LocationType.PALLET ? requiredLocation.parent_id : requiredLocation?.location_id);
+
+        let shouldReverse = false;
+        if (zone_pair_id) {
+            shouldReverse = await this.isDropPriorityReversed(zone_pair_id);
+        }
 
         let waitLocationQuery = this.locationRepository
             .createQueryBuilder('location')
@@ -320,7 +348,7 @@ export class LocationManagerService {
                     }])
                 }
             )
-            .orderBy('location.drop_priority', 'ASC');
+            .orderBy('location.drop_priority', shouldReverse ? 'DESC' : 'ASC');
         
         let waitLocation = await waitLocationQuery.getOne();
 
@@ -356,7 +384,7 @@ export class LocationManagerService {
                 .createQueryBuilder('location')
                 .where('location.location_type = :locationType', { locationType: LocationType.PALLET })
                 .andWhere('location.location_status = :locationStatus', { locationStatus: LocationStatus.AVAILABLE })
-                .orderBy('location.drop_priority', 'ASC');
+                .orderBy('location.drop_priority', shouldReverse ? 'DESC' : 'ASC');
             
             if (waitZone) {
                 waitLocationQuery.andWhere('location.parent_id = :parentId', { parentId: waitZone.location_id });
@@ -398,14 +426,92 @@ export class LocationManagerService {
         return location!.pick_priority;
     }
 
+    async getReversePickPriority(location_id: string): Promise<number | null> {
+        const location = await this.locationRepository.findOne({ where: { location_id } });
+        if (!location) return null;
+
+        const zoneId = location.parent_id ?? (location.location_type === LocationType.ZONE ? location.location_id : null);
+        if (!zoneId) return null;
+
+        // Fetch all pallet locations with pick_priority under the same zone
+        const pallets = await this.locationRepository.find({ where: { parent_id: zoneId, location_type: LocationType.PALLET }, order: { pick_priority: 'ASC' } });
+        const withPriority = pallets.filter(p => p.pick_priority != null);
+        if (withPriority.length === 0) return null;
+
+        const ids = withPriority.map(p => p.location_id);
+        const idx = ids.indexOf(location_id);
+        if (idx === -1) return null;
+
+        // reversedIndex: the last in original order should become the first
+        const reversedIndex = withPriority.length - 1 - idx;
+
+        // Map to the pick_priority value at the reversed index so callers get a
+        // comparable pick_priority number (instead of an array index).
+        const reversedPriority = withPriority[reversedIndex].pick_priority;
+        return reversedPriority ?? null;
+    }
+
+    async getReverseDropPriority(location_id: string): Promise<number | null> {
+        const location = await this.locationRepository.findOne({ where: { location_id } });
+        if (!location) return null;
+
+        // If no zone pair provided, derive the destination zone from the
+        // location (parent_id or zone id if the provided location is a ZONE).
+        const zoneId = location.parent_id ?? (location.location_type === LocationType.ZONE ? location.location_id : null);
+        if (!zoneId) return null;
+
+        // Reversal required: fetch all pallet locations under the zone, ordered
+        // ascending by drop_priority and compute the mirrored (reversed) value.
+        const pallets = await this.locationRepository.find({ where: { parent_id: zoneId, location_type: LocationType.PALLET }, order: { drop_priority: 'ASC' } });
+        const withPriority = pallets.filter(p => p.drop_priority != null);
+        if (withPriority.length === 0) return null;
+
+        const ids = withPriority.map(p => p.location_id);
+        const idx = ids.indexOf(location_id);
+        if (idx === -1) return null;
+
+        const reversedIndex = withPriority.length - 1 - idx;
+        const reversedPriority = withPriority[reversedIndex].drop_priority;
+        return reversedPriority ?? null;
+    }
+
     async getDropPriority(location_id: string): Promise<number> {
         const location = await this.locationRepository.findOne({ where: { location_id: location_id } });
         return location!.drop_priority;
     }
 
+    async isPickPriorityReversed(zone_pair_id: string): Promise<boolean> {
+        const zonePair = await this.zonePairRepository.findOne({ where: { id: zone_pair_id } });
+        return zonePair?.reverse_start_pick_priority ?? false;
+    }
+
+    async isDropPriorityReversed(zone_pair_id: string): Promise<boolean> {
+        const zonePair = await this.zonePairRepository.findOne({ where: { id: zone_pair_id } });
+        return zonePair?.reverse_end_drop_priority ?? false;
+    }
+
+    async getZonePairId(start_zone_id: string, end_zone_id: string): Promise<string|undefined> {
+        const zonePair = await this.zonePairRepository.findOne({ where: { start_zone_id, end_zone_id } });
+        return zonePair?.id;
+    }
+
     async getEntryPoint(location_id: string): Promise<LocationEntity|null> {
         const location = await this.locationRepository.findOne({ where: { location_id: location_id }, select: { location_id: true, parent_id: true } });
         const entry_location = await this.locationRepository.findOne({ where: { parent_id: location?.parent_id ?? location?.location_id, location_type: LocationType.ENTRY } });
+        return entry_location ? entry_location : null;
+    }
+
+    async getStartZoneEntryPoint(start_zone_id: string, end_zone_id: string): Promise<LocationEntity|null> {
+        const zonePair = await this.zonePairRepository.findOne({ where: { start_zone_id, end_zone_id } });
+        if (!zonePair || !zonePair.start_entry_point_location_id) return null;
+        const entry_location = await this.locationRepository.findOne({ where: { location_id: zonePair.start_entry_point_location_id } });
+        return entry_location ? entry_location : null;
+    }
+
+    async getEndZoneEntryPoint(start_zone_id: string, end_zone_id: string): Promise<LocationEntity|null> {
+        const zonePair = await this.zonePairRepository.findOne({ where: { start_zone_id, end_zone_id } });
+        if (!zonePair || !zonePair.end_entry_point_location_id) return null;
+        const entry_location = await this.locationRepository.findOne({ where: { location_id: zonePair.end_entry_point_location_id } });
         return entry_location ? entry_location : null;
     }
 

@@ -27,6 +27,7 @@ export interface LocationDimension {
 export interface LocationAttribute {
   attribute_name: string;
   attribute_value: string;
+  attribute_zone_pair_id?: string;
 }
 
 export interface Location {
