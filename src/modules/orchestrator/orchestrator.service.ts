@@ -1248,7 +1248,7 @@ export class OrchestratorService {
         // Skip current station
         continue;
       }
-      if (station && station.status === LocationStatus.AVAILABLE && await this.stationService.reserveStation(station.station_id)) {
+      if (station && station.is_active) {
         nextAvailableStation = station;
         break;
       }
@@ -1261,7 +1261,7 @@ export class OrchestratorService {
         if (station && station.station_id == currentStationId) {
           continue;
         }
-        if (station && station.status === LocationStatus.AVAILABLE && await this.stationService.reserveStation(station.station_id)) {
+        if (station && station.is_active) {
           nextAvailableStation = station;
           break;
         }
