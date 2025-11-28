@@ -39,6 +39,7 @@ export interface OrderItemDetails{
   end_time: Date | undefined;
   created_at ?: Date;
   updated_at ?: Date;
+  completedTasks?: Task[];
 }
 
 
@@ -337,7 +338,8 @@ export class OrdersService {
         start_time: start_time,
         end_time: end_time,
         created_at: order.created_at,
-        updated_at: order.updated_at
+        updated_at: order.updated_at,
+        completedTasks: order.completedTasks
       });
     }
     return results;
