@@ -143,6 +143,8 @@ export class WebhookService {
       task.completed = currentTime;
     } else if (mappedStatus === TaskStatus.TRIGERRED) {
       task.triggered = currentTime;
+    } else if (mappedStatus === TaskStatus.TASK_ACKNOWLEDGED){
+      task.task_acknowledged = currentTime;
     }
     await this.taskRepository.save(task);
 
@@ -224,14 +226,14 @@ export class WebhookService {
       'pending': TaskStatus.PENDING,
       'assigned': TaskStatus.ASSIGNED,
       'inqueue': TaskStatus.INQUEUE,
-      'task_acknowledged': TaskStatus.INQUEUE,
+      'task_acknowledged': TaskStatus.TASK_ACKNOWLEDGED,
       'robot_assigned': TaskStatus.INQUEUE,
       'in-queue': TaskStatus.INQUEUE,
       // 'processing': TaskStatus.PROCESSING,
       // 'in-progress': TaskStatus.PROCESSING,
       // 'in progress': TaskStatus.PROCESSING,
       'pickup_successful': TaskStatus.PROCESSING,
-      // 'robot_movement_started': TaskStatus.PROCESSING,
+      'robot_movement_started': TaskStatus.INQUEUE,
       'completed': TaskStatus.COMPLETED,
       'cancelled': TaskStatus.CANCELLED,
       'canceled': TaskStatus.CANCELLED,

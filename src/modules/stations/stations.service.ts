@@ -99,13 +99,13 @@ export class StationsService {
       const missingStationIds = existingStationIds.filter(id => !bin_ids.includes(id));
       if (missingStationIds.length > 0) {
         // await this.stationRepository.delete(missingStationIds);
-        for (const id of missingStationIds) {
-          // await this.remove(id);
-          await this.stationRepository.update(
-            { station_id: id },
-            { is_active:false }
-          );
-        }
+        // for (const id of missingStationIds) {
+        //   // await this.remove(id);
+        //   await this.stationRepository.update(
+        //     { station_id: id },
+        //     { is_active:false }
+        //   );
+        // }
       }
       // find intersecting location IDs
       // const intersectingLocationIds = bin_ids.filter(id => existingStationIds.includes(id));

@@ -139,6 +139,9 @@ export class Task extends BaseEntity {
   cargos: Cargo[];
 
   @Column({ type: 'timestamptz', precision: 3, nullable: true })
+  task_acknowledged: Date;
+
+  @Column({ type: 'timestamptz', precision: 3, nullable: true })
   inqueue: Date;
 
   @Column({ type: 'timestamptz', precision: 3, nullable: true })
