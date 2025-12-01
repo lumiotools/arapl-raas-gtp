@@ -67,7 +67,7 @@ export class OrdersService {
   ) {}
 
   async processFile(file: Express.Multer.File, body: any, upload_mode: 'merge' | 'transit'): Promise<UploadResponseDto> {
-    console.log(`call process file`);
+    // console.log(`call process file`);
     const fileExtension = this.getFileExtension(file.originalname);
     let data: UploadOrderItemDto[] = [];
     let batch_order_id: string | null = body?.batch_order_id || null;
@@ -93,7 +93,7 @@ export class OrdersService {
   }
 
   private async parseCSV(buffer: Buffer): Promise<UploadOrderItemDto[]> {
-    console.log('calling parse csv');
+    // console.log('calling parse csv');
     return new Promise((resolve, reject) => {
       const results: UploadOrderItemDto[] = [];
       const stream = Readable.from(buffer);
@@ -128,7 +128,7 @@ export class OrdersService {
     batch_order_id: string | null,
     upload_mode: 'merge' | 'transit'
   ): Promise<UploadResponseDto> {
-    console.log(`calling save to db`);
+    // console.log(`calling save to db`);
     let processedItems = 0;
 
     if (data.length === 0) {
@@ -136,20 +136,20 @@ export class OrdersService {
     }
 
     const firstItem = data[0];
-    console.log(`calling save to db`);
+    // console.log(`calling save to db`);
     const requiredColumns = [
       'source_location',
       'destination_location'
     ];
-    console.log(`calling save to db`);
+    // console.log(`calling save to db`);
     const missingColumns = requiredColumns.filter((col) => !(col in firstItem));
-    console.log(`calling save to db`);
+    // console.log(`calling save to db`);
     if (missingColumns.length > 0) {
       throw new BadRequestException(
         `Missing required columns: ${missingColumns.join(', ')}`,
       );
     }
-    console.log(`calling save to db`);
+    // console.log(`calling save to db`);
 
     for (const order of data) {
       try {
@@ -224,8 +224,8 @@ export class OrdersService {
     return { status: false };
   }
   async getOrdersByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined): Promise<OrderItemDetails[]> {
-    console.log(`start_time: ${start_time}`)
-    console.log(`Getting orders with status: ${statusList.join(', ')}`);
+    // console.log(`start_time: ${start_time}`)
+    // console.log(`Getting orders with status: ${statusList.join(', ')}`);
     if (!statusList || statusList.length === 0) {
       throw new BadRequestException('Status is required');
     }
@@ -241,7 +241,7 @@ export class OrdersService {
     else if (end_time){
       whereCondition.created_at = LessThan(end_time);
     }
-    console.log(`wherecondition: ${whereCondition}`)
+    // console.log(`wherecondition: ${whereCondition}`)
     if (statusList.includes('all')){
       orderItems.push(...await this.orderItemRepository.find({
         where: whereCondition,

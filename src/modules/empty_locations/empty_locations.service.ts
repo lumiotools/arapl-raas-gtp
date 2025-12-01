@@ -40,7 +40,7 @@ export class EmptyLocationsService {
     const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
     const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
     const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
-    console.log(`Fetching WMS locations from ${wms_base_url}`);
+    // console.log(`Fetching WMS locations from ${wms_base_url}`);
     const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=empty&location_type=empty`, {
       method: 'GET',
       headers: {
@@ -49,7 +49,7 @@ export class EmptyLocationsService {
       }
     });
     const data = await response.json();
-    console.log(`response: ${JSON.stringify(data)}`);
+    // console.log(`response: ${JSON.stringify(data)}`);
     return data;
   }
 
@@ -237,7 +237,7 @@ export class EmptyLocationsService {
           status = "REACHED";
         }
       }
-      console.log(`status: ${status}`)
+      // console.log(`status: ${status}`)
       if (!robot_id){return {robot_id: null}}
       return {
         robot_id: robot_id,

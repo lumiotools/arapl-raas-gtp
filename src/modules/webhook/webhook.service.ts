@@ -51,8 +51,8 @@ export class WebhookService {
   ) {}
 
   async processWebhook(webhookData: any): Promise<{ message: string }> {
-    this.logger.log(`Processing webhook for batch ${webhookData.batch_job_id} with status ${webhookData.batch_job_status}`);
-    this.logger.log(`Received ${webhookData.tasks.length} task status updates`);
+    // this.logger.log(`Processing webhook for batch ${webhookData.batch_job_id} with status ${webhookData.batch_job_status}`);
+    // this.logger.log(`Received ${webhookData.tasks.length} task status updates`);
     
     try {
       for (const taskStatus of webhookData.tasks) {
@@ -66,9 +66,9 @@ export class WebhookService {
   }
 
   private async updateTaskStatus(fms_batch_id: string, taskStatusData: any): Promise<void> {
-    console.log(`------------------------updateTaskStatus------------------------------------------------------`)
-    console.log(`taskStatus status: ${taskStatusData.status}, robot_id: ${taskStatusData.robot_id}, robot_name: ${taskStatusData.robot_name}`);
-    console.log(`------------------------updateTaskStatus------------------------------------------------------`)
+    console.log(`------------------------------------------------------------------------------`)
+    console.log(`taskStatus status: ${taskStatusData.status}, robot_id: ${taskStatusData.robot_id}, robot_name: ${taskStatusData.robot_name} for task_id: ${taskStatusData.task_id}`);
+    console.log(`------------------------------------------------------------------------------`)
     // Find task by task_id only (ignore batch_id as instructed)
     const task = await this.taskRepository.findOne({
       where: { task_id: taskStatusData.task_id }
@@ -94,7 +94,7 @@ export class WebhookService {
 
     if (taskStatusData.robot_id){
       task.robot_id = taskStatusData.robot_id;
-      console.log(`Updating taskStatus Data ${task.task_id} with robot_id ${taskStatusData.robot_id}, status: ${taskStatusData.status}`);
+      // console.log(`Updating taskStatus Data ${task.task_id} with robot_id ${taskStatusData.robot_id}, status: ${taskStatusData.status}`);
       await this.taskRepository.update(
         { task_id: task.task_id },
         { robot_id: taskStatusData.robot_id }
@@ -102,13 +102,13 @@ export class WebhookService {
     }
 
     if (statusPriority[mappedStatus] < statusPriority[oldStatus]) {
-      this.logger.log(`Skipping status update for task ${taskStatusData.task_id}: new status ${mappedStatus} (priority ${statusPriority[mappedStatus]}) has lower priority than current status ${oldStatus} (priority ${statusPriority[oldStatus]})`);
+      // this.logger.log(`Skipping status update for task ${taskStatusData.task_id}: new status ${mappedStatus} (priority ${statusPriority[mappedStatus]}) has lower priority than current status ${oldStatus} (priority ${statusPriority[oldStatus]})`);
       return;
     }
     
 
     if (oldStatus == mappedStatus) {
-      this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
+      // this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
       return; // No change needed
     }
     
@@ -170,7 +170,7 @@ export class WebhookService {
       await this.loggingService.log(`Task ${task.task_id}: Updated batch ${task.batch_id} status`, task.task_type, task.task_id, task.batch_id);
       return;
     }
-    console.log(`------------------------running ------------------------------------------------------`)
+    // console.log(`------------------------running ------------------------------------------------------`)
     // Handle inventory updates based on task status changes
     await this.handleInventoryUpdates(task, oldStatus, mappedStatus, task.batch_id);
     
@@ -221,7 +221,7 @@ export class WebhookService {
   }
 
   private mapTaskStatus(webhookStatus: string): TaskStatus {
-    console.log(webhookStatus);
+    // console.log(webhookStatus);
     const statusMap: { [key: string]: TaskStatus } = {
       'pending': TaskStatus.PENDING,
       'assigned': TaskStatus.ASSIGNED,
@@ -252,7 +252,7 @@ export class WebhookService {
       this.logger.warn(`Unknown task status: ${webhookStatus}, defaulting to PENDING`);
       return TaskStatus.PENDING;
     }
-    console.log(`Mapping webhook status ${webhookStatus} to TaskStatus: ${mapped}`);
+    // console.log(`Mapping webhook status ${webhookStatus} to TaskStatus: ${mapped}`);
     return mapped;
   }
 

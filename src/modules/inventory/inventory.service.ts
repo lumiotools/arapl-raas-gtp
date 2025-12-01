@@ -176,7 +176,7 @@ export class InventoryService {
   }
 
   async update(id: string, updateInventoryDto: any) {
-    console.log('callingg update', id);
+    // console.log('callingg update', id);
     const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
     
     if (!existingInventory) {
@@ -294,7 +294,7 @@ export class InventoryService {
             } as Inventory;
 
             const updatedResult = await this.update(id, inventoryData);
-            console.log(`Updated inventory: ${JSON.stringify(updatedResult)}`);
+            // console.log(`Updated inventory: ${JSON.stringify(updatedResult)}`);
             results.successful++;
           } else {
             // Create new inventory entry if it doesn't exist

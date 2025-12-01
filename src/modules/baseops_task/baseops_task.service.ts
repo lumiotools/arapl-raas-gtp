@@ -336,7 +336,7 @@ export class BaseopsTaskService {
   async shouldCreateTask(): Promise<boolean> {
     const robotAvailable = await this.isRobotAvailable();
     if (!robotAvailable){
-      console.log('No robots available to process BaseOps tasks at the moment.');
+      // console.log('No robots available to process BaseOps tasks at the moment.');
       return false;
     }
     const isWaiting = await this.checkIfSystemIsInWaitingState();
@@ -353,7 +353,7 @@ export class BaseopsTaskService {
       console.log('Previous cron job still running, skipping this execution');
       return;
     }
-    console.log('--- start base ops cron job ---');
+    // console.log('--- start base ops cron job ---');
     try {
     
     if (!await this.shouldCreateTask()) { return; }

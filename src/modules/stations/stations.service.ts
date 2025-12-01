@@ -56,7 +56,6 @@ export class StationsService {
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
-      console.log(`Fetching WMS locations from ${wms_base_url}`);
       const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=station&location_type=station`, {
         method: 'GET',
         headers: {
@@ -119,8 +118,9 @@ export class StationsService {
       //   }
       // }
       return await this.stationRepository.find({ relations: ['gtpLocations'] });
-    }catch{
-      throw new BadRequestException('Failed to fetch WMS stations');
+    }catch(err){
+      console.log(err);
+      throw new BadRequestException('Failed to fetch WMS stations '+ err.message);
     }
   }
 
@@ -358,7 +358,7 @@ export class StationsService {
         }
         let required_quantity = 0;
         for (const gtpLocation of station?.gtpLocations || []) {
-          console.log(`Checking GTP Location: ${gtpLocation.gtp_location_id}`);
+          // console.log(`Checking GTP Location: ${gtpLocation.gtp_location_id}`);
           if (gtpLocation) {
             const inProgressOrderItems = await this.orderItemRepository.find({
               where: { 
@@ -379,7 +379,7 @@ export class StationsService {
             status = "REACHED";
           }
         }
-        console.log(`status: ${status}`)
+        // console.log(`status: ${status}`)
         if (!robot_id){continue;}
         const robot  = await this.robotRepository.findOne({ where: { robot_id } });
         if (!robot){continue;}

@@ -349,7 +349,7 @@ export class BaseOpsLocationManagerService {
           const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
           const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
           const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3000/robot-job';
-          console.log(`Fetching WMS locations from ${wms_base_url}`);
+        //   console.log(`Fetching WMS locations from ${wms_base_url}`);
             const zones = Array.isArray(fms_zones) && fms_zones.length ? fms_zones : [];
             const entries = await Promise.all(zones.map(async (zone: string) => {
               const url = `${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=${encodeURIComponent(zone)}&location_type=${encodeURIComponent(zone)}`;

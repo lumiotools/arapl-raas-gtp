@@ -185,7 +185,7 @@ export class OrdersCancelService {
           if (!quarantine_location_id){
             throw new BadRequestException(`Quarantine Location ID must be provided for reassignment`);
           }
-          console.log(`Reserving inventory for Quarantine Location ID ${quarantine_location_id} for reassignment of Task ID ${taskId}`);
+          // console.log(`Reserving inventory for Quarantine Location ID ${quarantine_location_id} for reassignment of Task ID ${taskId}`);
           if (await this.inventoryService.reserveInventory(quarantine_location_id) === false){
             throw new BadRequestException(`Failed to reserve inventory for Quarantine Location ID ${quarantine_location_id}`);
           }
