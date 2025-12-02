@@ -18,16 +18,18 @@ import { In } from 'typeorm';
 import { InventoryModule } from '../inventory/inventory.module';
 import { WebhookModule } from '../webhook/webhook.module';
 import { Robot } from 'src/entities/robots.entity';
+import { LoggingModule } from '../logging/logging.module';
 
 @Module({
   imports: [JwtModule.register(jwtConfig),
     TypeOrmModule.forFeature([OrderItem,Robot, Product, GtpLocation,Inventory, User, Log, ScheduleMapping, Task, ProductRequirement, Station])
     ,forwardRef(() => OrchestratorModule),
     InventoryModule,
-    WebhookModule
+    WebhookModule,
+    LoggingModule
   ],
   controllers: [OrdersController],
-  providers: [OrdersService, LoggingService, OrdersCancelService],
-  exports: [OrdersService, OrdersCancelService],
+  providers: [OrdersService, OrdersCancelService],
+  exports: [OrdersService],
 })
 export class OrdersModule {}

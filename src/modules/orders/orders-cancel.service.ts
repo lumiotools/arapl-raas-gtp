@@ -69,7 +69,8 @@ export class OrdersCancelService {
             // cancel the task
             try{
               await this.orchestrationService.CancelTask(task);
-              await this.taskRepository.update(task.task_id, { status: TaskStatus.CANCELLED } );
+              task.status = TaskStatus.CANCELLED;
+              await this.taskRepository.save(task);
               await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
             }
             catch { throw new BadRequestException(`Task with id ${taskId} could not be cancelled`); }
@@ -191,7 +192,8 @@ export class OrdersCancelService {
           }
           try{
             await this.orchestrationService.CancelTask(task);
-            await this.taskRepository.update(task.task_id, { status: TaskStatus.CANCELLED } );
+            task.status = TaskStatus.CANCELLED;
+            await this.taskRepository.save(task);
             await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
           }
           catch { 

@@ -434,7 +434,8 @@ export class OrdersService {
     try{
       if (task && task.status !== TaskStatus.CANCELLED && task.status !== TaskStatus.COMPLETED){
         await this.orchestrationService.CancelTask(task);
-        await this.taskRepository.update(task.task_id, { status: TaskStatus.CANCELLED } );
+        task.status = TaskStatus.CANCELLED;
+        await this.taskRepository.save(task);
         await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
       }
     }catch{
