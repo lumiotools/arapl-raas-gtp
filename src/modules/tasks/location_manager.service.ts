@@ -217,9 +217,14 @@ export class LocationManagerService {
         let intermediateDropZone: string | null = null;
         let intermediateDropLocation: string | null = null;
         let start_to_intermediate_zone_pair_id: string | undefined;
+        let intermediate_to_end_zone_pair_id: string | undefined;
         for(const intermediate_drop_zone_id of intermediate_drop_zone_ids) {
-            const { start_zone_id } = await this.getZonePairStartEndZoneId(original_zone_pair_id);
+            const { start_zone_id, end_zone_id } = await this.getZonePairStartEndZoneId(original_zone_pair_id);
             start_to_intermediate_zone_pair_id = await this.getZonePairId(start_zone_id, intermediate_drop_zone_id);
+            intermediate_to_end_zone_pair_id = await this.getZonePairId(intermediate_drop_zone_id, end_zone_id);
+            if(!start_to_intermediate_zone_pair_id || !intermediate_to_end_zone_pair_id) {
+                continue;
+            }
             intermediateDropLocation = await this.findOptimalDropLocation(
             intermediate_drop_zone_id,
             start_to_intermediate_zone_pair_id,

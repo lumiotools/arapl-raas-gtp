@@ -311,7 +311,11 @@ export class TaskService implements OnModuleInit {
       for (const n of nodes) {
         if (!visited.has(n.task_id) && n.move_type !== MOVE_TYPE.PICK_ENTRY) {
           visited.add(n.task_id);
-          statuses.push(n.status);
+          if(n.status === TaskStatus.COMPLETED && n.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+            statuses.push(TaskStatus.WAITING);
+          } else {
+            statuses.push(n.status);
+          }
           if (n.task_dependency && frontier.includes(n.task_dependency) === false) {
             // no-op; we already expand by dependency on frontier via where clause
           }
@@ -338,7 +342,13 @@ export class TaskService implements OnModuleInit {
     // Ensure root included even if not fetched above
     if (!visited.has(rootTaskId)) {
       const root = await this.taskRepository.findOne({ where: { task_id: rootTaskId, batch: { batch_id }, move_type: Not(MOVE_TYPE.PICK_ENTRY) } });
-      if (root) statuses.push(root.status);
+      if (root) {
+        if(root.status === TaskStatus.COMPLETED && root.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+            statuses.push(TaskStatus.WAITING);
+          } else {
+            statuses.push(root.status);
+          }
+      }
     }
     return statuses;
   }
@@ -1415,6 +1425,10 @@ export class TaskService implements OnModuleInit {
       const endLocation = await this.LocationManagerService.getLocation(completedIntermediateTask.end_location.location_attribute.attribute_value);
       const endZone = endLocation?.parent_id || endLocation?.location_id;
       const nextTaskZonePairId = await this.LocationManagerService.getZonePairId(intermediate_drop_zone_id, endZone!);
+      if(!nextTaskZonePairId) {
+        console.log(`No valid zone pair found from intermediate drop zone ${intermediate_drop_zone_id} to final destination zone ${endZone}, cannot create next task.`);
+        continue;
+      }
       const intermediateDropLocation = await this.LocationManagerService.getLocation(completedIntermediateTask.end_location.location_id);
       const isPickPriorityReversed = nextTaskZonePairId ? await this.LocationManagerService.isPickPriorityReversed(nextTaskZonePairId) : false;
       const taskPriority = isPickPriorityReversed
