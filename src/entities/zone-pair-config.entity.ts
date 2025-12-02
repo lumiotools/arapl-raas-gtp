@@ -1,4 +1,4 @@
-import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from "typeorm";
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, ManyToMany, JoinTable, RelationId, Relation } from "typeorm";
 import { LocationEntity } from "./location.entity";
 
 @Entity('zone_pair_config')
@@ -23,6 +23,9 @@ export class ZonePairConfig {
 
   @Column({ type: 'varchar', length: 36, nullable: true })
   end_entry_point_location_id: string | null;
+
+  @Column({ type: 'varchar', length: 36, array: true, nullable: true })
+  intermediate_drop_zone_ids: string[] | null;
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

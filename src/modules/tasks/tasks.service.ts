@@ -7,7 +7,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository, IsNull, MoreThan, In, Not } from 'typeorm';
+import { Between, Repository, IsNull, MoreThan, In, Not, Raw } from 'typeorm';
 import {
   Task,
   TaskStatus,
@@ -103,7 +103,7 @@ export class TaskService implements OnModuleInit {
       if ((batch as any).status === TaskStatus.HALTED) {
         const haltedTask = await this.taskRepository.findOne({
           where: { batch_id: (batch as any).batch_id, status: TaskStatus.HALTED },
-          order: { updated_at: 'DESC', created_at: 'DESC' },
+          order: { created_at: 'DESC' },
         });
         if (haltedTask) {
           (batch as any).alert = await this.computeHaltReason(haltedTask);
@@ -142,25 +142,50 @@ export class TaskService implements OnModuleInit {
         try {
           // Walk the chain to find the main leg and final leg
           const chain: Task[] = [];
-          let cur: Task | null = task;
+          const visited = new Set<string>();
+          let currentIds = [task.task_id];
+          
           // Include the current task and all dependents
-          while (cur) {
-            chain.push(cur);
-            const nxt = await this.taskRepository.findOne({ where: { task_dependency: cur.task_id } });
-            cur = nxt ?? null;
+          while (currentIds.length > 0) {
+            const tasks = await this.taskRepository.find({ 
+              where: { task_id: In(currentIds) } 
+            });
+            
+            const nextIds: string[] = [];
+            for (const t of tasks) {
+              if (!visited.has(t.task_id)) {
+                visited.add(t.task_id);
+                chain.push(t);
+                
+                // Find all dependent tasks
+                const dependents = await this.taskRepository.find({ 
+                  where: { task_dependency: t.task_id } 
+                });
+                nextIds.push(...dependents.map(d => d.task_id));
+              }
+            }
+            currentIds = nextIds;
           }
+
+          // Sort chain by sequence_order to get proper chronological order
+          chain.sort((a, b) => (a.sequence_order ?? 0) - (b.sequence_order ?? 0));
 
           // Main leg: ZONE_TO_DROP_ENTRY if present, else ZONE_TO_ZONE
           const mainLeg = chain.find((t) => t.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY)
             ?? chain.find((t) => t.move_type === MOVE_TYPE.ZONE_TO_ZONE)
             ?? task;
 
-          // Final leg: DROP_ENTRY_TO_ZONE if present
-          const finalLeg = chain.find((t) => t.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE) ?? null;
+          // Get the last task in the sorted chain
+          const lastTask = chain[chain.length - 1];
+          
+          // Determine final end location: if last task doesn't have pending intermediate, use its end location
+          // Otherwise, don't show an end location yet (it's still being determined)
+          const renderEnd = lastTask
+            ? lastTask.end_location
+            : mainLeg.end_location; // Fallback to original intended destination
 
           // Render as originally requested by the user
           const renderStart = mainLeg.start_location ?? task.start_location;
-          const renderEnd = finalLeg?.end_location ?? mainLeg.end_location ?? task.end_location;
 
           // Do not persist; only shape the response object
           task.start_location = renderStart as any;
@@ -184,22 +209,24 @@ export class TaskService implements OnModuleInit {
       }
 
       if (task.end_location) {
-        const originalEndLocation =
-          await this.LocationManagerService.getLocation(
-            task.end_location.location_attribute.attribute_value,
-          );
+        const originalEndLocation = await this.LocationManagerService.getLocation(
+              task.end_location?.location_attribute?.attribute_value ?? task.end_location.location_id,
+            );
 
         if(task.status === TaskStatus.COMPLETED){
-          const finalEndLocation = await this.LocationManagerService.getLocation(
-            task.end_location.location_id,
-          );
-          if (finalEndLocation) {
-            (task as any).final_end_location = {
-              ...task.end_location,
-              location_id: finalEndLocation.location_id,
-              location_type: finalEndLocation.location_type,
-              display_name: finalEndLocation.display_name,
-            };
+          // Only show final_end_location if the task is truly complete (not an intermediate drop)
+          if (!task.end_location.location_attribute?.attribute_pending_next_intermediate_task) {
+            const finalEndLocation = await this.LocationManagerService.getLocation(
+              task.end_location.location_id,
+            );
+            if (finalEndLocation) {
+              (task as any).final_end_location = {
+                ...task.end_location,
+                location_id: finalEndLocation.location_id,
+                location_type: finalEndLocation.location_type,
+                display_name: finalEndLocation.display_name,
+              };
+            }
           }
         }
 
@@ -214,10 +241,10 @@ export class TaskService implements OnModuleInit {
       }
 
       if (
-        task.move_type == MOVE_TYPE.ZONE_TO_WAIT &&
+        (task.move_type == MOVE_TYPE.ZONE_TO_WAIT || task.end_location?.location_attribute?.attribute_pending_next_intermediate_task) &&
         task.status == TaskStatus.COMPLETED
       ) {
-        const waitToZoneTask = await this.taskRepository.findOne({
+        const waitToZoneTasks = await this.taskRepository.find({
           where: {
             task_dependency: task.task_id,
           },
@@ -238,10 +265,12 @@ export class TaskService implements OnModuleInit {
           (task as any).start_time = startCandidate;
           (task as any).end_time = endCandidate;
         }
-        if (!waitToZoneTask) {
+        if (!waitToZoneTasks || waitToZoneTasks.length === 0) {
           task.status = TaskStatus.WAITING;
         } else {
-          task.status = waitToZoneTask.status;
+          // Aggregate status of all dependent tasks
+          const dependentStatuses = waitToZoneTasks.map(t => t.status);
+          task.status = this.aggregateStatuses(dependentStatuses);
         }
       }
 
@@ -260,6 +289,8 @@ export class TaskService implements OnModuleInit {
       // Attach HALTED reason for UI/API consumers (renamed to alert)
       (task as any).alert = await this.computeHaltReason(task)
     }
+
+    tasks.sort((a, b) => (b.display_task_id - a.display_task_id));
 
     return tasks;
   }
@@ -346,14 +377,19 @@ export class TaskService implements OnModuleInit {
   // Helper: provide a human-readable reason for HALTED tasks, consistent across views
   private async computeHaltReason(t: Task): Promise<string | undefined> {
     if (t.status !== TaskStatus.HALTED) return undefined;
+    if(t.message) return t.message;
     if (t.end_location?.location_attribute?.attribute_name === 'ZONE') {
-      const zoneId = t.end_location.location_attribute.attribute_value;
-      const zoneName = zoneId
-        ? await this.LocationManagerService.getDisplayName(zoneId)
-        : undefined;
-      return zoneName
-        ? `No directly accessible locations in ${zoneName}`
-        : 'No directly accessible locations in target zone';
+      if(!t.end_location.location_attribute.attribute_pending_next_intermediate_task) {
+        const zoneId = t.end_location.location_attribute.attribute_value;
+        const zoneName = zoneId
+          ? await this.LocationManagerService.getDisplayName(zoneId)
+          : undefined;
+        return zoneName
+          ? `No directly accessible locations in ${zoneName}`
+          : 'No directly accessible locations in target zone';
+      } else {
+        return `No directly accessible locations in intermediate drop zones`;
+      }
     } else {
       return `Location ${t.end_location.display_name} is not directly accessible`;
     }
@@ -423,14 +459,20 @@ export class TaskService implements OnModuleInit {
 
       let activityReason: string | undefined;
       if (t.status === TaskStatus.HALTED) {
-        if (t.end_location?.location_attribute?.attribute_name === 'ZONE') {
-          const zoneId = t.end_location.location_attribute.attribute_value;
-          const zoneName = zoneId
-        ? await this.LocationManagerService.getDisplayName(zoneId)
-        : undefined;
-          activityReason = zoneName
-        ? `No directly accessible locations in ${zoneName}`
-        : 'No directly accessible locations in target zone';
+        if (t.message) {
+          activityReason = t.message;
+        } else if (t.end_location?.location_attribute?.attribute_name === 'ZONE') {
+          if(!t.end_location.location_attribute.attribute_pending_next_intermediate_task) {
+            const zoneId = t.end_location.location_attribute.attribute_value;
+            const zoneName = zoneId
+          ? await this.LocationManagerService.getDisplayName(zoneId)
+          : undefined;
+            activityReason = zoneName
+          ? `No directly accessible locations in ${zoneName}`
+          : 'No directly accessible locations in target zone';
+          } else {
+            activityReason = `No directly accessible locations in intermediate drop zones`;
+          }
         } else {
           activityReason = `Location ${t.end_location.display_name} is not directly accessible`;
         }
@@ -455,7 +497,7 @@ export class TaskService implements OnModuleInit {
 
       // Insert WAITING in between if this leg ends at a wait location
       // i.e., when a ZONE_TO_WAIT target wasn't available and we parked at a wait pallet
-      if (t.move_type === MOVE_TYPE.ZONE_TO_WAIT) {
+      if (t.move_type === MOVE_TYPE.ZONE_TO_WAIT || (t.end_location?.location_attribute?.attribute_pending_next_intermediate_task && t.status !== TaskStatus.CANCELLED)) {
         const waitLocId = t.end_location?.location_id;
         const waitDisplay = waitLocId
           ? await this.LocationManagerService.getDisplayName(waitLocId)
@@ -491,7 +533,9 @@ export class TaskService implements OnModuleInit {
           const nextEndName = await this.LocationManagerService.getDisplayName(
             nextTask.end_location.location_id,
           );
-          if (nextTask.end_location.location_type === LocationType.ZONE) {
+          if(t.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+            waitReason = `Waiting for pickup from intermediate drop location`;
+          } else if (nextTask.end_location.location_type === LocationType.ZONE) {
             waitReason = `Waiting for a location in ${nextEndName} to be available`;
           } else {
             waitReason = `Waiting for location ${nextEndName} to be available`;
@@ -508,7 +552,9 @@ export class TaskService implements OnModuleInit {
                 )
               : undefined;
           if (derivedEndReasonName) {
-            if (attrNameForReason === 'ZONE') {
+            if(t.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+              waitReason = `Waiting for pickup from intermediate drop location`;
+            } else if (attrNameForReason === 'ZONE') {
               waitReason = `Waiting for a location in ${derivedEndReasonName} to be available`;
             } else {
               waitReason = `Waiting for location ${derivedEndReasonName} to be available`;
@@ -657,10 +703,15 @@ export class TaskService implements OnModuleInit {
     console.log(`--- start ${String(this.taskType)} cron job ---`);
     try {
       if (!(await this.shouldCreateTask())) {
+        console.log("664: system in waiting")
         return;
       }
       await this.processWaitHaultedTasks();
+      if(this.operationType === OperationType.CROSSDOCK){
+        await this.processCrossdockIntermediateDropTaskContinuations();
+      }
       if (!(await this.shouldCreateTask())) {
+        console.log("672: system in waiting")
         return;
       }
       await this.processNextTask();
@@ -846,7 +897,7 @@ export class TaskService implements OnModuleInit {
       );
 
       if(!response.ok) {
-        throw new Error(`WMS API responded with status ${response.status}: ${response.statusText}`);
+        throw new Error(`WMS API responded with status ${response.status}: ${JSON.stringify(await response.json())}`);
       }
 
       const responseData = await response.json();
@@ -971,6 +1022,7 @@ export class TaskService implements OnModuleInit {
     try {
       // Your batch processing logic here
       if (nextTask.task_type === TaskType.CROSSDOCK) {
+        console.log("To Process: ", nextTask.task_id)
         await this.processCrossdockTask(nextTask);
       } else {
         await this.processBaseopsTask(nextTask);
@@ -1013,157 +1065,120 @@ export class TaskService implements OnModuleInit {
     }
   }
 
+  // Helper method to handle intermediate drop zone logic
+  private async handleIntermediateDropZone(
+    task: Task,
+    zonePairId: string,
+    finalDestinationZone?: string,
+  ): Promise<{ success: boolean; updatedTask?: Task }> {
+    const { start_zone_id } = await this.LocationManagerService.getZonePairStartEndZoneId(zonePairId);
+    const original_zone_pair_id = finalDestinationZone 
+      ? await this.LocationManagerService.getZonePairId(start_zone_id, finalDestinationZone)
+      : zonePairId;
+    
+    const intermediateDropZoneIds = await this.LocationManagerService.getIntermediateDropZoneIds(original_zone_pair_id!);
+    
+    if (!intermediateDropZoneIds || intermediateDropZoneIds.length === 0) {
+      return { success: true }; // No intermediate zones needed
+    }
+
+    console.log(`Preparing task split for task ${task.task_id}`);
+    const {
+      success,
+      intermediateDropLocation,
+      start_to_intermediate_zone_pair_id,
+    } = await this.LocationManagerService.findOptimalIntermediateDropLocation(
+      intermediateDropZoneIds,
+      zonePairId,
+    );
+
+    if (!success) {
+      console.log(`No available intermediate drop location found for task ${task.task_id}, halting the task.`);
+      task.status = TaskStatus.HALTED;
+      task.message = 'No directly accessible locations in intermediate drop zones';
+      await this.taskRepository.save(task);
+      return { success: false };
+    }
+
+    console.log(`Task split complete for task ${task.task_id}`);
+    
+    task.end_location.location_id = intermediateDropLocation!;
+    task.end_location.location_attribute.attribute_zone_pair_id = start_to_intermediate_zone_pair_id;
+    task.end_location.location_attribute.attribute_pending_next_intermediate_task = true;
+
+    return { success: true, updatedTask: task };
+  }
+
   private async processCrossdockTask(task: Task): Promise<void> {
     const originalTask = structuredClone(task);
-
     let tasks: Task[] = [];
 
-    if(originalTask.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
-      const startEntryLocation = await this.LocationManagerService.getStartZoneEntryPoint(originalTask.start_location.location_attribute.attribute_zone_pair_id!);
-      const endEntryLocation = await this.LocationManagerService.getEndZoneEntryPoint(originalTask.end_location.location_attribute.attribute_zone_pair_id!);
-
-      const higherPriorityTasks = await this.taskRepository.find({
-        where: {
-          task_type: TaskType.CROSSDOCK,
-          priority: MoreThan(originalTask.priority ?? Number.MAX_SAFE_INTEGER),
-          move_type: MOVE_TYPE.PICK_ENTRY,
-          status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING])
-        }
-      });
-
-      const validHigherPriorityTasks = higherPriorityTasks.filter(t => t.start_location.location_id === originalTask.start_location.location_id);
-
-      if(validHigherPriorityTasks.length > 0 && originalTask.end_location.location_attribute.attribute_name === 'ZONE') {
-        await this.markSystemAsWaiting();
-        const destinationZone = originalTask.end_location.location_attribute.attribute_value;
-
-        const dropLocationAffectedTasks = await this.taskRepository.find({
-          where: {
-            task_type: TaskType.CROSSDOCK,
-            move_type: MOVE_TYPE.PICK_ENTRY,
-            status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING])
-          }
-        });
-
-        for (const affectedTask of dropLocationAffectedTasks) {
-          await this.handleCrossdockPickEntryCancellation(affectedTask, destinationZone);
-        }
-        await this.unmarkSystemAsWaiting();
-      }
-
-      if(startEntryLocation) {
-        let toStartEntryTask = new Task()
-        toStartEntryTask.batch_id = task.batch.batch_id;
-        toStartEntryTask.wms_task_id = task.wms_task_id;
-        toStartEntryTask.task_type = this.taskType;
-        toStartEntryTask.status = TaskStatus.PENDING;
-        toStartEntryTask.move_type = MOVE_TYPE.PICK_ENTRY;
-        toStartEntryTask.sequence_order = originalTask.sequence_order;
-        toStartEntryTask.task_dependency = originalTask.task_dependency;
-        toStartEntryTask.priority = task.priority;
-
-        toStartEntryTask.start_location = {
-          location_id: startEntryLocation.location_id,
-          location_type: LocationType.PALLET,
-          location_action: LocationAction.NOP,
-          location_dimension: {
-            length: 1,
-            width: 1,
-            height: 1,
-          },
-          location_attribute: null as any,
-        };
-
-        toStartEntryTask.end_location = {
-          location_id: startEntryLocation.location_id,
-          location_type: LocationType.PALLET,
-          location_action: LocationAction.NOP,
-          location_dimension: {
-            length: 1,
-            width: 1,
-            height: 1,
-          },
-          location_attribute: null as any,
-        };
-
-        toStartEntryTask.wait = null as any;
-        toStartEntryTask.cargos = task.cargos;
-
-        toStartEntryTask = await this.taskRepository.save(toStartEntryTask);
-        tasks.push(toStartEntryTask);
-
-        task.task_dependency = toStartEntryTask.task_id; 
-        task.sequence_order = toStartEntryTask.sequence_order + 1;
-        task = await this.taskRepository.save(task);
+    if (originalTask.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+      console.log(`Searching for intermediate drop zones for task ${task.task_id}`);
+      
+      const result = await this.handleIntermediateDropZone(
+        task,
+        originalTask.end_location.location_attribute?.attribute_zone_pair_id!,
+      );
+      
+      if (!result.success) return;
+      
+      if (result.updatedTask) {
+        task = result.updatedTask;
+        task.start_location.location_attribute.attribute_zone_pair_id = 
+          task.end_location.location_attribute.attribute_zone_pair_id;
       } else {
-        task.sequence_order = originalTask.sequence_order;
-        task = await this.taskRepository.save(task);
+        console.log(`No intermediate drop zones found for task ${task.task_id}`);
       }
 
-      if(endEntryLocation) {
-        let fromEndEntryTask = new Task()
-        fromEndEntryTask.batch_id = task.batch.batch_id;
-        fromEndEntryTask.wms_task_id = task.wms_task_id;
-        fromEndEntryTask.task_type = this.taskType;
-        fromEndEntryTask.status = TaskStatus.PENDING;
-        fromEndEntryTask.move_type = MOVE_TYPE.DROP_ENTRY_TO_ZONE;
-        fromEndEntryTask.sequence_order = task.sequence_order + 1;
-        fromEndEntryTask.task_dependency = task.task_id;
-        fromEndEntryTask.priority = task.priority;
-
-        fromEndEntryTask.start_location = {
-          location_id: endEntryLocation.location_id,
-          location_type: LocationType.PALLET,
-          location_action: LocationAction.NOP_RESUME,
-          location_dimension: {
-            length: 1,
-            width: 1,
-            height: 1,
-          },
-          location_attribute: null as any,
-        };
-
-        fromEndEntryTask.end_location = task.end_location;
-
-        fromEndEntryTask.wait = null as any;
-        fromEndEntryTask.cargos = task.cargos;
-
-        fromEndEntryTask = await this.taskRepository.save(fromEndEntryTask);
-
-        task.move_type = MOVE_TYPE.ZONE_TO_DROP_ENTRY;
-        task.end_location = {
-          location_id: endEntryLocation.location_id,
-          location_type: LocationType.PALLET,
-          location_action: LocationAction.NOP_PAUSE,
-          location_dimension: {
-            length: 1,
-            width: 1,
-            height: 1,
-          },
-          location_attribute: null as any,
-        };
-
-        task = await this.taskRepository.save(task);
-
-        tasks.push(task);
-        tasks.push(fromEndEntryTask);
-      } else {
-        tasks.push(task);
-      }
+      const splitTasks = await this.splitCrossdockTasksWithEntryPoints(task);
+      tasks.push(...splitTasks);
+      console.log(`Total tasks after split: ${tasks.length}`);
+      
     } else if (originalTask.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY) {
-      const dependentTask = (await this.taskRepository.findOne({
-        where: {
-          task_dependency: task.task_id,
-        },
+      let dependentTask = (await this.taskRepository.findOne({
+        where: { task_dependency: task.task_id },
       })) as Task;
 
-      tasks.push(task);
-      tasks.push(dependentTask);
+      if (dependentTask.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+        const endLocation = await this.LocationManagerService.getLocation(dependentTask.end_location.location_attribute?.attribute_value);
+        const endZoneId = endLocation?.parent_id || endLocation?.location_id;
+        const result = await this.handleIntermediateDropZone(
+          dependentTask,
+          dependentTask.end_location.location_attribute?.attribute_zone_pair_id!,
+          endZoneId!,
+        );
+        
+        if (!result.success) return;
+        
+        if (result.updatedTask) {
+          dependentTask = await this.taskRepository.save(result.updatedTask);
+        }
+      }
+
+      tasks.push(task, dependentTask);
+      
     } else if (originalTask.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE) {
+      if (originalTask.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+        const endLocation = await this.LocationManagerService.getLocation(originalTask.end_location.location_attribute?.attribute_value);
+        const endZoneId = endLocation?.parent_id || endLocation?.location_id;
+        const result = await this.handleIntermediateDropZone(
+          task,
+          originalTask.end_location.location_attribute?.attribute_zone_pair_id!,
+          endZoneId!,
+        );
+        
+        if (!result.success) return;
+        
+        if (result.updatedTask) {
+          task = await this.taskRepository.save(result.updatedTask);
+        }
+      }
+      
       tasks.push(task);
     }
 
-    if(originalTask.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+    if(originalTask.move_type === MOVE_TYPE.ZONE_TO_ZONE && tasks.length > 0) {
       tasks[0].task_dependency = null as any;
     }
 
@@ -1187,14 +1202,17 @@ export class TaskService implements OnModuleInit {
     if(!success) {
       tasks.forEach(async (t) => {
         if (originalTask.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
-          if(t.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY || t.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+          // if(t.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY || t.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+          if(t.start_location.location_id === originalTask.start_location.location_id) {
             originalTask.status = TaskStatus.HALTED;
+            originalTask.message = 'No directly accessible locations in target zone';
             await this.taskRepository.save(originalTask);
           } else {
             await this.taskRepository.delete({ task_id: t.task_id });
           }
         } else if (originalTask.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY || originalTask.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE) {
           t.status = TaskStatus.HALTED;
+          t.message = 'No directly accessible locations in target zone';
           await this.taskRepository.save(t);
         }
 
@@ -1218,13 +1236,245 @@ export class TaskService implements OnModuleInit {
     }
   }
 
+  private async splitCrossdockTasksWithEntryPoints(task: Task): Promise<Task[]> {
+    const originalTask = structuredClone(task);
+    const splitTasks: Task[] = [];
+
+    const startEntryLocation = await this.LocationManagerService.getStartZoneEntryPoint(originalTask.start_location.location_attribute.attribute_zone_pair_id!);
+    const endEntryLocation = await this.LocationManagerService.getEndZoneEntryPoint(originalTask.end_location.location_attribute.attribute_zone_pair_id!);
+
+    const higherPriorityTasks = await this.taskRepository.find({
+      where: {
+        task_type: TaskType.CROSSDOCK,
+        priority: MoreThan(originalTask.priority ?? Number.MAX_SAFE_INTEGER),
+        move_type: MOVE_TYPE.PICK_ENTRY,
+        status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING])
+      }
+    });
+
+    const validHigherPriorityTasks = higherPriorityTasks.filter(t => t.start_location.location_id === startEntryLocation?.location_id);
+
+    if(validHigherPriorityTasks.length > 0) {
+      await this.markSystemAsWaiting();
+      let destinationZone;
+
+      if(originalTask.end_location.location_attribute.attribute_pending_next_intermediate_task) {
+        const intermediateDropLocation = await this.LocationManagerService.getLocation(originalTask.end_location.location_id);
+        destinationZone = intermediateDropLocation?.parent_id;
+      } else {
+        const destinationLocation = await this.LocationManagerService.getLocation(originalTask.end_location.location_attribute.attribute_value);
+        destinationZone = destinationLocation?.parent_id || destinationLocation?.location_id;
+      }
+
+      const dropLocationAffectedTasks = await this.taskRepository.find({
+        where: {
+          task_type: TaskType.CROSSDOCK,
+          move_type: MOVE_TYPE.PICK_ENTRY,
+          status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING])
+        }
+      });
+
+      for (const affectedTask of dropLocationAffectedTasks) {
+        console.log("Trying to cancel task: ", affectedTask.task_id, " with destination zone: ", destinationZone);
+        await this.handleCrossdockPickEntryCancellation(affectedTask, destinationZone);
+      }
+      await this.unmarkSystemAsWaiting();
+
+      return [];
+    }
+
+    if(startEntryLocation) {
+      let toStartEntryTask = new Task()
+      toStartEntryTask.batch_id = task.batch.batch_id;
+      toStartEntryTask.wms_task_id = task.wms_task_id;
+      toStartEntryTask.task_type = this.taskType;
+      toStartEntryTask.status = TaskStatus.PENDING;
+      toStartEntryTask.move_type = MOVE_TYPE.PICK_ENTRY;
+      toStartEntryTask.sequence_order = originalTask.sequence_order;
+      toStartEntryTask.task_dependency = originalTask.task_dependency;
+      toStartEntryTask.priority = task.priority;
+
+      toStartEntryTask.start_location = {
+        location_id: startEntryLocation.location_id,
+        location_type: LocationType.PALLET,
+        location_action: LocationAction.NOP,
+        location_dimension: {
+          length: 1,
+          width: 1,
+          height: 1,
+        },
+        location_attribute: null as any,
+      };
+
+      toStartEntryTask.end_location = {
+        location_id: startEntryLocation.location_id,
+        location_type: LocationType.PALLET,
+        location_action: LocationAction.NOP,
+        location_dimension: {
+          length: 1,
+          width: 1,
+          height: 1,
+        },
+        location_attribute: null as any,
+      };
+
+      toStartEntryTask.wait = null as any;
+      toStartEntryTask.cargos = task.cargos;
+
+      toStartEntryTask = await this.taskRepository.save(toStartEntryTask);
+      splitTasks.push(toStartEntryTask);
+
+      task.task_dependency = toStartEntryTask.task_id; 
+      task.sequence_order = toStartEntryTask.sequence_order + 1;
+      task = await this.taskRepository.save(task);
+    } else {
+      task.sequence_order = originalTask.sequence_order;
+      task = await this.taskRepository.save(task);
+    }
+
+    if(endEntryLocation) {
+      let fromEndEntryTask = new Task()
+      fromEndEntryTask.batch_id = task.batch.batch_id;
+      fromEndEntryTask.wms_task_id = task.wms_task_id;
+      fromEndEntryTask.task_type = this.taskType;
+      fromEndEntryTask.status = TaskStatus.PENDING;
+      fromEndEntryTask.move_type = MOVE_TYPE.DROP_ENTRY_TO_ZONE;
+      fromEndEntryTask.sequence_order = task.sequence_order + 1;
+      fromEndEntryTask.task_dependency = task.task_id;
+      fromEndEntryTask.priority = task.priority;
+
+      fromEndEntryTask.start_location = {
+        location_id: endEntryLocation.location_id,
+        location_type: LocationType.PALLET,
+        location_action: LocationAction.NOP_RESUME,
+        location_dimension: {
+          length: 1,
+          width: 1,
+          height: 1,
+        },
+        location_attribute: null as any,
+      };
+
+      fromEndEntryTask.end_location = task.end_location;
+
+      fromEndEntryTask.wait = null as any;
+      fromEndEntryTask.cargos = task.cargos;
+
+      fromEndEntryTask = await this.taskRepository.save(fromEndEntryTask);
+
+      task.move_type = MOVE_TYPE.ZONE_TO_DROP_ENTRY;
+      task.end_location = {
+        location_id: endEntryLocation.location_id,
+        location_type: LocationType.PALLET,
+        location_action: LocationAction.NOP_PAUSE,
+        location_dimension: {
+          length: 1,
+          width: 1,
+          height: 1,
+        },
+        location_attribute: null as any,
+      };
+
+      task = await this.taskRepository.save(task);
+
+      splitTasks.push(task);
+      splitTasks.push(fromEndEntryTask);
+    } else {
+      splitTasks.push(task);
+    }
+
+    return splitTasks;
+  }
+
+  private async processCrossdockIntermediateDropTaskContinuations(): Promise<void> {
+    // Query Postgres JSON field using a Raw expression so we don't try to compare objects directly
+    const completedIntermediateTasks = await this.taskRepository.find({
+      where: {
+        task_type: TaskType.CROSSDOCK,
+        status: TaskStatus.COMPLETED,
+        move_type: In([MOVE_TYPE.ZONE_TO_ZONE, MOVE_TYPE.DROP_ENTRY_TO_ZONE]),
+        end_location: Raw(alias => `${alias} -> 'location_attribute' ->> 'attribute_pending_next_intermediate_task' = 'true'`)
+      },
+      order: {
+        priority: 'ASC',
+      }
+    });
+
+    if(!completedIntermediateTasks || completedIntermediateTasks.length === 0) {
+      return;
+    }
+
+    for (const completedIntermediateTask of completedIntermediateTasks) {
+
+      console.log("Processing Crossdock Intermediate Drop Task Continuation for Task ID: ", completedIntermediateTask.task_id);
+
+      const {
+        end_zone_id: intermediate_drop_zone_id
+      } = await this.LocationManagerService.getZonePairStartEndZoneId(completedIntermediateTask.end_location.location_attribute.attribute_zone_pair_id!);
+
+      const endLocation = await this.LocationManagerService.getLocation(completedIntermediateTask.end_location.location_attribute.attribute_value);
+      const endZone = endLocation?.parent_id || endLocation?.location_id;
+      const nextTaskZonePairId = await this.LocationManagerService.getZonePairId(intermediate_drop_zone_id, endZone!);
+      const intermediateDropLocation = await this.LocationManagerService.getLocation(completedIntermediateTask.end_location.location_id);
+      const isPickPriorityReversed = nextTaskZonePairId ? await this.LocationManagerService.isPickPriorityReversed(nextTaskZonePairId) : false;
+      const taskPriority = isPickPriorityReversed
+                            ? await this.LocationManagerService.getReversePickPriority(intermediateDropLocation?.location_id!)
+                            : completedIntermediateTask.priority; 
+
+      const nextTask = new Task();
+      nextTask.batch_id = completedIntermediateTask.batch_id;
+      nextTask.wms_task_id = completedIntermediateTask.wms_task_id;
+      nextTask.task_type = this.taskType;
+      nextTask.priority = taskPriority || completedIntermediateTask.priority;
+      nextTask.task_dependency = completedIntermediateTask.task_id;
+      nextTask.status = TaskStatus.PENDING;
+      nextTask.move_type = MOVE_TYPE.ZONE_TO_ZONE;
+      nextTask.sequence_order = completedIntermediateTask.sequence_order + 1;
+
+      nextTask.start_location = {
+        location_id : completedIntermediateTask.end_location.location_id,
+        location_type: LocationType.PALLET,
+        location_action: LocationAction.PICK,
+        location_dimension: completedIntermediateTask.end_location.location_dimension,
+        location_attribute: {
+          attribute_name: 'Pallet',
+          attribute_value: completedIntermediateTask.end_location.location_id,
+          attribute_zone_pair_id: nextTaskZonePairId,
+        }
+      };
+
+      nextTask.end_location = {
+        location_id : completedIntermediateTask.end_location.location_attribute.attribute_name === 'ZONE' 
+                        ? 'To be decided'
+                        : completedIntermediateTask.end_location.location_attribute.attribute_value,
+        location_type: LocationType.PALLET,
+        location_action: LocationAction.DROP,
+        location_dimension: completedIntermediateTask.end_location.location_dimension,
+        location_attribute: {
+          attribute_name: completedIntermediateTask.end_location.location_attribute.attribute_name,
+          attribute_value: completedIntermediateTask.end_location.location_attribute.attribute_value,
+          attribute_zone_pair_id: nextTaskZonePairId,
+          }
+      };
+
+      nextTask.cargos = completedIntermediateTask.cargos;
+
+      console.log("Next Task: ", nextTask)
+
+      await this.taskRepository.save(nextTask);
+
+      completedIntermediateTask.end_location.location_attribute.attribute_pending_next_intermediate_task = undefined;
+      await this.taskRepository.save(completedIntermediateTask);
+    }
+  }
+
   private async processTask(task: Task): Promise<Task | undefined> {
     // Implement your actual task processing logic here
     console.log(`Processing task: ${task.task_id}`);
     if (!task) return;
     const req_tasks: any[] = [];
     let end_location_id: string | null = null;
-    if (task.end_location.location_attribute?.attribute_name === 'ZONE') {
+    if (task.end_location.location_attribute?.attribute_name === 'ZONE' && !task.end_location.location_attribute.attribute_pending_next_intermediate_task) {
       // write the logic to find the pallet location in that zone
       end_location_id =
         await this.LocationManagerService.findOptimalDropLocation(
@@ -1934,11 +2184,14 @@ export class TaskService implements OnModuleInit {
       });
     }
 
+    const currDestinationLocation = await this.LocationManagerService.getLocation(splitTasks[splitTasks.length - 1].end_location?.location_id)
+
     if (
       destinationZone &&
       splitTasks.length > 0 &&
-      splitTasks[splitTasks.length - 1].end_location?.location_attribute?.attribute_name === 'ZONE' &&
-      splitTasks[splitTasks.length - 1].end_location.location_attribute.attribute_value !== destinationZone
+      currDestinationLocation?.parent_id !== destinationZone
+      // splitTasks[splitTasks.length - 1].end_location?.location_attribute?.attribute_name === 'ZONE' &&
+      // splitTasks[splitTasks.length - 1].end_location.location_attribute.attribute_value !== destinationZone
     ) {
       return null;
     }
@@ -1959,6 +2212,9 @@ export class TaskService implements OnModuleInit {
       if (dependentTask.status !== TaskStatus.CANCELLED) {
         await this.cancelTaskFromWMS(dependentTask);
         dependentTask.status = TaskStatus.CANCELLED;
+        if(dependentTask.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+          dependentTask.end_location.location_attribute.attribute_pending_next_intermediate_task = undefined;
+        }
         await this.taskRepository.save(dependentTask);
         await this.loggingService.log(
           `Cancelled dependent task ${dependentTask.task_id} due to PICK_ENTRY cancellation of ${currentTask.task_id}`,
@@ -1983,7 +2239,8 @@ export class TaskService implements OnModuleInit {
         originalTask.task_dependency = dependentTask.task_id;
         originalTask.end_location = {
           location_id:
-            dependentTask.end_location.location_attribute.attribute_name === 'Pallet'
+            dependentTask.end_location.location_attribute.attribute_name === 'Pallet' &&
+            !dependentTask.end_location.location_attribute.attribute_pending_next_intermediate_task
               ? dependentTask.end_location.location_attribute.attribute_value
               : 'To be decided',
           location_type: LocationType.PALLET,
@@ -2011,6 +2268,16 @@ export class TaskService implements OnModuleInit {
       currentTask.status = TaskStatus.CANCELLED;
       await this.taskRepository.save(currentTask);
     }
+
+    const startLocation = await this.LocationManagerService.getLocation(originalTask.start_location.location_id);
+    const startZone = startLocation?.parent_id || startLocation?.location_id;
+    const endLocation = await this.LocationManagerService.getLocation(originalTask.end_location.location_attribute.attribute_value);
+    const endZone = endLocation?.parent_id || endLocation?.location_id;
+    const zonePairId = await this.LocationManagerService.getZonePairId(startZone!, endZone!);
+
+    originalTask.start_location.location_attribute.attribute_zone_pair_id = zonePairId;
+    originalTask.end_location.location_attribute.attribute_zone_pair_id = zonePairId;
+    originalTask.end_location.location_attribute.attribute_pending_next_intermediate_task = undefined;
 
     return originalTask;
   }
@@ -2042,7 +2309,7 @@ export class TaskService implements OnModuleInit {
     if (!createNewTask) return;
 
     const recreated = await this.recreateOriginalCrossdockTask(originalTask);
-    return recreated.end_location.location_attribute.attribute_value;
+    return recreated.end_location?.location_attribute?.attribute_value;
   }
 
   async handleCrossdockDropEntryCancellation(currentTask: Task): Promise<void> {
@@ -2098,7 +2365,9 @@ export class TaskService implements OnModuleInit {
       let dropEntryToZoneTask = structuredClone(dependentTask);
       dropEntryToZoneTask.task_id = undefined as any;
       dropEntryToZoneTask.status = TaskStatus.PENDING;
-      dropEntryToZoneTask.end_location.location_id = dependentTask.end_location.location_attribute.attribute_name === 'Pallet' ? dependentTask.end_location.location_id : 'To be decided';
+      dropEntryToZoneTask.end_location.location_id = dependentTask.end_location.location_attribute.attribute_name === 'Pallet' &&
+                                                     !dependentTask.end_location.location_attribute.attribute_pending_next_intermediate_task
+                                                     ? dependentTask.end_location.location_id : 'To be decided';
       dropEntryToZoneTask.end_location.location_action = LocationAction.DROP;
       dropEntryToZoneTask.task_dependency = zoneToDropEntryTask.task_id;
       dropEntryToZoneTask.sequence_order = zoneToDropEntryTask.sequence_order + 1;
@@ -2143,7 +2412,9 @@ export class TaskService implements OnModuleInit {
       let dropEntryToZoneTask = structuredClone(dependentTask);
       dropEntryToZoneTask.task_id = undefined as any;
       dropEntryToZoneTask.status = TaskStatus.PENDING;
-      dropEntryToZoneTask.end_location.location_id = dependentTask.end_location.location_attribute.attribute_name === 'Pallet' ? dependentTask.end_location.location_id : 'To be decided';
+      dropEntryToZoneTask.end_location.location_id = dependentTask.end_location.location_attribute.attribute_name === 'Pallet' &&
+                                                     !dependentTask.end_location.location_attribute.attribute_pending_next_intermediate_task
+                                                     ? dependentTask.end_location.location_id : 'To be decided';
       dropEntryToZoneTask.end_location.location_action = LocationAction.DROP;
       dropEntryToZoneTask.task_dependency = zoneToDropEntryTask.task_id;
       dropEntryToZoneTask.sequence_order = zoneToDropEntryTask.sequence_order + 1;
@@ -2179,63 +2450,69 @@ export class TaskService implements OnModuleInit {
     const cancelledOriginalTasksToPickEntry: Task[] = []
 
     for (const task of assignedTasksToEntry) {
+      if(task.end_location.location_id !== currentTask.end_location.location_id) continue;
+
       const prevTask = await this.taskRepository.findOne({ where: { task_id: task.task_dependency } }) as Task;
-      const originalTask = await this.cancelCrossdockPickEntryChain(prevTask, nextTask.end_location.location_attribute.attribute_value);
+      
+      const originalTask = await this.cancelCrossdockPickEntryChain(prevTask);
       if (originalTask) {
         cancelledOriginalTasksToPickEntry.push(originalTask);
       }
     }
-    
     let newNextTask = structuredClone(nextTask);
     newNextTask.task_id = undefined as any;
     newNextTask.status = TaskStatus.PENDING;
     newNextTask.start_location.location_id = currentTask.end_location.location_id;
     newNextTask.start_location.location_action = LocationAction.NOP;
-    newNextTask.end_location.location_id = nextTask.end_location.location_attribute.attribute_name === 'Pallet' ? nextTask.end_location.location_id : 'To be decided';
+    newNextTask.end_location.location_id = newNextTask.end_location.location_attribute.attribute_name === 'Pallet' &&
+                                            !newNextTask.end_location.location_attribute.attribute_pending_next_intermediate_task
+                                            ? newNextTask.end_location.location_id : 'To be decided';
     newNextTask.task_dependency = currentTask.task_id;
     newNextTask.sequence_order = nextTask.sequence_order + 1;
+    newNextTask.status = TaskStatus.HALTED;
+    newNextTask.message = 'Target location not directly accessible';
     newNextTask = await this.taskRepository.save(newNextTask);
-    const processedNewNextTask = await this.processTask(newNextTask) as Task;
-    if(!processedNewNextTask) {
-      await this.taskRepository.update(
-        { task_id: newNextTask.task_id },
-        { status: TaskStatus.HALTED },
-      );
-      await this.loggingService.log(
-        `Failed to process recreated DROP_ENTRY to ZONE task after DROP_ENTRY cancellation of ${currentTask.task_id}`,
-        TaskType.CROSSDOCK, null, newNextTask.batch_id,
-      );
-      return;
-    }
+    // const processedNewNextTask = await this.processTask(newNextTask) as Task;
+    // if(!processedNewNextTask) {
+    //   await this.taskRepository.update(
+    //     { task_id: newNextTask.task_id },
+    //     { status: TaskStatus.HALTED },
+    //   );
+    //   await this.loggingService.log(
+    //     `Failed to process recreated DROP_ENTRY to ZONE task after DROP_ENTRY cancellation of ${currentTask.task_id}`,
+    //     TaskType.CROSSDOCK, null, newNextTask.batch_id,
+    //   );
+    //   return;
+    // }
 
-    await this.sendTaskToWMSAndIncrement([processedNewNextTask], currentTask.priority);
+    // await this.sendTaskToWMSAndIncrement([processedNewNextTask], currentTask.priority);
 
     const newBatchesTasksPriorities = Array.from(newBatchesTasks.keys()).sort((a, b) => a - b);
 
     for (const priority of newBatchesTasksPriorities) {
       const tasks = newBatchesTasks.get(priority) || [];
-      const processedTasks: Task[] = [];
-      for (const task of tasks) {
-        const processedTask = await this.processTask(task);
-        if (processedTask) {
-          processedTasks.push(processedTask);
-        }
-      }
+      // const processedTasks: Task[] = [];
+      // for (const task of tasks) {
+      //   const processedTask = await this.processTask(task);
+      //   if (processedTask) {
+      //     processedTasks.push(processedTask);
+      //   }
+      // }
 
       let success = true;
 
-      if(tasks.length !== processedTasks.length) {
-        console.log(`Not all tasks could be processed, aborting WMS send.`);
-        success = false;
-      } else {
-        success = await this.sendTaskToWMSAndIncrement(processedTasks, priority);
-      }
+      // if(tasks.length !== processedTasks.length) {
+      //   console.log(`Not all tasks could be processed, aborting WMS send.`);
+      //   success = false;
+      // } else {
+      //   success = await this.sendTaskToWMSAndIncrement(processedTasks, priority);
+      // }
 
       if(!success) {
         tasks.forEach(async (t) => {
           await this.taskRepository.update(
             { task_id: t.task_id },
-            { status: TaskStatus.HALTED },
+            { status: TaskStatus.HALTED, message: 'Target location not directly accessible' },
           );
           const endLocation = await this.LocationManagerService.getLocation(t.start_location.location_id) as LocationEntity;
           if(endLocation.location_status === LocationStatus.OCCUPIED) {
@@ -2243,12 +2520,12 @@ export class TaskService implements OnModuleInit {
           }
         });
       } else {
-        tasks.forEach(async (t) => {
-          await this.taskRepository.update(
-            { task_id: t.task_id },
-            { status: TaskStatus.ASSIGNED },
-          );
-        });
+        // tasks.forEach(async (t) => {
+        //   await this.taskRepository.update(
+        //     { task_id: t.task_id },
+        //     { status: TaskStatus.ASSIGNED },
+        //   );
+        // });
       }
     }
 

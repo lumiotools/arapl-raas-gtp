@@ -527,13 +527,17 @@ export class WebhookService {
     while (frontier.length > 0) {
       const dependents = await this.taskRepository.find({
         where: { task_dependency: In(frontier), batch_id: batchId, task_type: TaskType.CROSSDOCK },
-        select: ['task_id', 'status'],
+        select: ['task_id', 'status', 'end_location'],
       });
       const newly: string[] = [];
       for (const d of dependents) {
         if (!visited.has(d.task_id)) {
           visited.add(d.task_id);
-          statuses.push(d.status);
+          if(d.status === TaskStatus.COMPLETED && d.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+            statuses.push(TaskStatus.WAITING);
+          } else {
+            statuses.push(d.status);
+          }
           newly.push(d.task_id);
         }
       }
@@ -541,7 +545,13 @@ export class WebhookService {
     }
     // Include root itself
     const root = await this.taskRepository.findOne({ where: { task_id: rootTaskId } });
-    if (root) statuses.push(root.status);
+    if (root) {
+      if(root.status === TaskStatus.COMPLETED && root.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+        statuses.push(TaskStatus.WAITING);
+      } else {
+        statuses.push(root.status);
+      }
+    };
     return statuses;
   }
 

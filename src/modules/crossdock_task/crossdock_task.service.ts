@@ -79,6 +79,24 @@ export class CrossdockTaskService {
         validationErrors.push(`Start Location '${startLocationId}' is already assigned to another pending task`);
       }
 
+      if (endLocationType === 'PALLET') {
+        const endLocationValid = await this.taskService.LocationManagerService.isValidLocationId(endLocationId, false);
+        if (!endLocationValid) {
+          validationErrors.push(`End Location '${endLocationId}' is not available or does not exist in the system`);
+        }
+      }
+
+      
+      const startLocation = await this.taskService.LocationManagerService.getLocation(startLocationId);
+      const startZoneId = startLocation?.parent_id || startLocation?.location_id;
+      const endLocation = await this.taskService.LocationManagerService.getLocation(endLocationId);
+      const endZoneId = endLocation?.parent_id || endLocation?.location_id;
+
+      const zonePairId = await this.taskService.LocationManagerService.getZonePairId(startZoneId!, endZoneId!);
+
+      if(!zonePairId) {
+        validationErrors.push(`Task cannot be created from Start Location '${startLocationId}' to End Location '${endLocationId}'.`);
+      }
     }
     console.log(`Validation completed with ${validationErrors.length} errors.`);
     // If there are validation errors, throw them
@@ -246,9 +264,11 @@ export class CrossdockTaskService {
       const final_end_location = (task as any).final_end_location || task.end_location;
       let task_status = WMSBatchJobTaskStatus.TASK_ACKNOWLEDGED;
 
-      if(task.robot_id) task_status = WMSBatchJobTaskStatus.ROBOT_ASSIGNED;
+      if(task.robot_id) task_status = WMSBatchJobTaskStatus.TASK_ACKNOWLEDGED;
       if(task.status === TaskStatus.PROCESSING) task_status = WMSBatchJobTaskStatus.PICKUP_SUCCESSFUL;
-      if(task.status === TaskStatus.COMPLETED) task_status = WMSBatchJobTaskStatus.TASK_COMPLETED;
+      if(task.status === TaskStatus.ASSIGNED) task_status = WMSBatchJobTaskStatus.ROBOT_ASSIGNED;
+      if(task.status === TaskStatus.COMPLETED && task.end_location?.location_attribute?.attribute_pending_next_intermediate_task) task_status = WMSBatchJobTaskStatus.DROP_SUCCESSFUL;
+      if(task.status === TaskStatus.COMPLETED && !task.end_location?.location_attribute?.attribute_pending_next_intermediate_task) task_status = WMSBatchJobTaskStatus.TASK_COMPLETED;
       if(task.status === TaskStatus.CANCELLED) task_status = WMSBatchJobTaskStatus.TASK_CANCELLED;
 
       batch_job_tasks.push({
@@ -284,6 +304,7 @@ export class CrossdockTaskService {
     let batch_job_status = WMSBatchJobStatus.TASK_ACKNOWLEDGED;
 
     if([BatchStatus.IN_PROGRESS, BatchStatus.PROCESSING].includes(crossdock_batch?.status!)) batch_job_status = WMSBatchJobStatus.TASK_IN_PROGRESS;
+    if(crossdock_batch?.status === BatchStatus.HALTED) batch_job_status = WMSBatchJobStatus.TASK_IN_PROGRESS;
     if(crossdock_batch?.status === BatchStatus.CANCELLED) batch_job_status = WMSBatchJobStatus.TASK_CANCELLED;
     if(crossdock_batch?.status === BatchStatus.COMPLETED) batch_job_status = WMSBatchJobStatus.TASK_COMPLETED;
 

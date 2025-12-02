@@ -165,6 +165,9 @@ export class Task {
   @Column({ type: 'timestamp', precision: 3, nullable: true })
   triggered: Date;
 
+  @Column({ type: 'varchar', nullable: true })
+  message: string;
+
   @ManyToMany(() => OrderItem, (orderItem) => orderItem.completedTasks)
   @JoinTable() // This should be on one side of the ManyToMany relation
   orderItems: Relation<OrderItem[]>;
