@@ -1172,7 +1172,10 @@ export class OrchestratorService {
             }
           }
         }
-        await this.productRequirementRepository.remove(req);
+        await this.productRequirementRepository.delete({
+          source_location_id: completedTask.origin_location,
+          station_id: currentStationId,
+        });
       }
 
       if (!send_to_empty) {
