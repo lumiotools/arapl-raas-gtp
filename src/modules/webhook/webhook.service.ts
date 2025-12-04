@@ -547,9 +547,9 @@ export class WebhookService {
     const root = await this.taskRepository.findOne({ where: { task_id: rootTaskId } });
     if (root) {
       if(root.status === TaskStatus.COMPLETED && root.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
-        statuses.push(TaskStatus.WAITING);
+        statuses.unshift(TaskStatus.WAITING);
       } else {
-        statuses.push(root.status);
+        statuses.unshift(root.status);
       }
     };
     return statuses;
@@ -559,7 +559,7 @@ export class WebhookService {
   private aggregateStatuses(statuses: TaskStatus[]): TaskStatus {
     if (!statuses || statuses.length === 0) return TaskStatus.PENDING;
     const unique = new Set(statuses);
-    if (unique.size === 1 && unique.has(TaskStatus.CANCELLED)) return TaskStatus.CANCELLED;
+    if ((unique.size === 1 && unique.has(TaskStatus.CANCELLED)) || statuses.slice(-1)[0] === TaskStatus.CANCELLED) return TaskStatus.CANCELLED;
     if (unique.has(TaskStatus.PROCESSING)) return TaskStatus.PROCESSING;
     if (unique.has(TaskStatus.ASSIGNED) || unique.has(TaskStatus.INQUEUE)) return TaskStatus.ASSIGNED;
     if (unique.has(TaskStatus.PENDING) || unique.has(TaskStatus.HALTED) || unique.has(TaskStatus.WAITING)) return TaskStatus.PENDING;

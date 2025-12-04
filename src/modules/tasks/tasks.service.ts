@@ -344,9 +344,9 @@ export class TaskService implements OnModuleInit {
       const root = await this.taskRepository.findOne({ where: { task_id: rootTaskId, batch: { batch_id }, move_type: Not(MOVE_TYPE.PICK_ENTRY) } });
       if (root) {
         if(root.status === TaskStatus.COMPLETED && root.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
-            statuses.push(TaskStatus.WAITING);
+            statuses.unshift(TaskStatus.WAITING);
           } else {
-            statuses.push(root.status);
+            statuses.unshift(root.status);
           }
       }
     }
@@ -358,7 +358,7 @@ export class TaskService implements OnModuleInit {
     if (!statuses || statuses.length === 0) return TaskStatus.PENDING;
     const unique = new Set(statuses);
     // All cancelled -> CANCELLED
-    if (unique.size === 1 && unique.has(TaskStatus.CANCELLED)) {
+    if ((unique.size === 1 && unique.has(TaskStatus.CANCELLED)) || statuses.slice(-1)[0] === TaskStatus.CANCELLED) {
       return TaskStatus.CANCELLED;
     }
     // Any PROCESSING -> PROCESSING
@@ -2147,38 +2147,104 @@ export class TaskService implements OnModuleInit {
       throw new BadRequestException(`Task ${task_id} not found`);
     }
 
-    // Only allow cancelling if task is PENDING or HALTED
-    if (
-      !(task.status === TaskStatus.PENDING || task.status === TaskStatus.HALTED)
-    ) {
+    const sequence = await this.collectTaskSequence(task);
+
+    const cancellableTasks = sequence.filter(
+      (seqTask) =>
+        seqTask.status !== TaskStatus.CANCELLED &&
+        seqTask.status !== TaskStatus.COMPLETED,
+    );
+
+    if (cancellableTasks.length === 0) {
       throw new BadRequestException(
-        `Task ${task_id} must be in PENDING or HALTED state to cancel (current: ${task.status})`,
+        `Task sequence for ${task_id} is already completed or cancelled`,
       );
     }
 
-    if (task.fms_batch_id) {
-      throw new BadRequestException(
-        `Task ${task_id} has already been sent for execution.`,
+    const cancelledTaskIds: string[] = [];
+
+    for (const sequenceTask of sequence) {
+      if (
+        sequenceTask.status === TaskStatus.CANCELLED ||
+        sequenceTask.status === TaskStatus.COMPLETED
+      ) {
+        continue;
+      }
+
+      if (sequenceTask.fms_batch_id) {
+        await this.cancelTaskFromWMS(sequenceTask);
+      }
+
+      await this.taskRepository.update(
+        { task_id: sequenceTask.task_id },
+        {
+          status: TaskStatus.CANCELLED,
+          message: 'Cancelled via manual request',
+        },
+      );
+      sequenceTask.status = TaskStatus.CANCELLED;
+      if(sequenceTask.start_location?.location_id) {
+        await this.LocationManagerService.freeLocation(
+          sequenceTask.start_location.location_id,
+        );
+      }
+
+      if(sequenceTask.end_location?.location_id) {
+        await this.LocationManagerService.freeLocation(
+          sequenceTask.end_location.location_id,
+        );
+      }
+
+      if(sequenceTask.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+        sequenceTask.end_location.location_attribute.attribute_pending_next_intermediate_task = undefined;
+      }
+
+      cancelledTaskIds.push(sequenceTask.task_id);
+
+      const batchIdForLog = sequenceTask.batch_id ?? task.batch_id ?? null;
+      await this.loggingService.log(
+        `Task ${sequenceTask.task_id} marked as CANCELLED via sequence cancellation`,
+        this.taskType,
+        sequenceTask.task_id,
+        batchIdForLog,
       );
     }
-
-    // Mark cancelled in DB
-    await this.taskRepository.update(
-      { task_id: task.task_id },
-      { status: TaskStatus.CANCELLED },
-    );
-    await this.loggingService.log(
-      `Task ${task.task_id} marked as CANCELLED`,
-      this.taskType,
-      task.task_id,
-      task.batch_id ?? null,
-    );
-
-    // Only notify BaseOps webhook if this service instance is configured for BaseOps
 
     await this.webhookService.updateBatchStatus(task.batch_id, this.taskType);
 
-    return { task_id: task.task_id, status: TaskStatus.CANCELLED };
+    return {
+      task_id: task.task_id,
+      status: TaskStatus.CANCELLED
+    };
+  }
+
+  private async collectTaskSequence(task: Task): Promise<Task[]> {
+    // Build the chain starting from the given task and walking only forward via task_dependency.
+    // Do NOT use batch_id filters, since a single batch can have multiple independent chains.
+    const firstTask = await this.taskRepository.findOne({ where: { task_id: task.task_id } });
+    if (!firstTask) return [];
+
+    const ordered: Task[] = [firstTask];
+    const visited = new Set<string>([firstTask.task_id]);
+    let frontier: string[] = [firstTask.task_id];
+
+    while (frontier.length > 0) {
+      const dependents = await this.taskRepository.find({
+        where: { task_dependency: In(frontier) },
+      });
+      const newly: Task[] = [];
+      for (const dep of dependents) {
+        if (!visited.has(dep.task_id)) {
+          visited.add(dep.task_id);
+          newly.push(dep);
+        }
+      }
+      ordered.push(...newly);
+      frontier = newly.map((t) => t.task_id);
+    }
+
+    ordered.sort((a, b) => (a.sequence_order ?? 0) - (b.sequence_order ?? 0));
+    return ordered;
   }
 
   // Step 1: Cancel chain of tasks derived from a PICK_ENTRY and return blueprint for recreation
