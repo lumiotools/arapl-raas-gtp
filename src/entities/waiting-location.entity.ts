@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { LocationStatus } from './station.entity';
+import { BaseEntity } from './base.entity';
 
 export enum WaitingLocationType {
   STATION_TO_STATION = 'STATION_TO_STATION', 
@@ -13,7 +14,7 @@ export enum WaitingLocationType {
 }
 
 @Entity('waiting_locations')
-export class WaitingLocation {
+export class WaitingLocation extends BaseEntity {
   @PrimaryColumn({ type: 'varchar', length: 10 })
   location_id: string;
 
@@ -31,14 +32,4 @@ export class WaitingLocation {
 
   @Column({ type: 'enum', enum: WaitingLocationType, default: WaitingLocationType.STATION_TO_STATION })
   type: WaitingLocationType;
-
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  created_at: Date;
-
-  @UpdateDateColumn({
-    type: 'timestamp',
-    default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
-  })
-  updated_at: Date;
 }

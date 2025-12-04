@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException, LoggerService } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, In, LessThan, Between, MoreThanOrEqual } from 'typeorm';
+import { Repository, IsNull, In, LessThan, Between, MoreThanOrEqual, Not } from 'typeorm';
 import * as XLSX from 'xlsx';
 import * as csv from 'csv-parser';
 import { Readable } from 'stream';
@@ -12,9 +12,14 @@ import {
   ProcessedOrderItemDto,
   UploadResponseDto,
 } from './dto/upload-order.dto';
-import { Log, Task, TaskType } from 'src/entities';
+import { Log, ProductRequirement, Task, TaskStatus, TaskType } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
+import { OrchestratorService } from '../orchestrator/orchestrator.service';
+import { MOVE_TYPE } from 'src/entities/task.entity';
+import { InventoryService } from '../inventory/inventory.service';
+import { WebhookService } from '../webhook/webhook.service';
+import { Robot } from 'src/entities/robots.entity';
 
 interface LicensePlateStats{
   license_plate_id: string;
@@ -34,6 +39,7 @@ export interface OrderItemDetails{
   end_time: Date | undefined;
   created_at ?: Date;
   updated_at ?: Date;
+  completedTasks?: Task[];
 }
 
 
@@ -50,11 +56,18 @@ export class OrdersService {
     private scheduleMappingRepository: Repository<ScheduleMapping>,
     @InjectRepository(Task)
     private taskRepository: Repository<Task>,
-    private readonly loggingService: LoggingService
+    @InjectRepository(ProductRequirement)
+    private productRequirementRepository: Repository<ProductRequirement>,
+    @InjectRepository(Robot)
+    private robotRepository: Repository<Robot>,
+    private readonly orchestrationService: OrchestratorService,
+    private readonly loggingService: LoggingService,
+    private readonly inventoryService: InventoryService,
+    private readonly webhookService: WebhookService,
   ) {}
 
   async processFile(file: Express.Multer.File, body: any, upload_mode: 'merge' | 'transit'): Promise<UploadResponseDto> {
-    console.log(`call process file`);
+    // console.log(`call process file`);
     const fileExtension = this.getFileExtension(file.originalname);
     let data: UploadOrderItemDto[] = [];
     let batch_order_id: string | null = body?.batch_order_id || null;
@@ -80,7 +93,7 @@ export class OrdersService {
   }
 
   private async parseCSV(buffer: Buffer): Promise<UploadOrderItemDto[]> {
-    console.log('calling parse csv');
+    // console.log('calling parse csv');
     return new Promise((resolve, reject) => {
       const results: UploadOrderItemDto[] = [];
       const stream = Readable.from(buffer);
@@ -115,7 +128,7 @@ export class OrdersService {
     batch_order_id: string | null,
     upload_mode: 'merge' | 'transit'
   ): Promise<UploadResponseDto> {
-    console.log(`calling save to db`);
+    // console.log(`calling save to db`);
     let processedItems = 0;
 
     if (data.length === 0) {
@@ -123,20 +136,20 @@ export class OrdersService {
     }
 
     const firstItem = data[0];
-    console.log(`calling save to db`);
+    // console.log(`calling save to db`);
     const requiredColumns = [
       'source_location',
       'destination_location'
     ];
-    console.log(`calling save to db`);
+    // console.log(`calling save to db`);
     const missingColumns = requiredColumns.filter((col) => !(col in firstItem));
-    console.log(`calling save to db`);
+    // console.log(`calling save to db`);
     if (missingColumns.length > 0) {
       throw new BadRequestException(
         `Missing required columns: ${missingColumns.join(', ')}`,
       );
     }
-    console.log(`calling save to db`);
+    // console.log(`calling save to db`);
 
     for (const order of data) {
       try {
@@ -211,8 +224,8 @@ export class OrdersService {
     return { status: false };
   }
   async getOrdersByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined): Promise<OrderItemDetails[]> {
-    console.log(`start_time: ${start_time}`)
-    console.log(`Getting orders with status: ${statusList.join(', ')}`);
+    // console.log(`start_time: ${start_time}`)
+    // console.log(`Getting orders with status: ${statusList.join(', ')}`);
     if (!statusList || statusList.length === 0) {
       throw new BadRequestException('Status is required');
     }
@@ -228,7 +241,7 @@ export class OrdersService {
     else if (end_time){
       whereCondition.created_at = LessThan(end_time);
     }
-    console.log(`wherecondition: ${whereCondition}`)
+    // console.log(`wherecondition: ${whereCondition}`)
     if (statusList.includes('all')){
       orderItems.push(...await this.orderItemRepository.find({
         where: whereCondition,
@@ -284,6 +297,13 @@ export class OrdersService {
       const robotIds = Array.isArray(completedTasks) 
         ? Array.from(new Set(completedTasks.map(task => task.robot_id).filter(id => id))) 
         : [];
+      const robot_names: string[] = [];
+      for (const robot_id of robotIds){
+        const robot  = await this.robotRepository.findOne({ where: { robot_id } });
+        if (robot && robot.robot_name){
+          robot_names.push(robot.robot_name);
+        }
+      }
       
       let totalUnloadingTime = 0;
       let wait_time = 0;
@@ -313,12 +333,13 @@ export class OrdersService {
         source_location_id: order.source_location_id,
         destination_station_id: station_id,
         status: order.status,
-        robot_ids: robotIds,
+        robot_ids: robot_names,
         total_unloading_time: totalUnloadingTime,
         start_time: start_time,
         end_time: end_time,
         created_at: order.created_at,
-        updated_at: order.updated_at
+        updated_at: order.updated_at,
+        completedTasks: order.completedTasks
       });
     }
     return results;
@@ -402,15 +423,62 @@ export class OrdersService {
     return res;
   }
 
+  async cancelRelatedTasks(orderItem: OrderItem) {
+    const task = await this.taskRepository.findOne({
+      where: {
+        origin_location: orderItem.source_location_id,
+        move_type: In([MOVE_TYPE.INVENTORY_TO_STATION, MOVE_TYPE.STATION_TO_STATION]),
+      },
+      order: { created_at: 'DESC' }
+    });
+    try{
+      if (task && task.status !== TaskStatus.CANCELLED && task.status !== TaskStatus.COMPLETED){
+        await this.orchestrationService.CancelTask(task);
+        task.status = TaskStatus.CANCELLED;
+        await this.taskRepository.save(task);
+        await this.webhookService.handleCancelledUpdateds(task, TaskStatus.CANCELLED);
+      }
+    }catch{
+      await this.loggingService.log(`Failed to cancel Task ID ${task?.task_id} related to Order Item ID ${orderItem.order_item_id}`,
+        TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
+      throw new BadRequestException(`Failed to cancel Task ID ${task?.task_id} related to Order Item ID ${orderItem.order_item_id}`);
+    }
+    await this.productRequirementRepository.delete({ source_location_id: orderItem.source_location_id });
+    if (!task) { return ; }
+    if (task.status === TaskStatus.CANCELLED || task.status === TaskStatus.COMPLETED){ return ; }
+    if (!task.processing && task.start_location.location_attribute.attribute_value === 'inventory'){
+        // make the inventory available
+        await this.inventoryService.setInventoryAvailable(task.origin_location);
+        await this.orchestrationService.unmarkSystemAsWaiting();
+    }
+    else{
+        // make the inventory unavailable
+        await this.inventoryService.setInventoryUnavailable(task.origin_location);
+    }
+    await this.orchestrationService.decrementRobotInUse();
+    await this.webhookService.updateRobotUsage(task.robot_id, false);
+    await this.loggingService.log(`Cancelling Task ID ${task.task_id} related to Order Item ID ${orderItem.order_item_id}`,
+      TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
+  }
+
   async cancelOrderItem(orderItemId: number, isGroup?: boolean) {
     if (isGroup){
       const orderItem = await this.orderItemRepository.findOne({ where: { order_item_id: orderItemId } });
       const groupedOrderItems = await this.orderItemRepository.find({
-        where: { merged_order_item_id: orderItemId, status: In([OrderItemStatus.ASSIGNED, OrderItemStatus.PENDING]) }
+        where: { merged_order_item_id: orderItemId, status: In([OrderItemStatus.ASSIGNED, OrderItemStatus.PENDING, OrderItemStatus.IN_PROGRESS]) }
       });
       if (!orderItem){
         throw new NotFoundException(`Order item with ID ${orderItemId} not found`);
       }
+      try{
+        if (orderItem.status === OrderItemStatus.IN_PROGRESS){
+          await this.cancelRelatedTasks(orderItem);
+        }
+      }
+      catch (error){
+        return { success: false, message: `Failed to cancel related tasks for Order Item ID ${orderItemId}: ${error.message}` };
+      }
+      
       for (const item of groupedOrderItems){
         item.status = OrderItemStatus.CANCELLED;
         await this.orderItemRepository.save(item);

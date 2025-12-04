@@ -18,7 +18,7 @@ export class CreateStationDto {
   })
   @IsString()
   @IsNotEmpty()
-  station_name: string;
+  location_name: string;
 
   @ApiProperty({
     description: 'Priority level of the station',

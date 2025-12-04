@@ -9,17 +9,21 @@ import {
   Relation,
 } from 'typeorm';
 import { LocationStatus } from './station.entity'
+import { BaseEntity } from './base.entity';
 
 @Entity('inventory')
-export class Inventory {
+export class Inventory extends BaseEntity {
   @PrimaryColumn({ type: 'varchar', length: 10 })
   id: string;
+
+  @Column({ type: 'varchar', length: 10 })
+  location_name: string;
 
   @Column({ type: 'boolean', default: false })
   isProcessing: boolean;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  barcode_number: string;
+  barcode_number: string | null;
 
   @Column({
     type: 'enum',
@@ -37,14 +41,7 @@ export class Inventory {
   @Column({ type: 'boolean', default: false})
   is_empty: boolean;
 
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  created_at: Date;
-
-  @UpdateDateColumn({
-    type: 'timestamp',
-    default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
-  })
-  updated_at: Date;
+  @Column( { type: 'boolean', default: false} )
+  is_quarantine: boolean;
 
 }

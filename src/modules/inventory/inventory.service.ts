@@ -92,7 +92,7 @@ export class InventoryService {
         }
       }
     }
-    console.log(`inventories: ${JSON.stringify(inventories)}`);
+    // console.log(`inventories: ${JSON.stringify(inventories)}`);
     return inventories;
     try{
       const inventory_object = await this.getAllInventoryLocations();
@@ -176,6 +176,7 @@ export class InventoryService {
   }
 
   async update(id: string, updateInventoryDto: any) {
+    // console.log('callingg update', id);
     const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
     
     if (!existingInventory) {
@@ -204,22 +205,18 @@ export class InventoryService {
   }
 
   async getAllInventoryLocations(){
-    try{
-      const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
-      const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
-      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
-      const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=inventory&location_type=inventory`, {
-        method: 'GET',
-        headers: {
-          'authorization': `${warehosue_key}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      const data = await response.json();
-      return data;
-    }catch{
-      throw new BadRequestException('Failed to fetch WMS inventory locations');
-    }
+    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+    const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
+    const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=inventory&location_type=inventory`, {
+      method: 'GET',
+      headers: {
+        'authorization': `${warehosue_key}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    const data = await response.json();
+    return data;
   }
 
 
@@ -248,8 +245,8 @@ export class InventoryService {
       };
       const inventory_object = await this.getAllInventoryLocations();
       const bin_locations = inventory_object.available_location_types || [];
-      const bin_ids = bin_locations.map(bin => bin.location_id);
-
+      const customer_location_ids = bin_locations.map(bin => bin.customer_location_id);
+      console.log(`customer_location_ids: ${JSON.stringify(customer_location_ids)}`);
       // Process each row (skip header)
       for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(',').map(v => v.trim());
@@ -261,37 +258,53 @@ export class InventoryService {
         }
 
         const invLocation = values[0]; // Inv Locations
-        const barcodeNumber = values[1]; // Barcode number
+        let barcodeNumber: string | null = values[1]; // Barcode number
 
-        if (!invLocation || !barcodeNumber) {
+        // if (!invLocation || !barcodeNumber) {
+        //   results.failed++;
+        //   results.errors.push(`Row ${i + 1}: Missing required fields (Inv Locations or Barcode Number)`);
+        //   continue;
+        // }
+        if (!invLocation) {
           results.failed++;
-          results.errors.push(`Row ${i + 1}: Missing required fields (Inv Locations or Barcode Number)`);
+          results.errors.push(`Row ${i + 1}: Missing required field Inv Locations`);
           continue;
         }
-
+        if (!barcodeNumber) {
+          barcodeNumber = null;
+        }
         try {
-          if (bin_ids.includes(invLocation) === false) {continue;}
+          if (customer_location_ids.includes(invLocation) === false) {continue;}
           // Check if inventory exists
           // Try to update existing inventory first
           const existingInventory = await this.inventoryRepository.findOne({ 
-            where: { id: invLocation } 
+            where: { location_name: invLocation } 
           });
 
           if (existingInventory) {
             // Update existing inventory
+            const id = bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].location_id;
             const inventoryData = {
-              id: invLocation,
+              id: id,
+              location_name: bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].customer_location_id,
               barcode_number: barcodeNumber,
+              isProcessing: false,
+              is_active: true,
+              is_empty: false,
             } as Inventory;
 
-            await this.update(invLocation, inventoryData);
+            const updatedResult = await this.update(id, inventoryData);
+            // console.log(`Updated inventory: ${JSON.stringify(updatedResult)}`);
             results.successful++;
           } else {
             // Create new inventory entry if it doesn't exist
             const inventoryData = {
-              id:  invLocation,
+              id:  bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].location_id,
+              location_name: bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].customer_location_id,
               barcode_number: barcodeNumber,
             } as Inventory;
+
+            console.log(`Creating inventory: ${JSON.stringify(inventoryData)}`);
 
             await this.createInventoryForUpload(inventoryData);
             results.successful++;
@@ -325,10 +338,11 @@ export class InventoryService {
         const result = await queryRunner.manager
             .createQueryBuilder()
             .update(Inventory)
-            .set({ status: LocationStatus.RESERVED })
-            .where("id = :id AND status = :status", {
+            .set({ isProcessing: true })
+            .where("id = :id AND isProcessing = :isProcessing AND is_active = :is_active", {
                 id: id,
-                status: LocationStatus.AVAILABLE
+                isProcessing: false,  // Parameter name can stay camelCase
+                is_active: true
             })
             .execute();
 
@@ -337,7 +351,7 @@ export class InventoryService {
             await queryRunner.rollbackTransaction();
             return false;
         }
-
+        console.log(`result: ${JSON.stringify(result)}`);
         await queryRunner.commitTransaction();
         return true;
 
@@ -367,5 +381,94 @@ export class InventoryService {
       source: task?.start_location.location_id || null,
       status: "HOLDED"
     }
+  }
+
+  async setInventoryAvailable(inventoryId: string): Promise<void> {
+    const inventory = await this.inventoryRepository.findOne({
+      where: { id: inventoryId },
+    });
+    if (!inventory){
+      throw new BadRequestException("Inventory not found");
+    }
+    inventory.status = LocationStatus.AVAILABLE;
+    inventory.isProcessing = false;
+    inventory.holded_by = null;
+    inventory.is_active = true;
+    inventory.is_empty = false;
+    await this.inventoryRepository.save(inventory);
+  }
+
+  async setInventoryUnavailable(inventoryId: string): Promise<void> {
+    const inventory = await this.inventoryRepository.findOne({
+      where: { id: inventoryId },
+    });
+    if (!inventory){
+      throw new BadRequestException("Inventory not found");
+    }
+    inventory.status = LocationStatus.AVAILABLE;
+    inventory.isProcessing = false;
+    inventory.holded_by = null;
+    inventory.is_active = true;
+    inventory.is_empty = false;
+    inventory.barcode_number = null;
+    await this.inventoryRepository.save(inventory);
+  }
+
+  async removeInventoryFromEmpty(inventoryId: string): Promise<void> {
+    const inventory = await this.inventoryRepository.findOne({
+      where: { id: inventoryId },
+    });
+    if (!inventory){
+      throw new BadRequestException("Inventory not found");
+    }
+    inventory.is_empty = false;
+    await this.inventoryRepository.save(inventory);
+  }
+
+  async occupyQuarantine(id: string, barcode_number: string) {
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
+    if (!existingInventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+    existingInventory.is_active = true;
+    existingInventory.is_empty = false;
+    existingInventory.barcode_number = barcode_number;
+    existingInventory.status = LocationStatus.AVAILABLE;
+    existingInventory.is_quarantine = true;
+    existingInventory.isProcessing = true;
+    await this.inventoryRepository.save(existingInventory);
+  }
+
+  async makeInventoryProcessing(id: string) {
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id: id } });
+    if (!existingInventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+    existingInventory.isProcessing = true;
+    existingInventory.is_active = true;
+    await this.inventoryRepository.save(existingInventory);
+  }
+
+  async makeInventoryUnavailable(id: string) {
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
+    if (!existingInventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+    existingInventory.is_active = true;
+    existingInventory.is_empty = false;
+    existingInventory.isProcessing = false;
+    existingInventory.barcode_number = null;
+    await this.inventoryRepository.save(existingInventory);
+  }
+
+  async makeInventoryAvailable(id: string) {
+    const existingInventory = await this.inventoryRepository.findOne({ where: { id } });
+    if (!existingInventory) {
+      throw new NotFoundException(`Inventory with ID ${id} not found`);
+    }
+    existingInventory.is_active = true;
+    existingInventory.is_empty = false;
+    existingInventory.isProcessing = false;
+    await this.inventoryRepository.save(existingInventory);
   }
 }

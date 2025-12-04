@@ -33,17 +33,21 @@ import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Roles } from '../auth/guard/roles.decorator';
 import { Role } from 'src/entities/user.entity';
+import { OrdersCancelService } from './orders-cancel.service';
 
 
 @ApiTags('Orders')
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly ordersCancelService: OrdersCancelService,
+  ) {}
 
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({
     summary: 'Upload orders from CSV/Excel file',
@@ -103,7 +107,7 @@ export class OrdersController {
 
   @Get('order-items')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Get all order items',
@@ -186,7 +190,7 @@ export class OrdersController {
   @Get('gtp-location-status/:gtpLocationId')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @ApiOperation({
     summary: 'Get GTP location status',
     description: 'Returns the status (boolean) for the specified GTP location.',
@@ -215,7 +219,7 @@ export class OrdersController {
   @Get('by-status')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
     @ApiOperation({
     summary: 'Get orders by status and time range',
     description: 'Retrieve all orders filtered by their status and optionally by time range. Multiple statuses can be provided as comma-separated values.',
@@ -292,7 +296,7 @@ export class OrdersController {
   @Get('station-report/summary')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @ApiOperation({
     summary: 'Get station report summary',
     description: 'Returns a summary report for stations within the specified date range.',
@@ -345,7 +349,7 @@ export class OrdersController {
   @Get('source/gtp-location/:gtp_location_id')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles('admin', 'flowops.operator','flowops.admin')
   @ApiOperation({
     summary: 'Get source by GTP location',
     description: 'Retrieve all source associated with the specified GTP location ID.',
@@ -399,7 +403,7 @@ export class OrdersController {
   @Patch('order-item/cancel/:order_item_id')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @ApiOperation({
     summary: 'Cancel order item',
     description: 'Cancel an order item by its ID. Optionally, specify if the item is a group using the is_group query parameter.',
@@ -429,5 +433,27 @@ export class OrdersController {
       throw new BadRequestException('order_item_id is required');
     }
     return await this.ordersService.cancelOrderItem(orderItemId, isGroup);
+  }
+
+  @Patch('cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancel(
+    @Query('task_id') task_id?: string,
+    @Query('order_item_id') order_item_id?: number,
+    @Query('quarantine_location_id') quarantine_location_id?: string,
+    @Query('reason') reason: 'retry' | 'reassign' | 'back_to_inventory' | 'just_cancel' = 'retry',
+  ) {
+    return await this.ordersCancelService.cancel(task_id, order_item_id, reason, quarantine_location_id);
+  }
+
+  @Patch('pre-cancel')
+  @HttpCode(HttpStatus.OK)
+  async preCancel(
+    @Query('task_id') task_id?: string,
+    @Query('order_item_id') order_item_id?: number,
+    @Query('quarantine_location_id') quarantine_location_id?: string,
+    @Query('reason') reason: 'retry' | 'reassign' | 'back_to_inventory' | 'just_cancel' = 'retry',
+  ) {
+    return await this.ordersCancelService.precancel(task_id, order_item_id, reason, quarantine_location_id);
   }
 }

@@ -10,6 +10,7 @@ import { MOVE_TYPE, TaskStatus, TaskType } from 'src/entities/task.entity';
 import { firstValueFrom } from 'rxjs';
 import { ConflictError } from 'groq-sdk';
 import { LoggingService } from 'src/services/logging.service';
+import { Robot } from 'src/entities/robots.entity';
 
 @Injectable()
 export class StationsService {
@@ -25,6 +26,8 @@ export class StationsService {
     private readonly orderItemRepository: Repository<OrderItem>,
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
+    @InjectRepository(Robot)
+    private readonly robotRepository: Repository<Robot>,
     private readonly loggingService: LoggingService,
   ) {}
 
@@ -50,11 +53,9 @@ export class StationsService {
   }
 
   async getAllWmsStations(){
-    try{
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
-      console.log(`Fetching WMS locations from ${wms_base_url}`);
       const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=station&location_type=station`, {
         method: 'GET',
         headers: {
@@ -65,10 +66,6 @@ export class StationsService {
       const data: {zone_id:string, available_location_types: any[]} = await response.json();
       // console.log(`Response from WMS: ${JSON.stringify(data)}`);
       return data;
-    }
-    catch{
-      throw new BadRequestException('Failed to fetch WMS stations');
-    }
     
   }
 
@@ -91,7 +88,7 @@ export class StationsService {
         const missingId = missingBinIds[i];
         await this.create({
           station_id: missingId,
-          station_name: missingId,
+          location_name: station_bin_locations.filter(bin => bin.location_id === missingId)[0].customer_location_id,
           priority: i + 1,
         });
       }
@@ -101,13 +98,13 @@ export class StationsService {
       const missingStationIds = existingStationIds.filter(id => !bin_ids.includes(id));
       if (missingStationIds.length > 0) {
         // await this.stationRepository.delete(missingStationIds);
-        for (const id of missingStationIds) {
-          // await this.remove(id);
-          await this.stationRepository.update(
-            { station_id: id },
-            { is_active:false }
-          );
-        }
+        // for (const id of missingStationIds) {
+        //   // await this.remove(id);
+        //   await this.stationRepository.update(
+        //     { station_id: id },
+        //     { is_active:false }
+        //   );
+        // }
       }
       // find intersecting location IDs
       // const intersectingLocationIds = bin_ids.filter(id => existingStationIds.includes(id));
@@ -121,8 +118,9 @@ export class StationsService {
       //   }
       // }
       return await this.stationRepository.find({ relations: ['gtpLocations'] });
-    }catch{
-      throw new BadRequestException('Failed to fetch WMS stations');
+    }catch(err){
+      console.log(err);
+      throw new BadRequestException('Failed to fetch WMS stations '+ err.message);
     }
   }
 
@@ -159,7 +157,7 @@ export class StationsService {
       if (!station) {
         station = await this.create({
           station_id: id,
-          station_name: id,
+          location_name: id,
           priority: 1,
         });
       }
@@ -342,52 +340,59 @@ export class StationsService {
     const tasks = await this.taskRepository.find({
       where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]), task_type: TaskType.GOODS_TO_PERSON },
     });
-    let robot_id : string | null = null;
-    let robot_task : Task | null = null;
+    const results: any[] = [];
     for (const task of tasks){
+      let robot_id : string | null = null;
+      let robot_task : Task | null = null;
+      let source_location_id: string | null = null;
       if (task.end_location.location_attribute.attribute_value=='station' && task.end_location.location_id==station_id){
         robot_id = task.robot_id;
         robot_task = task;
-        break;
-      }
-    }
-    const station = await this.stationRepository.findOne({
-      where: { station_id },
-      relations: ['gtpLocations']
-    });
-    if (!station) {
-      throw new BadRequestException("Station not found")
-    }
-    let required_quantity = 0;
-    for (const gtpLocation of station?.gtpLocations || []) {
-      console.log(`Checking GTP Location: ${gtpLocation.gtp_location_id}`);
-      if (gtpLocation) {
-        const inProgressOrderItems = await this.orderItemRepository.find({
-          where: { 
-            destination_pallet_slot_id: gtpLocation.gtp_location_id,
-            status: OrderItemStatus.IN_PROGRESS,
-          }
+        source_location_id = task.origin_location;
+        const station = await this.stationRepository.findOne({
+          where: { station_id },
+          relations: ['gtpLocations']
         });
-        required_quantity += inProgressOrderItems.reduce((sum, item) => sum , 0);
+        if (!station) {
+          continue;
+        }
+        let required_quantity = 0;
+        for (const gtpLocation of station?.gtpLocations || []) {
+          // console.log(`Checking GTP Location: ${gtpLocation.gtp_location_id}`);
+          if (gtpLocation) {
+            const inProgressOrderItems = await this.orderItemRepository.find({
+              where: { 
+                destination_pallet_slot_id: gtpLocation.gtp_location_id,
+                status: OrderItemStatus.IN_PROGRESS,
+              }
+            });
+            required_quantity += inProgressOrderItems.reduce((sum, item) => sum , 0);
+          }
+        }
+        let status: TaskStatus | null | string = null;
+        if (robot_task) {
+          status = robot_task.status;
+          if (status === TaskStatus.PROCESSING) {
+            status = "COMING";
+          }
+          else if (status === TaskStatus.COMPLETED) {
+            status = "REACHED";
+          }
+        }
+        // console.log(`status: ${status}`)
+        if (!robot_id){continue;}
+        const robot  = await this.robotRepository.findOne({ where: { robot_id } });
+        if (!robot){continue;}
+        results.push({
+          robot_name: robot.robot_name,
+          robot_id: robot.robot_id,
+          source: robot_task?.start_location.location_id || null,
+          status: status,
+          source_location_id: source_location_id,
+        });
       }
     }
-    let status: TaskStatus | null | string = null;
-    if (robot_task) {
-      status = robot_task.status;
-      if (status === TaskStatus.PROCESSING) {
-        status = "COMING";
-      }
-      else if (status === TaskStatus.COMPLETED) {
-        status = "REACHED";
-      }
-    }
-    console.log(`status: ${status}`)
-    if (!robot_id){return {robot_id: null}}
-    return {
-      robot_id: robot_id,
-      source: robot_task?.start_location.location_id || null,
-      status: status
-    }
+    return results;
   }
 
   async getUnloadingTimes(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps" = "FlowOps"): Promise<any> {

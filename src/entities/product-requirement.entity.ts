@@ -10,9 +10,10 @@ import {
   Relation,
 } from 'typeorm';
 import { Inventory } from './inventory.entity';
+import { BaseEntity } from './base.entity';
 
 @Entity('product_requirements')
-export class ProductRequirement {
+export class ProductRequirement extends BaseEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -27,16 +28,6 @@ export class ProductRequirement {
 
   @Column({ type: 'boolean', default: false })
   isCancelled: boolean; 
-
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  created_at: Date;
-
-  @UpdateDateColumn({
-    type: 'timestamp',
-    default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
-  })
-  updated_at: Date;
 
   // If you want to keep both the column and relationship, don't use @JoinColumn
   @ManyToOne(() => Inventory, { nullable: true })

@@ -103,10 +103,10 @@ export class TriggerController {
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
   async triggerStation(
     @Param('station_id') stationId: string,
-    @Body() body: { dropped_quantity: number; message_code: MessageCode }
+    @Body() body: { dropped_quantity: number; message_code: MessageCode, robot_id?:string }
   ) {
     try {
-      const result = await this.triggerService.triggerStationAction(stationId, body.message_code);
+      const result = await this.triggerService.triggerStationAction(stationId, body.message_code, body.robot_id);
       return {
         success: true,
         data: result,

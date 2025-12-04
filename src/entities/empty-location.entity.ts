@@ -6,9 +6,10 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { LocationStatus } from './station.entity';
+import { BaseEntity } from './base.entity';
 
 @Entity('empty_locations')
-export class EmptyLocation {
+export class EmptyLocation extends BaseEntity {
   @PrimaryColumn({ type: 'varchar', length: 10 })
   location_id: string;
 
@@ -23,14 +24,5 @@ export class EmptyLocation {
 
   @Column({ type:'int', default: 1 })
   priority: number;
-
-  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
-  created_at: Date;
-
-  @UpdateDateColumn({
-    type: 'timestamp',
-    default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
-  })
-  updated_at: Date;
+  
 }

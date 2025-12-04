@@ -17,6 +17,9 @@ import { LocationEntity } from 'src/entities/location.entity';
 import { BaseopsTaskModule } from '../baseops_task/baseops_task.module';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { CrossdockTaskModule } from '../crossdock_task/crossdock_task.module';
+import { StationsService } from '../stations/stations.service';
+import { StationsModule } from '../stations/stations.module';
+import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
   imports: [
@@ -26,6 +29,8 @@ import { CrossdockTaskModule } from '../crossdock_task/crossdock_task.module';
     forwardRef(() => BaseopsTaskModule),
     forwardRef(() => CrossdockTaskModule),
     LoggingModule,
+    StationsModule,
+    InventoryModule
   ],
   controllers: [WebhookController],
   providers: [WebhookService, WaitingLocationService],

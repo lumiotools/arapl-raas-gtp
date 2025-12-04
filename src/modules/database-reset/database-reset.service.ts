@@ -26,6 +26,7 @@ export class DatabaseResetService {
         'DELETE FROM batches',
         'DELETE FROM logs',
         'DELETE FROM empty_locations',
+        'DELETE FROM robots',
         "UPDATE stations SET status = 'AVAILABLE', holded_by = NULL",
         "UPDATE waiting_locations SET status = 'AVAILABLE', holded_by = NULL",
         "UPDATE robot_counts SET total_robots = 1, robot_in_use = 0, is_waiting = false"

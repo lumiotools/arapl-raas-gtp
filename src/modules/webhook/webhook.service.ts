@@ -18,6 +18,8 @@ import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationAction } from 'src/entities';
 import { LocationType } from 'src/entities/location.entity';
 import { CrossdockTaskService } from '../crossdock_task/crossdock_task.service';
+import { StationsService } from '../stations/stations.service';
+import { InventoryService } from '../inventory/inventory.service';
 
 @Injectable()
 export class WebhookService {
@@ -45,11 +47,14 @@ export class WebhookService {
     private readonly BaseOpsTaskService: BaseopsTaskService,
     @Inject(forwardRef(() => CrossdockTaskService))
     private readonly CrossdockTaskService: CrossdockTaskService,
+
+    private readonly stationService: StationsService,
+    private readonly inventoryService: InventoryService,
   ) {}
 
   async processWebhook(webhookData: any): Promise<{ message: string }> {
-    this.logger.log(`Processing webhook for batch ${webhookData.batch_job_id} with status ${webhookData.batch_job_status}`);
-    this.logger.log(`Received ${webhookData.tasks.length} task status updates`);
+    // this.logger.log(`Processing webhook for batch ${webhookData.batch_job_id} with status ${webhookData.batch_job_status}`);
+    // this.logger.log(`Received ${webhookData.tasks.length} task status updates`);
     
     try {
       for (const taskStatus of webhookData.tasks) {
@@ -63,6 +68,9 @@ export class WebhookService {
   }
 
   private async updateTaskStatus(fms_batch_id: string, taskStatusData: any): Promise<void> {
+    console.log(`------------------------------------------------------------------------------`)
+    console.log(`taskStatus status: ${taskStatusData.status}, robot_id: ${taskStatusData.robot_id}, robot_name: ${taskStatusData.robot_name} for task_id: ${taskStatusData.task_id}`);
+    console.log(`------------------------------------------------------------------------------`)
     // Find task by task_id only (ignore batch_id as instructed)
     const task = await this.taskRepository.findOne({
       where: { task_id: taskStatusData.task_id }
@@ -86,19 +94,23 @@ export class WebhookService {
     const oldStatus = task.status;
     const mappedStatus = this.mapTaskStatus(taskStatusData.status);
 
-    if (statusPriority[mappedStatus] < statusPriority[oldStatus]) {
-      this.logger.log(`Skipping status update for task ${taskStatusData.task_id}: new status ${mappedStatus} (priority ${statusPriority[mappedStatus]}) has lower priority than current status ${oldStatus} (priority ${statusPriority[oldStatus]})`);
-      return;
+    if (taskStatusData.robot_id){
+      task.robot_id = taskStatusData.robot_id;
+      // console.log(`Updating taskStatus Data ${task.task_id} with robot_id ${taskStatusData.robot_id}, status: ${taskStatusData.status}`);
+      await this.taskRepository.update(
+        { task_id: task.task_id },
+        { robot_id: taskStatusData.robot_id }
+      );
     }
 
-    task.robot_id = taskStatusData.robot_id || null;
-    if (task.robot_id){
-      await this.taskRepository.save(task);
+    if (statusPriority[mappedStatus] < statusPriority[oldStatus]) {
+      // this.logger.log(`Skipping status update for task ${taskStatusData.task_id}: new status ${mappedStatus} (priority ${statusPriority[mappedStatus]}) has lower priority than current status ${oldStatus} (priority ${statusPriority[oldStatus]})`);
+      return;
     }
     
 
     if (oldStatus == mappedStatus) {
-      this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
+      // this.logger.log(`No status change for task ${taskStatusData.task_id} - current status is already ${mappedStatus}`);
       return; // No change needed
     }
     
@@ -108,10 +120,16 @@ export class WebhookService {
     );
   
     task.status = mappedStatus;
-    task.robot_id = taskStatusData.robot_id || null;
+    if (taskStatusData.robot_id){
+      task.robot_id = taskStatusData.robot_id;
+    }
+    let robot_name = null;
+    if (taskStatusData.robot_name){
+      robot_name = taskStatusData.robot_name;
+    }
     task.fms_batch_id = fms_batch_id;
-    if (task.robot_id){
-      await this.addRobotIfNotExists(task.robot_id, task.task_type);
+    if (task.robot_id && robot_name){
+      await this.addRobotIfNotExists(task.robot_id, task.task_type, robot_name);
       if (task.end_location.location_action === LocationAction.DROP && mappedStatus === TaskStatus.COMPLETED) {
         await this.updateRobotUsage(task.robot_id, false);
       }
@@ -129,6 +147,8 @@ export class WebhookService {
       task.completed = currentTime;
     } else if (mappedStatus === TaskStatus.TRIGERRED) {
       task.triggered = currentTime;
+    } else if (mappedStatus === TaskStatus.TASK_ACKNOWLEDGED){
+      task.task_acknowledged = currentTime;
     }
     await this.taskRepository.save(task);
 
@@ -167,7 +187,7 @@ export class WebhookService {
       await this.loggingService.log(`Task ${task.task_id}: Updated batch ${task.batch_id} status`, task.task_type, task.task_id, task.batch_id);
       return;
     }
-    console.log(`------------------------running ------------------------------------------------------`)
+    // console.log(`------------------------running ------------------------------------------------------`)
     // Handle inventory updates based on task status changes
     await this.handleInventoryUpdates(task, oldStatus, mappedStatus, task.batch_id);
     
@@ -176,7 +196,7 @@ export class WebhookService {
     // Handle waiting location updates
     await this.handleWaitingLocationStatusUpdates(task, mappedStatus);
 
-    await this.handleCancelledUpdateds(task, mappedStatus);
+    await this.handleCancelledUpdateds(task, mappedStatus); 
 
     // Handle task completion based on destination type
     if (mappedStatus === TaskStatus.COMPLETED) {
@@ -199,9 +219,7 @@ export class WebhookService {
           );
         }
 
-        if (task.move_type===MOVE_TYPE.STATION_TO_EMPTY_LOCATION || task.move_type===MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION
-          || task.move_type===MOVE_TYPE.EMPTY_TO_EMPTY_LOCATION
-        ){
+        if (destinationType === 'empty_location'){
           await this.orchestratorService.decrementRobotInUse();
           await this.loggingService.log(`Task ${task.task_id}: Empty location ${task.end_location.location_id} marked as OCCUPIED.`, task.task_type, task.task_id, null);
           await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
@@ -211,7 +229,7 @@ export class WebhookService {
           );
         }
 
-        if (destinationType === 'inventory'){
+        if (destinationType === 'inventory' || destinationType === 'quarantine'){
           await this.orchestratorService.decrementRobotInUse();
           await this.loggingService.log(`Robot in use decremented. Current robot in use: ${await this.orchestratorService.getRobotInUse()}`, TaskType.GOODS_TO_PERSON, task.task_id, null);
         }
@@ -220,19 +238,19 @@ export class WebhookService {
   }
 
   private mapTaskStatus(webhookStatus: string): TaskStatus {
-    console.log(webhookStatus);
+    // console.log(webhookStatus);
     const statusMap: { [key: string]: TaskStatus } = {
       'pending': TaskStatus.PENDING,
       'assigned': TaskStatus.ASSIGNED,
       'inqueue': TaskStatus.INQUEUE,
-      'task_acknowledged': TaskStatus.INQUEUE,
+      'task_acknowledged': TaskStatus.TASK_ACKNOWLEDGED,
       'robot_assigned': TaskStatus.INQUEUE,
       'in-queue': TaskStatus.INQUEUE,
-      'processing': TaskStatus.PROCESSING,
-      'in-progress': TaskStatus.PROCESSING,
-      'in progress': TaskStatus.PROCESSING,
+      // 'processing': TaskStatus.PROCESSING,
+      // 'in-progress': TaskStatus.PROCESSING,
+      // 'in progress': TaskStatus.PROCESSING,
       'pickup_successful': TaskStatus.PROCESSING,
-      'robot_movement_started': TaskStatus.PROCESSING,
+      'robot_movement_started': TaskStatus.INQUEUE,
       'completed': TaskStatus.COMPLETED,
       'cancelled': TaskStatus.CANCELLED,
       'canceled': TaskStatus.CANCELLED,
@@ -251,11 +269,11 @@ export class WebhookService {
       this.logger.warn(`Unknown task status: ${webhookStatus}, defaulting to PENDING`);
       return TaskStatus.PENDING;
     }
-    console.log(`Mapping webhook status ${webhookStatus} to TaskStatus: ${mapped}`);
+    // console.log(`Mapping webhook status ${webhookStatus} to TaskStatus: ${mapped}`);
     return mapped;
   }
 
-  private async releaseProcessingInventory(inventoryLocationId: any): Promise<void> {
+  private async releaseProcessingInventory(inventoryLocationId: any, attributeValue?: string): Promise<void> {
 
     await this.inventoryRepository.update(
       { 
@@ -268,7 +286,7 @@ export class WebhookService {
     );
   }
 
-  private async handleCancelledUpdateds(task: Task, mappedStatus: TaskStatus): Promise<void> {
+  async handleCancelledUpdateds(task: Task, mappedStatus: TaskStatus): Promise<void> {
     if (mappedStatus !== TaskStatus.CANCELLED){ return; }
     await this.loggingService.log(`Task ${task.task_id}: Task Cancelled`, task.task_type, task.task_id, null);
     if (task.move_type === MOVE_TYPE.STATION_TO_WAITING_LOCATION || task.move_type === MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION){
@@ -334,19 +352,18 @@ export class WebhookService {
         destinationEmptyLocation.status = LocationStatus.AVAILABLE;
         await this.emptyLocationRepository.save(destinationEmptyLocation);
       }
+    }else if (task.move_type===MOVE_TYPE.TO_QUARANTINE){
+      const destinationInventoryLocation = await this.inventoryRepository.findOne({ where: { id: task.end_location.location_id } });
+      if (destinationInventoryLocation){
+        destinationInventoryLocation.status = LocationStatus.AVAILABLE;
+        destinationInventoryLocation.isProcessing = false;
+        await this.inventoryRepository.save(destinationInventoryLocation);
+      }
     }
   }
 
   private async handleInventoryUpdates(task: Task, oldStatus: TaskStatus, newStatus: TaskStatus, batchId: string): Promise<void> {
     try {
-      // Case 1: FIRST task from inventory goes to PROCESSING - set inventory to 
-      if ((newStatus === TaskStatus.PROCESSING || newStatus === TaskStatus.COMPLETED) && this.isTaskFromInventory(task)) {
-        await this.releaseProcessingInventory(task.start_location.location_id);
-        if (newStatus === TaskStatus.PROCESSING){
-          await this.orchestratorService.unmarkSystemAsWaiting();
-          await this.loggingService.log(`Task ${task.task_id}: System removed from waiting state.`, task.task_type, task.task_id, null);
-        }
-      }
       if (newStatus === TaskStatus.COMPLETED && this.isTaskToInventory(task)) {
           await this.updateInventoryWithTaskQuantity(task);
           await this.loggingService.log(`Task ${task.task_id}: Inventory ${task.end_location.location_id} set to AVAILABLE (task completed).`, task.task_type, task.task_id, null);
@@ -356,14 +373,9 @@ export class WebhookService {
     }
   }
 
-  private isTaskFromInventory(task: Task): boolean {
-    // Check if start_location has inventory attribute
-    return task.start_location?.location_attribute?.attribute_value === 'inventory';
-  }
-
   private isTaskToInventory(task: Task): boolean {
     // Check if end_location has inventory attribute
-    return task.end_location?.location_attribute?.attribute_value === 'inventory';
+    return task.end_location?.location_attribute?.attribute_value === 'inventory' || task.end_location?.location_attribute?.attribute_value === 'quarantine';
   }
 
   private async updateInventoryWithTaskQuantity(task: Task): Promise<void> {
@@ -379,9 +391,8 @@ export class WebhookService {
         id: inventoryLocationId,
       },
       {
-        status: LocationStatus.AVAILABLE,
         isProcessing: false,
-        holded_by: null,
+        barcode_number: task.cargos[0]?.cargo_code || inventory.barcode_number,
       }
     );
   }
@@ -393,7 +404,10 @@ export class WebhookService {
     ) {
       // When task status becomes PROCESSING and source is station - mark station as OCCUPIED
       const stationId = task.start_location.location_id;
-      await this.orchestratorService.releaseStation(stationId);
+      if ((await this.stationService.getActiveRobotAtStation(stationId)).length === 0){
+        await this.orchestratorService.releaseStation(stationId);
+      }
+      
       await this.loggingService.log(`Task ${task.task_id}: Marking station ${stationId} as AVAILABLE.`, TaskType.GOODS_TO_PERSON, task.task_id, null);
     }
 
@@ -609,13 +623,14 @@ export class WebhookService {
     }
   }
 
-  private async addRobotIfNotExists(robotId: string, taskType: TaskType): Promise<void> {
+  private async addRobotIfNotExists(robotId: string, taskType: TaskType, robotName: string): Promise<void> {
     try {
       const existingRobot = await this.robotRepository.findOne({ where: { robot_id: robotId } });
       if (!existingRobot) {
         const newRobot = new Robot();
         newRobot.robot_id = robotId;
         newRobot.task_type = taskType;
+        newRobot.robot_name = robotName;
         await this.robotRepository.save(newRobot);
         this.logger.log(`Added new robot ${robotId} of type ${taskType} to the system.`);
         await this.loggingService.log(`Added new robot ${robotId} of type ${taskType} to the system.`, taskType, null, null);
@@ -626,7 +641,7 @@ export class WebhookService {
   
   }
 
-  private async updateRobotUsage(robotId: string, inUse: boolean): Promise<void> {
+  async updateRobotUsage(robotId: string, inUse: boolean): Promise<void> {
     try {
       if (!robotId) { return; }
       const robot = await this.robotRepository.findOne({ where: { robot_id: robotId } });

@@ -9,6 +9,7 @@ import {
   Relation,
   PrimaryColumn,
 } from 'typeorm';
+import { BaseEntity } from './base.entity';
 
 export enum Role {
   ADMIN = 'admin',
@@ -19,7 +20,7 @@ export enum Role {
 }
 
 @Entity('users')
-export class User {
+export class User extends BaseEntity {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
@@ -31,10 +32,4 @@ export class User {
 
     @Column({ name: 'password', type: 'varchar', length: 255 })
     password: string;
-
-    @CreateDateColumn({ name: 'created_at' })
-    createdAt: Date;
-
-    @UpdateDateColumn({ name: 'updated_at' })
-    updatedAt: Date;
 }

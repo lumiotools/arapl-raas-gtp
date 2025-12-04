@@ -34,7 +34,7 @@ export class WaitingLocationService {
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
       const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
       const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
-      console.log(`Fetching WMS locations from ${wms_base_url}`);
+      // console.log(`Fetching WMS locations from ${wms_base_url}`);
       const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=wait&location_type=wait`, {
         method: 'GET',
         headers: {
@@ -43,7 +43,7 @@ export class WaitingLocationService {
         }
       });
       const data = await response.json();
-      console.log(`response: ${JSON.stringify(data)}`);
+      // console.log(`response: ${JSON.stringify(data)}`);
       return data;
     }catch{
       throw new BadRequestException('Failed to fetch WMS stations');
@@ -52,46 +52,51 @@ export class WaitingLocationService {
   }
 
   async findAll() {
-    const waiting_object = (await this.getAllWmsWaiting());
-    const waiting_bin_locations = waiting_object.available_location_types || [];
-    const bin_ids = waiting_bin_locations.map(bin => bin.location_id);
-    const allWaitingLocations = await this.waitingLocationRepository.find();
+    try{
+      const waiting_object = (await this.getAllWmsWaiting());
+      const waiting_bin_locations = waiting_object.available_location_types || [];
+      const bin_ids = waiting_bin_locations.map(bin => bin.location_id);
+      const allWaitingLocations = await this.waitingLocationRepository.find();
 
-    // find bin_ids that are not in allWaitingLocations
-    const missingBinIds = bin_ids.filter(id => !allWaitingLocations.some(location => location.location_id === id));
-    for (const missingId of missingBinIds) {
-      await this.create({
-        location_id: missingId,
-        location_name: missingId,
-        type: WaitingLocationType.STATION_TO_STATION
-      });
-    }
-    // find allWaitingLocations ids that are not in bin_ids
-    const existingWaitingLocationIds = allWaitingLocations.map(location => location.location_id);
-    const missingWaitingLocationIds = existingWaitingLocationIds.filter(id => !bin_ids.includes(id));
-    if (missingWaitingLocationIds.length > 0) {
-      // await this.waitingLocationRepository.delete(missingWaitingLocationIds);
-      for (const id of missingWaitingLocationIds) {
-        // await this.remove(id);
-        this.waitingLocationRepository.update(
-          { location_id: id },
-          { is_active: false }
-        );
+      // find bin_ids that are not in allWaitingLocations
+      const missingBinIds = bin_ids.filter(id => !allWaitingLocations.some(location => location.location_id === id));
+      for (const missingId of missingBinIds) {
+        await this.create({
+          location_id: missingId,
+          location_name: waiting_bin_locations.filter(bin => bin.location_id === missingId)[0].customer_location_id,
+          type: WaitingLocationType.STATION_TO_STATION
+        });
       }
-    }
+      // find allWaitingLocations ids that are not in bin_ids
+      const existingWaitingLocationIds = allWaitingLocations.map(location => location.location_id);
+      const missingWaitingLocationIds = existingWaitingLocationIds.filter(id => !bin_ids.includes(id));
+      if (missingWaitingLocationIds.length > 0) {
+        // await this.waitingLocationRepository.delete(missingWaitingLocationIds);
+        for (const id of missingWaitingLocationIds) {
+          // await this.remove(id);
+          this.waitingLocationRepository.update(
+            { location_id: id },
+            { is_active: false }
+          );
+        }
+      }
 
-    // find intersecting location IDs
-      // const intersectingLocationIds = bin_ids.filter(id => existingWaitingLocationIds.includes(id));
-      // for (const id of intersectingLocationIds) {
-      //   const waitLocation = allWaitingLocations.filter(location => location.location_id === id)[0];
-      //   if (waitLocation.is_active === false) {
-      //     await this.waitingLocationRepository.update(
-      //       { location_id: id },
-      //       { is_active: true }
-      //     );
-      //   }
-      // }
-    return await this.waitingLocationRepository.find();
+      // find intersecting location IDs
+        // const intersectingLocationIds = bin_ids.filter(id => existingWaitingLocationIds.includes(id));
+        // for (const id of intersectingLocationIds) {
+        //   const waitLocation = allWaitingLocations.filter(location => location.location_id === id)[0];
+        //   if (waitLocation.is_active === false) {
+        //     await this.waitingLocationRepository.update(
+        //       { location_id: id },
+        //       { is_active: true }
+        //     );
+        //   }
+        // }
+      return await this.waitingLocationRepository.find();
+    }catch{
+      throw new BadRequestException('Failed to fetch WMS waiting locations');
+    }
+    
   }
 
   async findOne(id: string) {
@@ -241,7 +246,7 @@ export class WaitingLocationService {
         status = "REACHED";
       }
     }
-    console.log(`status: ${status}`)
+    // console.log(`status: ${status}`)
     if (!robot_id){return {robot_id: null}}
     return {
       robot_id: robot_id,

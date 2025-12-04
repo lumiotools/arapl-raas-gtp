@@ -82,7 +82,7 @@ export class InventoryController {
     type: [InventoryResponseDto]
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'operator')
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   async findAll() {
     return await this.inventoryService.findAll();
   }
@@ -143,7 +143,7 @@ export class InventoryController {
 
   @Post('upload')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ 
     summary: 'Upload inventory data from CSV file',
@@ -222,7 +222,7 @@ export class InventoryController {
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   async getActiveRobot(@Param('id') id: string) {
     return await this.inventoryService.getActiveRobotAtInventory(id);
   }
