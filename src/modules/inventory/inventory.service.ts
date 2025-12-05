@@ -219,6 +219,20 @@ export class InventoryService {
     return data;
   }
 
+  async getQuarantineLocations(){
+    const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+    const warehosue_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+    const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030/robot-job';
+    const response = await fetch(`${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=quarantine&location_type=quarantine`, {
+      method: 'GET',
+      headers: {
+        'authorization': `${warehosue_key}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    const data = await response.json();
+    return data;
+  }
 
   async processInventoryFile(file: Express.Multer.File): Promise<UploadInventoryResponseDto> {
     try {
@@ -244,9 +258,15 @@ export class InventoryService {
         errors: [] as string[]
       };
       const inventory_object = await this.getAllInventoryLocations();
+      const quarantine_object = await this.getQuarantineLocations();
+
       const bin_locations = inventory_object.available_location_types || [];
+      const quarantine_bin_locations = quarantine_object.available_location_types || [];
+
       const customer_location_ids = bin_locations.map(bin => bin.customer_location_id);
-      console.log(`customer_location_ids: ${JSON.stringify(customer_location_ids)}`);
+      const quarantine_customer_location_ids = quarantine_bin_locations.map(bin => bin.customer_location_id);
+      
+      console.log(`quarantine_customer_location_ids: ${JSON.stringify(quarantine_customer_location_ids)}`);
       // Process each row (skip header)
       for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(',').map(v => v.trim());
@@ -274,23 +294,33 @@ export class InventoryService {
           barcodeNumber = null;
         }
         try {
-          if (customer_location_ids.includes(invLocation) === false) {continue;}
+          if (customer_location_ids.includes(invLocation) === false && quarantine_customer_location_ids.includes(invLocation) === false) {continue;}
           // Check if inventory exists
           // Try to update existing inventory first
           const existingInventory = await this.inventoryRepository.findOne({ 
             where: { location_name: invLocation } 
           });
 
+          let id = '';
+          let location_name = '';
+          if (customer_location_ids.includes(invLocation)){
+            id = bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].location_id;
+            location_name = bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].customer_location_id;
+          }
+          if (quarantine_customer_location_ids.includes(invLocation)){
+            id = quarantine_bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].location_id;
+            location_name = quarantine_bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].customer_location_id;
+          }
+          
           if (existingInventory) {
-            // Update existing inventory
-            const id = bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].location_id;
             const inventoryData = {
               id: id,
-              location_name: bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].customer_location_id,
+              location_name: location_name,
               barcode_number: barcodeNumber,
               isProcessing: false,
               is_active: true,
               is_empty: false,
+              is_quarantine: quarantine_customer_location_ids.includes(invLocation),
             } as Inventory;
 
             const updatedResult = await this.update(id, inventoryData);
@@ -298,10 +328,12 @@ export class InventoryService {
             results.successful++;
           } else {
             // Create new inventory entry if it doesn't exist
+            
             const inventoryData = {
-              id:  bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].location_id,
-              location_name: bin_locations.filter(bin => bin.customer_location_id === invLocation)[0].customer_location_id,
+              id: id,
+              location_name: location_name,
               barcode_number: barcodeNumber,
+              is_quarantine: quarantine_customer_location_ids.includes(invLocation),
             } as Inventory;
 
             console.log(`Creating inventory: ${JSON.stringify(inventoryData)}`);

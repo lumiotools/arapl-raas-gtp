@@ -316,7 +316,7 @@ export class OrdersService {
           }
         }
         if (!task.triggered || !task.completed) continue;
-        let unloading_time = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
+        let unloading_time = (Math.floor(task.triggered.getTime()/1000) - Math.floor(new Date(task.completed).getTime()/1000));
         totalUnloadingTime += unloading_time;
       }
       let station_id = '-';

@@ -208,7 +208,10 @@ export class OrdersCancelService {
             },
           });
           // make the source location unavailable
-          await this.inventoryService.makeInventoryUnavailable(task.origin_location);
+          if (task.origin_location !== quarantine_location_id){
+            await this.inventoryService.makeInventoryUnavailable(task.origin_location);
+          }
+          
           if (orderItems.length > 0){
             orderItems.forEach(async (orderItem) => {
               await this.cancelOneOrderItem(orderItem.order_item_id);
@@ -261,6 +264,9 @@ export class OrdersCancelService {
             throw new BadRequestException(`Pallet has not been picked up - cannot return to inventory`);
           }
           else if (destionation_location_type === 'inventory'){
+            throw new BadRequestException(`Task is already moving to inventory`);
+          }
+          else if (destionation_location_type === 'quarantine' && task.end_location.location_id === task.origin_location){
             throw new BadRequestException(`Task is already moving to inventory`);
           }
         }
