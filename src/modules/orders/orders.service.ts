@@ -33,6 +33,7 @@ export interface OrderItemDetails{
   source_location_id: string;
   destination_station_id: string;
   total_unloading_time: number;
+  pallet_picking_time?: Date | undefined;
   robot_ids: string[];
   status: OrderItemStatus;
   start_time: Date | undefined;
@@ -51,7 +52,7 @@ export class OrdersService {
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
     @InjectRepository(GtpLocation)
-    private gtpLocationRepository: Repository<GtpLocation>,
+    private  gtpLocationRepository: Repository<GtpLocation>,
     @InjectRepository(ScheduleMapping)
     private scheduleMappingRepository: Repository<ScheduleMapping>,
     @InjectRepository(Task)
@@ -307,7 +308,13 @@ export class OrdersService {
       
       let totalUnloadingTime = 0;
       let wait_time = 0;
+      let pallet_picking_time: Date | undefined;
       for (const task of completedTasks){
+        if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION){
+          if (task.processing){
+            pallet_picking_time = task.processing ? new Date(task.processing) : undefined;
+          }
+        }
         if (!task.triggered || !task.completed) continue;
         let unloading_time = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
         totalUnloadingTime += unloading_time;
@@ -335,6 +342,7 @@ export class OrdersService {
         status: order.status,
         robot_ids: robot_names,
         total_unloading_time: totalUnloadingTime,
+        pallet_picking_time: pallet_picking_time,
         start_time: start_time,
         end_time: end_time,
         created_at: order.created_at,

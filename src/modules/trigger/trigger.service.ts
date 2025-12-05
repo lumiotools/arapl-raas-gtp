@@ -57,16 +57,10 @@ export class TriggerService {
       });
       if (!currentTask) {continue;}
 
-      // Update task status to TRIGGERED
-      await this.taskRepository.update(
-        { task_id: currentTask.task_id },
-        { 
-          status: TaskStatus.TRIGERRED,
-          triggered: new Date(),
-        }
-      );
-      currentTask.triggered = currentTask.triggered || new Date();
+      
+      currentTask.triggered = new Date();
       currentTask.status = TaskStatus.TRIGERRED;
+      await this.taskRepository.save(currentTask);
 
       await this.loggingService.log(`Station ${stationId} Completed - Task ${currentTask.task_id} status updated to TRIGGERED`,
         currentTask.task_type, currentTask.task_id, null
