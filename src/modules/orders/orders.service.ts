@@ -353,6 +353,45 @@ export class OrdersService {
     return results;
   }
 
+  async getInventoryReportSummary(start_time: Date | undefined, end_time: Date | undefined): Promise<any>{
+    const whereCondition: any = {};
+    if (start_time && end_time) {
+      whereCondition.created_at = Between(start_time, end_time);
+    }
+    else if (start_time){
+      whereCondition.created_at = MoreThanOrEqual(start_time);
+    }
+    else if (end_time){
+      whereCondition.created_at = LessThan(end_time);
+    }
+    const orderItems = await this.orderItemRepository.find({
+      where: whereCondition,
+      relations: ['destinationPalletSlot'],
+    });
+    const res: any = {};
+    for (const orderItem of orderItems) {
+      const inventoryID = orderItem.source_location_id;
+      const inventory = await this.inventoryService.findOne(inventoryID);
+      if (!inventory) {continue;}
+      if (inventory) {
+        const inventoryId = inventory.id;
+        if (!inventoryId) {continue;}
+        if (!res[inventoryId]) {
+          res[inventoryId] = {
+            completed: 0,
+            in_progress: 0,
+            cancelled: 0,
+            pending: 0,
+            assigned: 0,
+            is_quarantine: inventory.is_quarantine || false
+          };
+        }
+        res[inventoryId][orderItem.status.toLowerCase()]++;
+      }
+    }
+    return res;
+  }
+
   async getStationReportSummary(start_time: Date | undefined, end_time: Date | undefined): Promise<any>{
     const whereCondition: any = {};
     if (start_time && end_time) {
