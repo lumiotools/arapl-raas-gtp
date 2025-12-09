@@ -725,6 +725,7 @@ export class TaskService implements OnModuleInit {
         return;
       }
       await this.processNextTask();
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // brief pause to ensure DB consistency
       this.isProcessing = false;
     } catch (error) {
       console.error('Error in cron job processNextTask:', error);
@@ -894,6 +895,7 @@ export class TaskService implements OnModuleInit {
     };
 
     try {
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // slight delay
       const response = await fetch(
         `${wms_base_url}/robot-job/${warehouse_name}/tasks`,
         {
@@ -1530,6 +1532,8 @@ export class TaskService implements OnModuleInit {
           task.task_id,
           task.batch_id ?? null,
         );
+      } else {
+        console.log("Found optimal drop location id: ", end_location_id)
       }
       task.end_location.location_id = end_location_id;
       await this.taskRepository.update(
