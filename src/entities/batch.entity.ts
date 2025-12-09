@@ -60,6 +60,9 @@ export class Batch {
   @Column({ type: 'int', default: 0 })
   cancelled_tasks: number;
 
+  @Column({ type: 'varchar', nullable: true })
+  dependency: string;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

@@ -96,7 +96,7 @@ export class TaskService implements OnModuleInit {
         'updated_at',
       ],
       where: { task_type: this.taskType },
-      order: { created_at: 'DESC' },
+      order: { created_at: 'DESC', priority: 'DESC' },
     });
     // Enrich with alert (HALTED reason) if batch itself is HALTED
     for (const batch of batches) {
@@ -733,18 +733,22 @@ export class TaskService implements OnModuleInit {
   }
 
   async findNextTask(): Promise<Task | null> {
-    const nextTask = await this.taskRepository.findOne({
-      where: {
-        task_type: this.taskType,
-        status: TaskStatus.PENDING,
-        move_type: MOVE_TYPE.ZONE_TO_ZONE,
-      },
-      relations: ['batch'],
-      order: {
-        batch: { priority: 'ASC' },
-        priority: 'ASC'
-      },
-    });
+    // Use a single query with left join to check batch dependencies
+    const nextTask = await this.taskRepository
+      .createQueryBuilder('task')
+      .leftJoinAndSelect('task.batch', 'batch')
+      .leftJoin('batches', 'dependent_batch', 'batch.dependency = dependent_batch.batch_id')
+      .where('task.task_type = :taskType', { taskType: this.taskType })
+      .andWhere('task.status = :status', { status: TaskStatus.PENDING })
+      .andWhere('task.move_type = :moveType', { moveType: MOVE_TYPE.ZONE_TO_ZONE })
+      .andWhere(
+        '(batch.dependency IS NULL OR dependent_batch.status = :completedStatus)',
+        { completedStatus: BatchStatus.COMPLETED }
+      )
+      .orderBy('batch.priority', 'ASC')
+      .addOrderBy('task.priority', 'ASC')
+      .getOne();
+    
     return nextTask;
   }
 
@@ -776,30 +780,30 @@ export class TaskService implements OnModuleInit {
         continue;
       } // already has a next sequence task
 
-      let end_location_id: string | null = null;
+      let end_location_ids: string[] | null = null;
       if (task.end_location.location_attribute?.attribute_name === 'ZONE') {
-        end_location_id =
+        end_location_ids =
           await this.LocationManagerService.findOptimalDropLocation(
             task.end_location.location_attribute?.attribute_value,
             task.end_location.location_attribute?.attribute_zone_pair_id,
           );
-        if (!end_location_id) {
+        if (!end_location_ids) {
           continue;
         }
       } else {
-        end_location_id = task.end_location.location_attribute.attribute_value;
+        end_location_ids = [task.end_location.location_attribute.attribute_value];
       }
 
       if (
-        !(await this.LocationManagerService.reserveLocation(end_location_id))
+        !(await this.LocationManagerService.reserveLocation(end_location_ids[0]))
       ) {
         continue;
       }
 
-      const newTask = await this.createNextSequenceTask(task, end_location_id);
+      const newTask = await this.createNextSequenceTask(task, end_location_ids[0]);
       if (!newTask) continue;
 
-      newTask.end_location.location_id = end_location_id;
+      newTask.end_location.location_id = end_location_ids[0];
 
       // Send to WMS and increment - extracted to helper method
       const success = await this.sendTaskToWMSAndIncrement(
@@ -1492,12 +1496,12 @@ export class TaskService implements OnModuleInit {
     let end_location_id: string | null = null;
     if (task.end_location.location_attribute?.attribute_name === 'ZONE' && !task.end_location.location_attribute.attribute_pending_next_intermediate_task) {
       // write the logic to find the pallet location in that zone
-      end_location_id =
+      const end_location_ids =
         await this.LocationManagerService.findOptimalDropLocation(
           task.end_location.location_attribute?.attribute_value,
           task.end_location.location_attribute?.attribute_zone_pair_id,
         );
-      if (!end_location_id) {
+      if (!end_location_ids) {
         if(task.task_type === TaskType.CROSSDOCK) {
           return;
         }
@@ -1533,7 +1537,7 @@ export class TaskService implements OnModuleInit {
           task.batch_id ?? null,
         );
       } else {
-        console.log("Found optimal drop location id: ", end_location_id)
+        end_location_id = end_location_ids[0];
       }
       task.end_location.location_id = end_location_id;
       await this.taskRepository.update(
@@ -1788,7 +1792,7 @@ export class TaskService implements OnModuleInit {
 
     return batchId;
   }
-  async processTasks(tasks: any[], priority: number, batch_job_id?: string): Promise<any> {
+  async processTasks(tasks: any[], priority: number, batch_job_id?: string, dependency?: string): Promise<any> {
 
     if(batch_job_id) {
       const existingBatch = await this.batchRepository.findOne({ where: { wms_batch_id: batch_job_id } });
@@ -1807,6 +1811,7 @@ export class TaskService implements OnModuleInit {
       status: BatchStatus.PENDING,
       total_tasks: 0, // Will be updated as tasks are created
       completed_tasks: 0,
+      dependency: dependency,
     });
     await this.batchRepository.save(batch);
     if (!batch) {
@@ -1904,7 +1909,7 @@ export class TaskService implements OnModuleInit {
       await this.batchRepository.save(batch);
     }
 
-    return tasks;
+    return { batch_id };
   }
 
   async isRobotAvailable(): Promise<boolean> {
