@@ -37,6 +37,20 @@ export class CrossdockTaskController {
     return this.crossdockTaskService.cancelTask(id);
   }
 
+  @Post(':id/pause')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.CROSSDOCK_ADMIN)
+  async pauseTask(@Param('id') id: string) {
+    return this.crossdockTaskService.pauseTask(id);
+  }
+
+  @Post(':id/resume')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.CROSSDOCK_ADMIN)
+  async resumeTask(@Param('id') id: string) {
+    return this.crossdockTaskService.resumeTask(id);
+  }
+
   @Post('set-configuration')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.CROSSDOCK_ADMIN)

@@ -283,9 +283,13 @@ export class TaskService implements OnModuleInit {
           const chainStatuses = await this.collectChainStatuses(batch_id, task.task_id);
           const aggregate = this.aggregateStatuses(chainStatuses);
           task.status = aggregate;
-          // Recompute alert if now HALTED
+          
+          // Aggregate is_paused across the full chain
+          const chainPausedStates = await this.collectChainPausedStates(batch_id, task.task_id);
+          const aggregatePaused = this.aggregatePausedStates(chainPausedStates);
+          (task as any).is_paused = aggregatePaused;
         } catch (e) {
-          // On failure keep task.status as-is
+          // On failure keep task.status and is_paused as-is
         }
       }
 
@@ -385,6 +389,57 @@ export class TaskService implements OnModuleInit {
     if (unique.has(TaskStatus.COMPLETED)) return TaskStatus.COMPLETED;
     // Fallback: if we reach here and we have statuses but none matched, prefer first
     return statuses[0];
+  }
+
+  // Helper: collect is_paused values for a full dependency chain
+  private async collectChainPausedStates(batch_id: string, rootTaskId: string): Promise<boolean[]> {
+    const pausedStates: boolean[] = [];
+    const visited = new Set<string>();
+    let frontier: string[] = [rootTaskId];
+    while (frontier.length > 0) {
+      const nodes = await this.taskRepository.find({
+        where: [
+          { task_id: In(frontier), batch: { batch_id } },
+          { task_dependency: In(frontier), batch: { batch_id } },
+        ],
+      });
+      const nextFrontier: string[] = [];
+      for (const n of nodes) {
+        if (!visited.has(n.task_id) && n.move_type !== MOVE_TYPE.PICK_ENTRY) {
+          visited.add(n.task_id);
+          pausedStates.push(n.is_paused || false);
+          nextFrontier.push(n.task_id);
+        }
+      }
+      // Discover dependents
+      const dependents = await this.taskRepository.find({
+        where: { task_dependency: In(nextFrontier), batch: { batch_id } },
+        select: ['task_id', 'is_paused'],
+      });
+      for (const d of dependents) {
+        if (!visited.has(d.task_id)) {
+          nextFrontier.push(d.task_id);
+        }
+      }
+      frontier = Array.from(new Set(nextFrontier));
+      if (frontier.length === 0) break;
+      frontier = frontier.filter((id) => !visited.has(id));
+    }
+    // Ensure root included
+    if (!visited.has(rootTaskId)) {
+      const root = await this.taskRepository.findOne({ 
+        where: { task_id: rootTaskId, batch: { batch_id }, move_type: Not(MOVE_TYPE.PICK_ENTRY) } 
+      });
+      if (root) {
+        pausedStates.unshift(root.is_paused || false);
+      }
+    }
+    return pausedStates;
+  }
+
+  // Helper: aggregate is_paused - if any task in chain is paused, return true
+  private aggregatePausedStates(pausedStates: boolean[]): boolean {
+    return pausedStates.some(state => state === true);
   }
 
   // Helper: provide a human-readable reason for HALTED tasks, consistent across views
@@ -905,7 +960,6 @@ export class TaskService implements OnModuleInit {
     };
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 2000)); // slight delay
       const response = await fetch(
         `${wms_base_url}/robot-job/${warehouse_name}/tasks`,
         {
@@ -980,6 +1034,60 @@ export class TaskService implements OnModuleInit {
     }
   }
 
+  async updateWMSTaskState(task: Task, action: 'pause' | 'resume', payload?: any): Promise<void> {
+    try {
+      console.log(`${action.charAt(0).toUpperCase() + action.slice(1)}ing task ${task.task_id}`);
+      const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+      const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030';
+      const fms_batch_id = task.fms_batch_id;
+      
+      // Build request body with action
+      const requestBody = {
+        action,
+        ...payload
+      };
+      
+      // Use the /state endpoint as per WMS API design
+      const endpoint = `${wms_base_url}/robot-job/${warehouse_name}/tasks/${fms_batch_id}/${task.task_id}/state`;
+      
+      const response = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: {
+          'authorization': warehouse_key,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      if (!response.ok) {
+        // Try to get error details
+        let errorMessage = response.statusText;
+        try {
+          const errorData = await response.text();
+          errorMessage = errorData || response.statusText;
+        } catch (e) {
+          // If can't read response, use statusText
+        }
+        throw new Error(`Failed to ${action} task ${task.task_id}: ${errorMessage}`);
+      }
+      
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        await response.json();
+      } else {
+        await response.text();
+      }
+      
+      return;
+      
+    } catch (error) {
+      console.error(`Error ${action}ing task ${task.task_id}:`, error);
+      throw new Error(`Failed to ${action} task ${task.task_id}: ${error.message}`);
+    }
+  }
+
   async cancelTaskFromWMS(task: Task): Promise<void> {
      try {
       console.log(`Cancelling task ${task.task_id}`);
@@ -1029,6 +1137,99 @@ export class TaskService implements OnModuleInit {
     } catch (error) {
       console.error(`Error cancelling task ${task.task_id}:`, error);
       throw new Error(`Failed to cancel task ${task.task_id}: ${error.message}`);
+    }
+  }
+
+  async pauseTask(task_id: string): Promise<any> {
+    const task = await this.taskRepository.findOne({ where: { task_id } });
+    if (!task) {
+      throw new BadRequestException(`Task ${task_id} not found`);
+    }
+
+    // Check if task is in PROCESSING status
+    if (task.status !== TaskStatus.PROCESSING) {
+      throw new BadRequestException(
+        `Task cannot be paused`
+      );
+    }
+
+    // Check if task is already paused
+    if (task.is_paused) {
+      throw new BadRequestException(
+        `Task ${task_id} is already paused`
+      );
+    }
+
+    // Call WMS API to pause the task using common function
+    try {
+      await this.updateWMSTaskState(task, 'pause', {
+        reason: "Paused via Crossdock Task Service"
+      });
+
+      // Update task in database
+      await this.taskRepository.update(
+        { task_id: task.task_id },
+        { is_paused: true }
+      );
+
+      await this.loggingService.log(
+        `Task ${task.task_id} paused successfully`,
+        this.taskType,
+        task.task_id,
+        task.batch_id,
+      );
+
+      return {
+        task_id: task.task_id,
+        status: 'paused',
+        message: 'Task paused successfully'
+      };
+    } catch (error) {
+      console.error(`Error pausing task:`, error);
+      throw new BadRequestException(`Failed to pause task: ${error.message}`);
+    }
+  }
+
+  async resumeTask(task_id: string): Promise<any> {
+    const task = await this.taskRepository.findOne({ where: { task_id } });
+    if (!task) {
+      throw new BadRequestException(`Task ${task_id} not found`);
+    }
+
+    // Check if task is paused
+    if (!task.is_paused) {
+      throw new BadRequestException(
+        `Task ${task_id} is not paused. Current is_paused: ${task.is_paused}`
+      );
+    }
+
+    // Call WMS API to resume the task using common function
+    try {
+      await this.updateWMSTaskState(task, 'resume', {
+        reason: "Resumed via Crossdock Task Service"
+      });
+
+      // Update task in database
+      await this.taskRepository.update(
+        { task_id: task.task_id },
+        { is_paused: false }
+      );
+
+      await this.loggingService.log(
+        `Task ${task.task_id} resumed successfully`,
+        this.taskType,
+        task.task_id,
+        task.batch_id,
+      );
+
+      return {
+        task_id: task.task_id,
+        status: 'resumed',
+        message: 'Task resumed successfully'
+      };
+    } catch (error) {
+      console.error(`Error resuming task:`, error);
+      throw new BadRequestException(`Failed to resume task: ${error.message}`);
     }
   }
 
