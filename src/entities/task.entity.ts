@@ -16,7 +16,6 @@ import { Location } from './location.entity';
 import { Wait } from './wait.entity';
 import { Cargo } from './cargo.entity';
 import { OrderItem } from './order-item.entity';
-import { BaseEntity } from './base.entity';
 
 export enum TaskType {
   CROSSDOCK = 'CROSSDOCK',
@@ -76,7 +75,7 @@ export enum TaskStatus {
 }
 
 @Entity('tasks')
-export class Task extends BaseEntity {
+export class Task {
   @PrimaryGeneratedColumn('uuid')
   task_id: string;
 
@@ -128,6 +127,16 @@ export class Task extends BaseEntity {
   @Column({ type: 'varchar', length: 64, nullable: true })
   robot_id: string;
 
+  @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  created_at: Date;
+
+  @UpdateDateColumn({
+    type: 'timestamp',
+    default: () => 'CURRENT_TIMESTAMP',
+    onUpdate: 'CURRENT_TIMESTAMP',
+  })
+  updated_at: Date;
+
   // Relations
   @ManyToOne('Batch', 'tasks')
   @JoinColumn({ name: 'batch_id' })
@@ -145,19 +154,19 @@ export class Task extends BaseEntity {
   @Column({ type: 'json', nullable: true })
   cargos: Cargo[];
 
-  @Column({ type: 'timestamptz', precision: 3, nullable: true })
+  @Column({ type: 'timestamp', precision: 3, nullable: true })
   task_acknowledged: Date;
 
-  @Column({ type: 'timestamptz', precision: 3, nullable: true })
+  @Column({ type: 'timestamp', precision: 3, nullable: true })
   inqueue: Date;
 
-  @Column({ type: 'timestamptz', precision: 3, nullable: true })
+  @Column({ type: 'timestamp', precision: 3, nullable: true })
   processing: Date;
 
-  @Column({ type: 'timestamptz', precision: 3, nullable: true })
+  @Column({ type: 'timestamp', precision: 3, nullable: true })
   completed: Date;
 
-  @Column({ type: 'timestamptz', precision: 3, nullable: true })
+  @Column({ type: 'timestamp', precision: 3, nullable: true })
   triggered: Date;
 
   @Column({ type: 'varchar', nullable: true })
