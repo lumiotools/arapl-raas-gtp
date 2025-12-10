@@ -24,6 +24,7 @@ import { LoggingService } from '../../services/logging.service';
 import { WebhookService } from '../webhook/webhook.service';
 import { TASK_CONFIG } from './constants';
 import { LocationStatus } from 'src/entities/station.entity';
+import { Robot } from 'src/entities/robots.entity';
 
 @Injectable()
 export class TaskService implements OnModuleInit {
@@ -38,10 +39,12 @@ export class TaskService implements OnModuleInit {
     @InjectRepository(Batch)
     readonly batchRepository: Repository<Batch>,
     @InjectRepository(RobotCount)
-    private readonly robotRepository: Repository<RobotCount>,
+    private readonly robotCountRepository: Repository<RobotCount>,
     private readonly loggingService: LoggingService,
     @Inject(forwardRef(() => WebhookService))
     private readonly webhookService: WebhookService,
+    @InjectRepository(Robot)
+    private readonly robotRepository: Repository<Robot>,
   @Optional()
   @Inject(TASK_CONFIG)
   private readonly taskConfig?: { operationType?: OperationType },
@@ -498,6 +501,7 @@ export class TaskService implements OnModuleInit {
         activity_reason: activityReason,
         move_type: t.move_type,
         robot_id: t.robot_id,
+        robot_name: t.robot_id ? (await this.robotRepository.findOne({ where: { robot_id: t.robot_id } }))?.robot_name || '' : '',
         start_time: stime,
         end_time: etime,
         cargos: t.cargos,
@@ -1913,7 +1917,7 @@ export class TaskService implements OnModuleInit {
   }
 
   async isRobotAvailable(): Promise<boolean> {
-    const robots = await this.robotRepository.find({
+    const robots = await this.robotCountRepository.find({
       where: { operation_type: this.operationType },
     });
     if (robots.length === 0) {
@@ -1925,7 +1929,7 @@ export class TaskService implements OnModuleInit {
   async incrementRobotInUse(): Promise<void> {
     console.log('increment robot in use count');
     const queryRunner =
-      this.robotRepository.manager.connection.createQueryRunner();
+      this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -1958,7 +1962,7 @@ export class TaskService implements OnModuleInit {
 
   async decrementRobotInUse(): Promise<void> {
     const queryRunner =
-      this.robotRepository.manager.connection.createQueryRunner();
+      this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -1986,7 +1990,7 @@ export class TaskService implements OnModuleInit {
   }
 
   async getRobotInUse(): Promise<number> {
-    const robots = await this.robotRepository.find({
+    const robots = await this.robotCountRepository.find({
       where: { operation_type: this.operationType },
     });
     if (robots.length === 0) return 0;
@@ -1994,7 +1998,7 @@ export class TaskService implements OnModuleInit {
   }
 
   async checkIfSystemIsInWaitingState(): Promise<boolean> {
-    const robots = await this.robotRepository.find({
+    const robots = await this.robotCountRepository.find({
       where: { operation_type: this.operationType },
     });
     if (robots.length === 0) {
@@ -2006,7 +2010,7 @@ export class TaskService implements OnModuleInit {
 
   async markSystemAsWaiting(): Promise<void> {
     const queryRunner =
-      this.robotRepository.manager.connection.createQueryRunner();
+      this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -2031,7 +2035,7 @@ export class TaskService implements OnModuleInit {
 
   async unmarkSystemAsWaiting(): Promise<void> {
     const queryRunner =
-      this.robotRepository.manager.connection.createQueryRunner();
+      this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -2055,7 +2059,7 @@ export class TaskService implements OnModuleInit {
   }
 
   async setInitialConfiguration(): Promise<void> {
-    const robots = await this.robotRepository.find({
+    const robots = await this.robotCountRepository.find({
       where: { operation_type: this.operationType },
     });
     console.log(
@@ -2067,7 +2071,7 @@ export class TaskService implements OnModuleInit {
       newRobotConfig.total_robots = 1;
       newRobotConfig.robot_in_use = 0;
       newRobotConfig.is_waiting = false;
-      await this.robotRepository.save(newRobotConfig);
+      await this.robotCountRepository.save(newRobotConfig);
     }
 
     // await this.LocationManagerService.syncFMSLocations();

@@ -62,7 +62,7 @@ interface ProductRequirement {
   stationId: string;
 }
 
-export interface TaskDetails{
+export interface TaskDetails {
   task_id: string;
   display_task_id: number;
   batch_id: string;
@@ -70,6 +70,7 @@ export interface TaskDetails{
   wms_batch_id?: string | null;
   origin_location: string;
   robot_id: string;
+  robot_name: string;
   move_type: MOVE_TYPE;
   status: TaskStatus;
   start_location_id: string;
@@ -77,6 +78,8 @@ export interface TaskDetails{
   created_at: Date;
   updated_at: Date;
   pallet_id: string | null;
+  start_location_attribute_value: string;
+  end_location_attribute_value: string;
   priority: number;
   batch_priority: number;
   orderItems: OrderItem[];
@@ -2207,10 +2210,10 @@ export class OrchestratorService {
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
     }
-    else if (startDate){
+    else if (startDate) {
       whereCondition.created_at = MoreThanOrEqual(startDate);
     }
-    else if (endDate){
+    else if (endDate) {
       whereCondition.created_at = LessThanOrEqual(endDate);
     }
     console.log(whereCondition);
@@ -2235,14 +2238,15 @@ export class OrchestratorService {
     });
     const allRobotIds = Array.from(robotIds);
     const res = {};
-    for (const robotId of allRobotIds){
-      const repoRobot = await this.robotRepository.findOne({where: { robot_id: robotId }});
+    for (const robotId of allRobotIds) {
+      const repoRobot = await this.robotRepository.findOne({ where: { robot_id: robotId } });
       if (!repoRobot) continue;
       const filteredTasks = allTasks.filter(task => task.robot_id === robotId);
       // if (filteredTasks.length == 0) continue;
       if (!res[robotId]) {
         res[robotId] = {
           totalTasks: filteredTasks.length,
+          robot_name: repoRobot.robot_name || robotId,
           travel_time: [],
           wait_time: [],
           unloading_time: {},
@@ -2268,23 +2272,23 @@ export class OrchestratorService {
         };
       }
       // get travel_time
-      for (const task of filteredTasks){
-        if (task.processing && task.completed){
+      for (const task of filteredTasks) {
+        if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res[robotId].travel_time.push(travelTime);
         }
 
-        if (task.end_location.location_attribute?.attribute_value === 'station' && task.completed && task.triggered){
+        if (task.end_location.location_attribute?.attribute_value === 'station' && task.completed && task.triggered) {
           const unloadingTime = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
           // res[robotId].unloading_time.push(unloadingTime);
-          if (task.end_location.location_id in res[robotId].unloading_time){
+          if (task.end_location.location_id in res[robotId].unloading_time) {
             res[robotId].unloading_time[task.end_location.location_id].push(unloadingTime);
           } else {
             res[robotId].unloading_time[task.end_location.location_id] = [unloadingTime];
           }
         }
 
-        if (task.end_location.location_attribute?.attribute_value === 'waiting_location' && task.completed && task.status !== TaskStatus.CANCELLED){
+        if (task.end_location.location_attribute?.attribute_value === 'waiting_location' && task.completed && task.status !== TaskStatus.CANCELLED) {
           // Find the next task in the same batch with sequence order + 1
           const nextTask = await this.taskRepository.findOne({
             where: {
@@ -2298,21 +2302,21 @@ export class OrchestratorService {
             res[robotId].wait_time.push(waitTime);
           }
         }
-        if (task.status === TaskStatus.COMPLETED || task.status===TaskStatus.TRIGERRED){
+        if (task.status === TaskStatus.COMPLETED || task.status === TaskStatus.TRIGERRED) {
           res[robotId].completedTasks += 1;
         }
-        if (task.status === TaskStatus.CANCELLED){
+        if (task.status === TaskStatus.CANCELLED) {
           res[robotId].canceledTasks += 1;
         }
-        if (task.move_type in res[robotId].move_types){
+        if (task.move_type in res[robotId].move_types) {
           res[robotId].move_types[task.move_type].total_tasks += 1;
-          if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || task.move_type === MOVE_TYPE.STATION_TO_STATION){
-            if (task.completed && task.triggered){
+          if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION || task.move_type === MOVE_TYPE.STATION_TO_STATION) {
+            if (task.completed && task.triggered) {
               const pickingTime = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
               res[robotId].move_types[task.move_type].picking_times.push(pickingTime);
             }
           }
-          if (task.processing && task.completed){
+          if (task.processing && task.completed) {
             const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
             res[robotId].move_types[task.move_type].travel_times.push(travelTime);
           }
@@ -2324,10 +2328,10 @@ export class OrchestratorService {
         if (startDate && endDate) {
           return logDate >= startDate && logDate <= endDate;
         }
-        else if (startDate){
+        else if (startDate) {
           return logDate >= startDate;
         }
-        else if (endDate){
+        else if (endDate) {
           return logDate <= endDate;
         }
         return true;
@@ -2337,13 +2341,13 @@ export class OrchestratorService {
       res[robotId].online_time = 0;
       res[robotId].error_time = 0;
       res[robotId].inUse_time = 0;
-      if (requiredLogs.length === 0){
+      if (requiredLogs.length === 0) {
         // find the log just before the start date
-        if (startDate){
+        if (startDate) {
           const previousLog = repoRobot.logs
             .filter(log => new Date(log.timestamp) < startDate)
             .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
-          if (previousLog){
+          if (previousLog) {
             const timeDiff = (Date.now() - startDate.getTime()) / 1000;
             if (previousLog.new_status === RobotStatus.INUSE) {
               res[robotId].inUse_time += timeDiff;
@@ -2556,6 +2560,7 @@ export class OrchestratorService {
     return res;
   }
 
+  
   async getTasksByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined, module: OperationType) {
     const whereCondition: any = {};
 
@@ -2579,10 +2584,10 @@ export class OrchestratorService {
     if (start_time && end_time) {
       whereCondition.created_at = Between(start_time, end_time);
     }
-    else if (start_time){
+    else if (start_time) {
       whereCondition.created_at = MoreThanOrEqual(start_time);
     }
-    else if (end_time){
+    else if (end_time) {
       whereCondition.created_at = LessThan(end_time);
     }
     if (statusList.includes('all')) {
@@ -2622,7 +2627,8 @@ export class OrchestratorService {
     }
     console.log(`first task: ${JSON.stringify(TaskItems[0])}`);
     for (const task of TaskItems) {
-      console.log(task.batch)
+      const robot = await this.robotRepository.findOne({ where: { robot_id: task.robot_id } });
+      // if (!robot) { continue; }
       const taskDetails: TaskDetails = {
         task_id: task.task_id,
         display_task_id: task.display_task_id,
@@ -2633,8 +2639,11 @@ export class OrchestratorService {
         move_type: task.move_type,
         status: task.status,
         robot_id: task.robot_id,
+        robot_name: task.robot_id && robot ? robot.robot_name || '' : '',
         start_location_id: task.start_location.location_id,
         end_location_id: task.end_location.location_id,
+        start_location_attribute_value: task.start_location.location_attribute?.attribute_value || '',
+        end_location_attribute_value: task.end_location.location_attribute?.attribute_value || '',
         created_at: task.created_at,
         updated_at: task.updated_at,
         pallet_id: task.cargos ? task.cargos[0].cargo_code : '',

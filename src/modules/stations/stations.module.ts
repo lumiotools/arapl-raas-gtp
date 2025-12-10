@@ -6,10 +6,12 @@ import { Station } from 'src/entities/station.entity'; // Import Station entity
 import { GtpController } from '../gtp/gtp.controller';
 import { GtpLocation, OrderItem, ProductRequirement, Task } from 'src/entities';
 import { User } from 'src/entities/user.entity';
+import { Robot } from 'src/entities/robots.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Station, GtpLocation,ProductRequirement, OrderItem, User, Task])], // Import Station entity
+  imports: [TypeOrmModule.forFeature([Station, GtpLocation,ProductRequirement, OrderItem, User, Task, Robot])], // Import Station entity
   controllers: [StationsController],
   providers: [StationsService],
+  exports: [StationsService],
 })
 export class StationsModule {}

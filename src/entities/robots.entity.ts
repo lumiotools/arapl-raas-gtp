@@ -1,5 +1,6 @@
 import { Entity, PrimaryColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 import { TaskType } from './task.entity';
+import { BaseEntity } from './base.entity';
 
 export interface RobotLogs{
     timestamp: Date;
@@ -17,9 +18,12 @@ export enum RobotStatus{
     OTHER = 'other'
 }
 @Entity('robots')
-export class Robot {
+export class Robot extends BaseEntity {
     @PrimaryColumn({ type: 'varchar', length: 50 })
     robot_id: string;
+
+    @Column({ type: 'varchar', length: 100, unique: true, nullable: true })
+    robot_name: string;
 
     @Column({ type: 'enum', enum: RobotStatus, default: RobotStatus.ONLINE })
     status: RobotStatus;
@@ -32,10 +36,4 @@ export class Robot {
 
     @Column({ type: 'varchar', length: 100, nullable: true })
     message_code: string | null;
-
-    @CreateDateColumn()
-    created_at: Date;
-
-    @UpdateDateColumn()
-    updated_at: Date;
 }

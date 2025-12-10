@@ -36,17 +36,25 @@ export class CrossdockTaskService {
       const rowNum = task._rowNumber;
 
       
+
+      
       // 1. Validate start_location_type is always PALLET
       if (task['start_location_location_type'] !== 'PALLET') {
         validationErrors.push(`Start Location must be 'PALLET', found '${task['start_location_location_type']}'`);
       }
+      
+      
+      
 
       // 2. Check for duplicate start_location_ids
       const startLocationId = task['start_location_location_id'];
+      const startLocation = await this.taskService.LocationManagerService.getLocation(startLocationId);
+      const startZoneId = startLocation?.parent_id || startLocation?.location_id;
+
       if (!startLocationId) {
         validationErrors.push(`Start Location ID is required`);
       } else if (startLocationIds.has(startLocationId)) {
-        validationErrors.push(`Duplicate Start Location ID '${startLocationId}' found`);
+        validationErrors.push(`Duplicate Start Location ID '${startLocation?.display_name}' found`);
       } else {
         startLocationIds.add(startLocationId);
       }
@@ -59,11 +67,13 @@ export class CrossdockTaskService {
 
       // 4. Check for duplicate pallet end_location_ids
       const endLocationId = task['end_location_location_id'];
+      const endLocation = await this.taskService.LocationManagerService.getLocation(endLocationId);
+      const endZoneId = endLocation?.parent_id || endLocation?.location_id;
       if (!endLocationId) {
         validationErrors.push(`End Location ID is required`);
       } else if (endLocationType === 'PALLET') {
         if (palletEndLocationIds.has(endLocationId)) {
-          validationErrors.push(`Duplicate pallet End Location ID '${endLocationId}' found`);
+          validationErrors.push(`Duplicate pallet End Location ID '${endLocation?.display_name}' found`);
         } else {
           palletEndLocationIds.add(endLocationId);
         }
@@ -72,30 +82,27 @@ export class CrossdockTaskService {
       // 7. Check if the start and end location ids exist in the system and they are available
       const startLocationValid = await this.taskService.LocationManagerService.isValidLocationId(startLocationId, true);
       if (!startLocationValid) {
-        validationErrors.push(`Start Location '${startLocationId}' is not available or does not exist in the system`);
+        validationErrors.push(`Start Location '${startLocation?.display_name}' is not available or does not exist in the system`);
       }
       const OtherTaskWithStartLocation = await this.taskService.LocationManagerService.otherTaskWithStartLocation(startLocationId);
       if (OtherTaskWithStartLocation){
-        validationErrors.push(`Start Location '${startLocationId}' is already assigned to another pending task`);
+        validationErrors.push(`Start Location '${startLocation?.display_name}' is already assigned to another pending task`);
       }
 
       if (endLocationType === 'PALLET') {
         const endLocationValid = await this.taskService.LocationManagerService.isValidLocationId(endLocationId, false);
         if (!endLocationValid) {
-          validationErrors.push(`End Location '${endLocationId}' is not available or does not exist in the system`);
+          validationErrors.push(`End Location '${endLocation?.display_name}' is not available or does not exist in the system`);
         }
       }
 
       
-      const startLocation = await this.taskService.LocationManagerService.getLocation(startLocationId);
-      const startZoneId = startLocation?.parent_id || startLocation?.location_id;
-      const endLocation = await this.taskService.LocationManagerService.getLocation(endLocationId);
-      const endZoneId = endLocation?.parent_id || endLocation?.location_id;
+      
 
       const zonePairId = await this.taskService.LocationManagerService.getZonePairId(startZoneId!, endZoneId!);
 
       if(!zonePairId) {
-        validationErrors.push(`Task cannot be created from Start Location '${startLocationId}' to End Location '${endLocationId}'.`);
+        validationErrors.push(`Task cannot be created from Start Location '${startLocation?.display_name}' to End Location '${endLocation?.display_name}'.`);
       }
     }
     console.log(`Validation completed with ${validationErrors.length} errors.`);
