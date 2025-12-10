@@ -1450,7 +1450,7 @@ export class OrchestratorService {
   }
 
   // Manual trigger method for testing
-  @Cron('*/7 * * * * *')
+  @Cron('*/5 * * * * *')
   async orchestratorCronJob() {
     await this.baseOpsService.taskService.orchestrator();
     await this.crossdockService.taskService.orchestrator();

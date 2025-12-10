@@ -715,9 +715,11 @@ export class TaskService implements OnModuleInit {
       return;
     }
     console.log(`--- start ${String(this.taskType)} cron job ---`);
+    this.isProcessing = true;
     try {
       if (!(await this.shouldCreateTask())) {
         console.log("664: system in waiting")
+        this.isProcessing = false;
         return;
       }
       await this.processWaitHaultedTasks();
@@ -726,10 +728,10 @@ export class TaskService implements OnModuleInit {
       }
       if (!(await this.shouldCreateTask())) {
         console.log("672: system in waiting")
+        this.isProcessing = false;
         return;
       }
       await this.processNextTask();
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // brief pause to ensure DB consistency
       this.isProcessing = false;
     } catch (error) {
       console.error('Error in cron job processNextTask:', error);
