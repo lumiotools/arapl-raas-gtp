@@ -61,6 +61,9 @@ export class Batch extends BaseEntity {
   @Column({ type: 'int', default: 0 })
   cancelled_tasks: number;
 
+  @Column({ type: 'varchar', nullable: true })
+  dependency: string;
+
   // Relations
   @OneToMany('Task', 'batch')
   tasks: Relation<Task[]>;

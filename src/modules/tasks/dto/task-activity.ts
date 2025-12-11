@@ -15,6 +15,7 @@ export class TaskActivity {
   activity_reason?: string;
   move_type?: MOVE_TYPE;
   robot_id?: string;
+  robot_name?: string;
   // Timestamps mirrored from Task entity
   start_time: Date | null;
   end_time: Date | null;

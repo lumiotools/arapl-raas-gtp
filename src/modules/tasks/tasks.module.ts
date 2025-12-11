@@ -11,6 +11,7 @@ import { TASK_CONFIG } from './constants';
 import { WebhookModule } from '../webhook/webhook.module';
 import { LoggingModule } from '../logging/logging.module';
 import { OperationType } from 'src/entities/robot-count.entity';
+import { Robot } from 'src/entities/robots.entity';
 
 @Module({})
 export class TasksModule {
@@ -18,7 +19,7 @@ export class TasksModule {
     return {
       module: TasksModule,
       imports: [
-        TypeOrmModule.forFeature([Task, Batch, RobotCount, LocationEntity, ZonePairConfig]),
+        TypeOrmModule.forFeature([Task, Batch, RobotCount, LocationEntity, ZonePairConfig, Robot]),
         HttpModule,
         forwardRef(() => WebhookModule),
         LoggingModule,

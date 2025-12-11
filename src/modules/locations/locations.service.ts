@@ -179,4 +179,8 @@ export class LocationsService {
     await this.locationRepository.save(zone);
     return zone;
   }
+
+  async findAll() {
+    return await this.locationRepository.find();
+  }
 }

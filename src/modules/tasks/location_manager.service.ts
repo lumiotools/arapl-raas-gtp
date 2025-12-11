@@ -35,7 +35,43 @@ export class LocationManagerService {
     }
 
     // Helper method to check if a location's dependent_location is available
-    async isDependentLocationAvailable(location: LocationEntity, ignoreReserved: boolean = false): Promise<boolean> {
+    // When shouldReverseDependency is true, check locations that depend ON this location instead
+    async isDependentLocationAvailable(
+        location: LocationEntity, 
+        ignoreReserved: boolean = false, 
+        shouldReverseDependency: boolean = false
+    ): Promise<boolean> {
+        if (shouldReverseDependency) {
+            // Reversed dependency: check if any location that depends on this location is occupied
+            // If yes, this location cannot be used (it would block access to the dependent location)
+            const dependentLocations = await this.locationRepository.find({
+                where: { dependent_location: location.location_id }
+            });
+            
+            if (dependentLocations.length === 0) {
+                // No locations depend on this one, it's available
+                return true;
+            }
+            
+            // Check if any of the locations that depend on this one are occupied/reserved
+            for (const depLoc of dependentLocations) {
+                const isOccupied = ignoreReserved
+                    ? (depLoc.location_status === LocationStatus.OCCUPIED)
+                    : (depLoc.location_status === LocationStatus.OCCUPIED || depLoc.location_status === LocationStatus.RESERVED);
+                
+                if (isOccupied) {
+                    await this.loggingService.log(
+                        `Location ${location.location_id} blocked (reversed): dependent location ${depLoc.location_id} is ${depLoc.location_status}`,
+                        this.taskType, null, null
+                    );
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+        
+        // Normal dependency check
         if (!location.dependent_location) {
             // No dependency, location is available
             return true;
@@ -103,7 +139,7 @@ export class LocationManagerService {
         return true;
     }
 
-    async findOptimalDropLocation(zone_id: string, zone_pair_id?: string): Promise<string | null> {
+    async findOptimalDropLocation(zone_id: string, zone_pair_id?: string, count: number = 1): Promise<string[] | null> {
         const zone = await this.locationRepository.findOne({ where: { location_id: zone_id, location_type: LocationType.ZONE } });
         if (!zone) {
             console.log(`Zone with ID ${zone_id} not found.`);
@@ -135,16 +171,24 @@ export class LocationManagerService {
                 ? availableWithPriority.sort((a, b) => (b.drop_priority! - a.drop_priority!))
                 : availableWithPriority.sort((a, b) => (a.drop_priority! - b.drop_priority!));
             
-            // Check dependencies for each candidate in priority order
+            // Collect multiple locations if count > 1
+            const selectedLocations: string[] = [];
             for (const candidate of sorted) {
-                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate);
+                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, false, shouldReverseDrop);
                 if (isDependencyAvailable) {
                     await this.loggingService.log(
                         `Selected drop location ${candidate.location_id} in zone ${zone_id} with priority ${candidate.drop_priority} (all direct access)`, 
                         this.taskType, null, null
                     );
-                    return candidate.location_id;
+                    selectedLocations.push(candidate.location_id);
+                    if (selectedLocations.length >= count) {
+                        return selectedLocations;
+                    }
                 }
+            }
+            
+            if (selectedLocations.length > 0) {
+                return selectedLocations;
             }
             
             await this.loggingService.log(`No priority-based drop locations available in zone ${zone_id} (direct access, all blocked by dependencies)`, this.taskType, null, null);
@@ -167,17 +211,25 @@ export class LocationManagerService {
                 ? availableWithPriority.sort((a, b) => (b.drop_priority! - a.drop_priority!))
                 : availableWithPriority.sort((a, b) => (a.drop_priority! - b.drop_priority!));
             
-            // Check dependencies for each candidate in priority order
+            // Collect multiple locations if count > 1
+            const selectedLocations: string[] = [];
             for (const candidate of sortedNoBlock) {
-                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate);
+                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, false, shouldReverseDrop);
                 if (isDependencyAvailable) {
                     await this.loggingService.log(
                         `Selected drop location ${candidate.location_id} in zone ${zone_id} with priority ${candidate.drop_priority} (no blockers)`, 
                         this.taskType, null, null
                     );
-                    console.log(`Selected drop location ${candidate.location_id} in zone ${zone_id} (no blockers)`)
-                    return candidate.location_id;
+                    console.log(`Selected drop location ${candidate.location_id} in zone ${zone_id} (no blockers)`);
+                    selectedLocations.push(candidate.location_id);
+                    if (selectedLocations.length >= count) {
+                        return selectedLocations;
+                    }
                 }
+            }
+            
+            if (selectedLocations.length > 0) {
+                return selectedLocations;
             }
             
             await this.loggingService.log(`No priority-based drop locations available in zone ${zone_id} (no blockers, all blocked by dependencies)`, this.taskType, null, null);
@@ -190,18 +242,26 @@ export class LocationManagerService {
         }
 
         // Check candidates before the first blocker in order, respecting dependencies
+        const selectedLocations: string[] = [];
         for (let i = firstBlockedIdx - 1; i >= 0; i--) {
             const candidate = entranceOrder[i];
             if (candidate && candidate.location_status === LocationStatus.AVAILABLE) {
-                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate);
+                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, false, shouldReverseDrop);
                 if (isDependencyAvailable) {
                     await this.loggingService.log(
                         `Selected drop location ${candidate.location_id} in zone ${zone_id} (before nearest block at priority ${entranceOrder[firstBlockedIdx].drop_priority})`, 
                         this.taskType, null, null
                     );
-                    return candidate.location_id;
+                    selectedLocations.push(candidate.location_id);
+                    if (selectedLocations.length >= count) {
+                        return selectedLocations;
+                    }
                 }
             }
+        }
+
+        if (selectedLocations.length > 0) {
+            return selectedLocations;
         }
 
         await this.loggingService.log(`No suitable drop location found in zone ${zone_id} (all candidates blocked by dependencies or unavailable)`, this.taskType, null, null);
@@ -225,14 +285,16 @@ export class LocationManagerService {
             if(!start_to_intermediate_zone_pair_id || !intermediate_to_end_zone_pair_id) {
                 continue;
             }
-            intermediateDropLocation = await this.findOptimalDropLocation(
-            intermediate_drop_zone_id,
-            start_to_intermediate_zone_pair_id,
+            const result = await this.findOptimalDropLocation(
+                intermediate_drop_zone_id,
+                start_to_intermediate_zone_pair_id,
+                1
             );
+            intermediateDropLocation = result && result.length > 0 ? result[0] : null;
 
             if(intermediateDropLocation) {
-            intermediateDropZone = intermediate_drop_zone_id;
-            break;
+                intermediateDropZone = intermediate_drop_zone_id;
+                break;
             }
         }
 
@@ -292,6 +354,7 @@ export class LocationManagerService {
 
         // 4) If all locations are directly accessible, check availability AND dependencies
         const allDirect = zone.attributes?.find((a: any) => a.attribute_name === 'all_locations_directly_accessible')?.attribute_value ?? false;
+        const shouldReverseDrop = zone_pair_id ? await this.isDropPriorityReversed(zone_pair_id) : false;
         if (allDirect) {
             const result = await Promise.all(location_ids.map(async id => {
                 const loc = candidateById.get(id);
@@ -299,7 +362,7 @@ export class LocationManagerService {
                     return false;
                 }
                 // Check if dependent location is available
-                return await this.isDependentLocationAvailable(loc, !!ignoreReserved);
+                return await this.isDependentLocationAvailable(loc, !!ignoreReserved, shouldReverseDrop);
             }));
             await this.loggingService.log(`Accessibility check (all-direct): computed availability for ${location_ids.length} locations`, this.taskType, null, null);
             return result;
@@ -307,7 +370,6 @@ export class LocationManagerService {
 
         // 5) Build helper structures for blocking checks
         const palletsWithPriority = pallets.filter(l => l.drop_priority != null);
-        const shouldReverseDrop = zone_pair_id ? await this.isDropPriorityReversed(zone_pair_id) : false;
 
         // For a location L to be directly accessible: all pallets with drop_priority > L.drop_priority
         // must be AVAILABLE and not newly selected earlier in this list.
@@ -338,7 +400,7 @@ export class LocationManagerService {
             });
 
             // Check if dependent location is available
-            const isDependencyAvailable = await this.isDependentLocationAvailable(loc, !!ignoreReserved);
+            const isDependencyAvailable = await this.isDependentLocationAvailable(loc, !!ignoreReserved, shouldReverseDrop);
             
             const accessible = !isBlocked && isDependencyAvailable;
             results.push(accessible);
@@ -347,6 +409,171 @@ export class LocationManagerService {
 
         await this.loggingService.log(`Accessibility check: computed direct accessibility for ${location_ids.length} locations in zone ${zoneId} (ignoreReserved=${!!ignoreReserved})` , this.taskType, null, null);
         return results;
+    }
+
+    // Accepts a list of location IDs (assumed to be from the same zone) and returns, in order, which are directly accessible/unblocked
+    async checkPickLocationsDirectAccessibility(location_ids: string[], ignoreReserved: boolean | null = false, zone_pair_id?: string): Promise<{
+        accessible: boolean[];
+        blockingLocations: string[];
+    }> {
+        if (!Array.isArray(location_ids) || location_ids.length === 0) {
+            await this.loggingService.log(`Pick accessibility check: no location ids provided`, this.taskType, null, null);
+            return { accessible: [], blockingLocations: [] };
+        }
+
+        // 1) Load all candidate locations once (we don't filter by status - we check all requested locations)
+        const candidateLocations = await this.locationRepository.find({
+            where: { location_id: In(location_ids) }
+        });
+        const candidateById = new Map(candidateLocations.map(l => [l.location_id, l]));
+
+        // 2) Determine zone from candidates
+        const validCandidates = candidateLocations.filter(l => l.location_type === LocationType.PALLET && !!l.parent_id);
+        if (validCandidates.length === 0) {
+            await this.loggingService.log(`Pick accessibility check: no valid PALLET candidates found`, this.taskType, null, null);
+            return { 
+                accessible: location_ids.map(_ => false),
+                blockingLocations: []
+            };
+        }
+
+        const zoneId = validCandidates[0].parent_id!;
+        // Optional sanity: detect if multiple zones present; proceed with the first (as per assumption)
+        const sanityZones = new Set(validCandidates.map(l => l.parent_id));
+        if (sanityZones.size > 1) {
+            await this.loggingService.log(`Pick accessibility check: multiple zones detected in input; proceeding with zone ${zoneId} as per assumption`, this.taskType, null, null);
+        }
+
+        // 3) Load the zone and all its pallets once
+        const zone = await this.locationRepository.findOne({ where: { location_id: zoneId, location_type: LocationType.ZONE } });
+        if (!zone) {
+            await this.loggingService.log(`Pick accessibility check: zone ${zoneId} not found`, this.taskType, null, null);
+            return { 
+                accessible: location_ids.map(_ => false),
+                blockingLocations: []
+            };
+        }
+        const pallets = await this.locationRepository.find({ where: { parent_id: zoneId, location_type: LocationType.PALLET } });
+
+        // 4) If all locations are directly accessible, only check dependencies
+        const allDirect = zone.attributes?.find((a: any) => a.attribute_name === 'all_locations_directly_accessible')?.attribute_value ?? false;
+        const inputLocationSet = new Set(location_ids);
+        const shouldReversePick = zone_pair_id ? await this.isPickPriorityReversed(zone_pair_id) : false;
+
+        if (allDirect) {
+            const allBlockingLocations = new Set<string>();
+            const results = await Promise.all(location_ids.map(async id => {
+                const loc = candidateById.get(id);
+                if (!loc || loc.location_type !== LocationType.PALLET || loc.parent_id !== zoneId) {
+                    return { accessible: false };
+                }
+                // Check if dependent location is available
+                const isDependencyAvailable = await this.isDependentLocationAvailable(loc, !!ignoreReserved, shouldReversePick);
+                if (!isDependencyAvailable) {
+                    // Add blocking location to the list
+                    if (shouldReversePick) {
+                        // In reversed mode, locations that depend on this one are blocking
+                        const dependents = await this.locationRepository.find({
+                            where: { dependent_location: loc.location_id }
+                        });
+                        for (const dep of dependents) {
+                            if (!inputLocationSet.has(dep.location_id)) {
+                                allBlockingLocations.add(dep.location_id);
+                            }
+                        }
+                    } else {
+                        // In normal mode, the dependent location is blocking
+                        if (loc.dependent_location && !inputLocationSet.has(loc.dependent_location)) {
+                            allBlockingLocations.add(loc.dependent_location);
+                        }
+                    }
+                }
+                return { accessible: isDependencyAvailable };
+            }));
+            await this.loggingService.log(`Pick accessibility check (all-direct): computed availability for ${location_ids.length} locations`, this.taskType, null, null);
+            return {
+                accessible: results.map(r => r.accessible),
+                blockingLocations: Array.from(allBlockingLocations)
+            };
+        }
+
+        // 5) Pre-compute blocking structures for efficiency
+        // shouldReversePick is already defined above
+        
+        // Pre-filter and collect all blocking locations in one pass
+        const occupiedBlockers = pallets.filter(p => 
+            p.pick_priority != null && 
+            p.location_status === LocationStatus.OCCUPIED &&
+            !inputLocationSet.has(p.location_id)
+        );
+
+        // Build a map of candidate locations by pick_priority for faster lookup
+        const candidatesByPriority = new Map<number, string>();
+        for (const id of location_ids) {
+            const loc = candidateById.get(id);
+            if (loc?.pick_priority != null) {
+                candidatesByPriority.set(loc.pick_priority, id);
+            }
+        }
+
+        // For a pick location L to be directly accessible: 
+        // all pallets with LOWER pick_priority must be AVAILABLE (not OCCUPIED)
+        // Logic: you access pick locations from the entrance, so lower priorities block higher ones
+        const accessibleResults: boolean[] = [];
+        const allBlockingLocations = new Set<string>();
+
+        for (const id of location_ids) {
+            const loc = candidateById.get(id);
+            // Default false for unknown, wrong type, wrong zone, or no pick_priority
+            if (!loc || loc.location_type !== LocationType.PALLET || loc.parent_id !== zoneId || loc.pick_priority == null) {
+                accessibleResults.push(false);
+                continue;
+            }
+
+            const lp = loc.pick_priority!;
+            
+            // Find all blocking locations efficiently
+            let hasBlockers = false;
+            for (const blocker of occupiedBlockers) {
+                const isBlocker = shouldReversePick 
+                    ? blocker.pick_priority! > lp 
+                    : blocker.pick_priority! < lp;
+                
+                if (isBlocker) {
+                    allBlockingLocations.add(blocker.location_id);
+                    hasBlockers = true;
+                }
+            }
+
+            // Check if dependent location is available
+            const isDependencyAvailable = await this.isDependentLocationAvailable(loc, !!ignoreReserved, shouldReversePick);
+            
+            // Add blocking location to the list if dependency check failed
+            if (!isDependencyAvailable) {
+                if (shouldReversePick) {
+                    // In reversed mode, locations that depend on this one are blocking
+                    const dependents = await this.locationRepository.find({
+                        where: { dependent_location: loc.location_id }
+                    });
+                    for (const dep of dependents) {
+                        if (!inputLocationSet.has(dep.location_id)) {
+                            allBlockingLocations.add(dep.location_id);
+                        }
+                    }
+                } else {
+                    // In normal mode, the dependent location is blocking
+                    if (loc.dependent_location && !inputLocationSet.has(loc.dependent_location)) {
+                        allBlockingLocations.add(loc.dependent_location);
+                    }
+                }
+                hasBlockers = true;
+            }
+            
+            accessibleResults.push(!hasBlockers);
+        }
+
+        await this.loggingService.log(`Pick accessibility check: computed accessibility for ${location_ids.length} locations in zone ${zoneId} (ignoreReserved=${!!ignoreReserved})`, this.taskType, null, null);
+        return { accessible: accessibleResults, blockingLocations: Array.from(allBlockingLocations) };
     }
 
     async freeLocation(location_id: string): Promise<void> {
@@ -430,21 +657,27 @@ export class LocationManagerService {
     }
 
     async getOptimalWaitLocation(required_location_id: string, zone_pair_id: string): Promise<string | null> {
-        console.log("Finding optimal wait location in end zone...");
+        console.log("Finding optimal wait location...");
 
         const requiredLocation = await this.locationRepository.findOne({ where: { location_id: required_location_id } });
-
-        console.log(`Required location found: ${requiredLocation ? 'Yes' : 'No'}, Current Zone: `, requiredLocation?.location_type === LocationType.PALLET ? requiredLocation.parent_id : requiredLocation?.location_id);
-
-        let shouldReverse = false;
-        if (zone_pair_id) {
-            shouldReverse = await this.isDropPriorityReversed(zone_pair_id);
+        if (!requiredLocation) {
+            await this.loggingService.log(`Required location ${required_location_id} not found`, this.taskType, null, null);
+            return null;
         }
 
-        let waitLocationQuery = this.locationRepository
+        // Determine the zone of the required location (this is our start zone for wait location search)
+        const requiredLocationZoneId = requiredLocation.location_type === LocationType.PALLET 
+            ? requiredLocation.parent_id 
+            : requiredLocation.location_id;
+
+        console.log(`Required location zone: ${requiredLocationZoneId}`);
+
+        // Step 1: Try to find wait location in the same zone as required location
+        // Filter by attribute properly using jsonb contains
+        const sameZoneWaitLocationIds = (await this.locationRepository
             .createQueryBuilder('location')
             .where('location.location_type = :locationType', { locationType: LocationType.PALLET })
-            .andWhere('location.parent_id = :parentId', { parentId: requiredLocation?.location_type === LocationType.PALLET ? requiredLocation.parent_id : requiredLocation?.location_id })
+            .andWhere('location.parent_id = :parentId', { parentId: requiredLocationZoneId })
             .andWhere('location.location_status = :locationStatus', { locationStatus: LocationStatus.AVAILABLE })
             .andWhere(
                 `location.attributes::jsonb @> :attr::jsonb`,
@@ -455,98 +688,136 @@ export class LocationManagerService {
                     }])
                 }
             )
-            .orderBy('location.drop_priority', shouldReverse ? 'DESC' : 'ASC');
-        
-        let waitLocation = await waitLocationQuery.getMany();
+            .getMany()).map(l => l.location_id);
 
-        console.log(`Wait location candidates in same zone found: ${waitLocation.length}`);
-        
-        // Check dependencies for wait locations in same zone
-        let selectedWaitLocation: LocationEntity | null = null;
-        for (const candidate of waitLocation) {
-            const isDependencyAvailable = await this.isDependentLocationAvailable(candidate);
-            if (isDependencyAvailable) {
-                selectedWaitLocation = candidate;
+        if (sameZoneWaitLocationIds.length > 0) {
+            console.log(`Found ${sameZoneWaitLocationIds.length} wait location candidates in same zone`);
+            
+            // Use zone pair for same zone movement: requiredLocationZone -> requiredLocationZone
+            const sameZonePairId = await this.getZonePairId(requiredLocationZoneId, requiredLocationZoneId);
+            
+            // Use findOptimalDropLocation to get the best wait location
+            const optimalWaitLocations = await this.findOptimalDropLocationFromCandidates(
+                sameZoneWaitLocationIds,
+                requiredLocationZoneId,
+                sameZonePairId,
+                1
+            );
+            
+            if (optimalWaitLocations && optimalWaitLocations.length > 0) {
+                const selectedLocation = optimalWaitLocations[0];
+                console.log(`Found wait location in same zone: ${selectedLocation}`);
                 await this.loggingService.log(
-                    `Wait location ${candidate.location_id} selected in same zone for ${requiredLocation?.location_id}`,
+                    `Wait location ${selectedLocation} selected in same zone for ${required_location_id}`,
                     this.taskType, null, null
                 );
-                break;
+                return selectedLocation;
             }
         }
+
+        // Step 2: Look for dedicated wait zone(s)
+        console.log("Searching for wait location in dedicated wait zone...");
         
-        waitLocation = selectedWaitLocation ? [selectedWaitLocation] : [];
-
-        if (!waitLocation || waitLocation.length === 0) {
-
-            console.log("Searching for wait location...");
-            const waitZone = await this.locationRepository
-                .createQueryBuilder('location')
-                .where('location.location_type = :locationType', { locationType: LocationType.ZONE })
-                .andWhere(
-                    `location.attributes::jsonb @> :attr::jsonb`,
-                    { 
-                        attr: JSON.stringify([{ 
-                            attribute_name: 'is_waiting_area', 
-                            attribute_value: true 
-                        }])
-                    }
-                )
-                .getOne();
-            
-                if (!waitZone) {
-                console.log(`Wait zone not found, Searching for other wait locations...`);
-                await this.loggingService.log(`Wait zone attribute not found; searching global wait locations`, this.taskType, null, null);
-            }
-            
-            waitLocationQuery = this.locationRepository
-                .createQueryBuilder('location')
-                .where('location.location_type = :locationType', { locationType: LocationType.PALLET })
-                .andWhere('location.location_status = :locationStatus', { locationStatus: LocationStatus.AVAILABLE })
-                .orderBy('location.drop_priority', shouldReverse ? 'DESC' : 'ASC');
-            
-            if (waitZone) {
-                waitLocationQuery.andWhere('location.parent_id = :parentId', { parentId: waitZone.location_id });
-            } else {
-                waitLocationQuery.andWhere(
-                    `location.attributes::jsonb @> :attr::jsonb`,
-                    { 
-                        attr: JSON.stringify([{ 
-                            attribute_name: 'is_waiting_area', 
-                            attribute_value: true 
-                        }])
-                    }
-                );
-            }
-            
-            const waitLocationCandidates = await waitLocationQuery.getMany();
-            console.log(`Found wait location candidates: ${waitLocationCandidates.length}`);
-            
-            // Check dependencies for wait locations
-            selectedWaitLocation = null;
-            for (const candidate of waitLocationCandidates) {
-                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate);
-                if (isDependencyAvailable) {
-                    selectedWaitLocation = candidate;
-                    console.log(`Found wait location: ${selectedWaitLocation.location_id}`);
-                    await this.loggingService.log(
-                        `Wait location ${selectedWaitLocation.location_id} selected for ${requiredLocation?.location_id}`,
-                        this.taskType, null, null
-                    );
-                    break;
+        const waitZones = await this.locationRepository
+            .createQueryBuilder('location')
+            .where('location.location_type = :locationType', { locationType: LocationType.ZONE })
+            .andWhere(
+                `location.attributes::jsonb @> :attr::jsonb`,
+                { 
+                    attr: JSON.stringify([{ 
+                        attribute_name: 'is_waiting_area', 
+                        attribute_value: true 
+                    }])
                 }
-            }
-            
-            waitLocation = selectedWaitLocation ? [selectedWaitLocation] : [];
-        } else if (waitLocation.length > 0) {
-            console.log(`Found wait location in same zone: ${waitLocation[0].location_id}`);
-        }
+            )
+            .getMany();
 
-        if (!waitLocation || waitLocation.length === 0) {
-            await this.loggingService.log(`No wait location available for ${requiredLocation?.location_id}`, this.taskType, null, null);
+        if (waitZones.length === 0) {
+            console.log(`No dedicated wait zone found`);
+            await this.loggingService.log(`No wait zone or wait locations available for ${required_location_id}`, this.taskType, null, null);
             return null;
         }
-        return waitLocation[0].location_id;
+
+        // Try each wait zone in order
+        for (const waitZone of waitZones) {
+            console.log(`Checking wait zone: ${waitZone.location_id}`);
+            
+            // Get zone pair for movement: requiredLocationZone -> waitZone
+            const waitZonePairId = await this.getZonePairId(requiredLocationZoneId, waitZone.location_id);
+            
+            // Use findOptimalDropLocation which handles all the priority logic and dependency checks
+            const optimalWaitLocations = await this.findOptimalDropLocation(
+                waitZone.location_id,
+                waitZonePairId,
+                1
+            );
+            
+            if (optimalWaitLocations && optimalWaitLocations.length > 0) {
+                const selectedLocation = optimalWaitLocations[0];
+                console.log(`Found wait location in wait zone ${waitZone.location_id}: ${selectedLocation}`);
+                await this.loggingService.log(
+                    `Wait location ${selectedLocation} selected in wait zone ${waitZone.location_id} for ${required_location_id}`,
+                    this.taskType, null, null
+                );
+                return selectedLocation;
+            }
+        }
+
+        await this.loggingService.log(`No wait location available for ${required_location_id}`, this.taskType, null, null);
+        return null;
+    }
+
+    // Helper method to find optimal drop location from a specific set of candidate location IDs
+    private async findOptimalDropLocationFromCandidates(
+        candidateLocationIds: string[],
+        zone_id: string,
+        zone_pair_id?: string,
+        count: number = 1
+    ): Promise<string[] | null> {
+        if (!candidateLocationIds || candidateLocationIds.length === 0) {
+            return null;
+        }
+
+        const zone = await this.locationRepository.findOne({ where: { location_id: zone_id, location_type: LocationType.ZONE } });
+        if (!zone) {
+            return null;
+        }
+
+        // Load all candidate locations
+        const candidates = await this.locationRepository.find({
+            where: { 
+                location_id: In(candidateLocationIds),
+                location_status: LocationStatus.AVAILABLE 
+            }
+        });
+
+        if (candidates.length === 0) {
+            return null;
+        }
+
+        const shouldReverseDrop = zone_pair_id ? await this.isDropPriorityReversed(zone_pair_id) : false;
+
+        // Sort candidates by priority
+        const sortedCandidates = candidates
+            .filter(c => c.drop_priority != null)
+            .sort((a, b) => shouldReverseDrop 
+                ? (b.drop_priority! - a.drop_priority!)
+                : (a.drop_priority! - b.drop_priority!)
+            );
+
+        // Select locations that pass dependency checks
+        const selectedLocations: string[] = [];
+        for (const candidate of sortedCandidates) {
+            const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, false, shouldReverseDrop);
+            if (isDependencyAvailable) {
+                selectedLocations.push(candidate.location_id);
+                if (selectedLocations.length >= count) {
+                    return selectedLocations;
+                }
+            }
+        }
+
+        return selectedLocations.length > 0 ? selectedLocations : null;
     }
 
     async getDisplayName(location_id: string): Promise<string> {
@@ -671,6 +942,11 @@ export class LocationManagerService {
         return location || null;
     }
 
+    async getLocationByDisplayName(display_name: string): Promise<LocationEntity | null> {
+        const location = await this.locationRepository.findOne({ where: { display_name: display_name } });
+        return location || null;
+    }
+
     async findInaccessibleStartLocations(startLocationIds: string[], minPriority: number, maxPriority: number, zoneId?: string): Promise<LocationEntity[]> {
         if (!startLocationIds || startLocationIds.length === 0) return [];
 
@@ -745,7 +1021,7 @@ export class LocationManagerService {
                     const record = this.locationRepository.create({
                         location_id: String(location.location_id).trim(),
                         parent_id: zone_id,
-                        display_name: location.display_name ?? String(location.location_id).trim(),
+                        display_name: location.customer_location_id && location.customer_location_id != "N/A" ? location.customer_location_id : String(location.location_id).trim(),
                         location_type: LocationType.PALLET,
                         row: location.location_row != null ? Number(location.location_row) : undefined,
                         column: location.location_column != null ? Number(location.location_column) : undefined,
@@ -754,6 +1030,7 @@ export class LocationManagerService {
                     console.log(`Created new location ${location.location_id} under zone ${zone_id}`);
                     await this.loggingService.log(`Created new location ${location.location_id} under zone ${zone_id} from FMS sync`, this.taskType, null, null);
                 } else {
+                    existingLocation.display_name = location.customer_location_id && location.customer_location_id != "N/A" ? location.customer_location_id : String(location.location_id).trim();
                     existingLocation.row = location.location_row != null ? Number(location.location_row) : existingLocation.row;
                     existingLocation.column = location.location_column != null ? Number(location.location_column) : existingLocation.column;
                     existingLocation.location_status = location.location_attribute?.attribute_value === "Empty" ? LocationStatus.AVAILABLE : LocationStatus.OCCUPIED;

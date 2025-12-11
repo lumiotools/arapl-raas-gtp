@@ -2633,6 +2633,7 @@ export class OrchestratorService {
     return res;
   }
 
+  
   async getTasksByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined, module: OperationType) {
     const whereCondition: any = {};
 
@@ -2700,7 +2701,7 @@ export class OrchestratorService {
     console.log(`first task: ${JSON.stringify(TaskItems[0])}`);
     for (const task of TaskItems) {
       const robot = await this.robotRepository.findOne({ where: { robot_id: task.robot_id } });
-      if (!robot) { continue; }
+      // if (!robot) { continue; }
       const taskDetails: TaskDetails = {
         task_id: task.task_id,
         display_task_id: task.display_task_id,
@@ -2711,7 +2712,7 @@ export class OrchestratorService {
         move_type: task.move_type,
         status: task.status,
         robot_id: task.robot_id,
-        robot_name: robot.robot_name || task.robot_id,
+        robot_name: task.robot_id && robot ? robot.robot_name || '' : '',
         start_location_id: task.start_location.location_id,
         end_location_id: task.end_location.location_id,
         start_location_attribute_value: task.start_location.location_attribute?.attribute_value || '',

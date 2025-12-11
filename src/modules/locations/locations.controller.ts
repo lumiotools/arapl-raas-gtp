@@ -7,6 +7,11 @@ import { UpdateZoneDto } from './dto/update-zone.dto';
 export class LocationsController {
   constructor(private readonly locationsService: LocationsService) {}
 
+  @Get()
+  async findAll() {
+    return await this.locationsService.findAll();
+  }
+
   @Get('zones')
   async findZones() {
     return await this.locationsService.findZones();

@@ -166,6 +166,9 @@ export class Task extends BaseEntity {
   @Column({ type: 'boolean', default: false })
   is_gtp_cancelled: boolean;
 
+  @Column({ type: 'boolean', default: false })
+  is_paused: boolean;
+
   @ManyToMany(() => OrderItem, (orderItem) => orderItem.completedTasks)
   @JoinTable() // This should be on one side of the ManyToMany relation
   orderItems: Relation<OrderItem[]>;

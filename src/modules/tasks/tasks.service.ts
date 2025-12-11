@@ -24,6 +24,7 @@ import { LoggingService } from '../../services/logging.service';
 import { WebhookService } from '../webhook/webhook.service';
 import { TASK_CONFIG } from './constants';
 import { LocationStatus } from 'src/entities/station.entity';
+import { Robot } from 'src/entities/robots.entity';
 
 @Injectable()
 export class TaskService implements OnModuleInit {
@@ -38,10 +39,12 @@ export class TaskService implements OnModuleInit {
     @InjectRepository(Batch)
     readonly batchRepository: Repository<Batch>,
     @InjectRepository(RobotCount)
-    private readonly robotRepository: Repository<RobotCount>,
+    private readonly robotCountRepository: Repository<RobotCount>,
     private readonly loggingService: LoggingService,
     @Inject(forwardRef(() => WebhookService))
     private readonly webhookService: WebhookService,
+    @InjectRepository(Robot)
+    private readonly robotRepository: Repository<Robot>,
   @Optional()
   @Inject(TASK_CONFIG)
   private readonly taskConfig?: { operationType?: OperationType },
@@ -96,7 +99,7 @@ export class TaskService implements OnModuleInit {
         'updated_at',
       ],
       where: { task_type: this.taskType },
-      order: { created_at: 'DESC' },
+      order: { created_at: 'DESC', priority: 'DESC' },
     });
     // Enrich with alert (HALTED reason) if batch itself is HALTED
     for (const batch of batches) {
@@ -280,9 +283,13 @@ export class TaskService implements OnModuleInit {
           const chainStatuses = await this.collectChainStatuses(batch_id, task.task_id);
           const aggregate = this.aggregateStatuses(chainStatuses);
           task.status = aggregate;
-          // Recompute alert if now HALTED
+          
+          // Aggregate is_paused across the full chain
+          const chainPausedStates = await this.collectChainPausedStates(batch_id, task.task_id);
+          const aggregatePaused = this.aggregatePausedStates(chainPausedStates);
+          (task as any).is_paused = aggregatePaused;
         } catch (e) {
-          // On failure keep task.status as-is
+          // On failure keep task.status and is_paused as-is
         }
       }
 
@@ -382,6 +389,57 @@ export class TaskService implements OnModuleInit {
     if (unique.has(TaskStatus.COMPLETED)) return TaskStatus.COMPLETED;
     // Fallback: if we reach here and we have statuses but none matched, prefer first
     return statuses[0];
+  }
+
+  // Helper: collect is_paused values for a full dependency chain
+  private async collectChainPausedStates(batch_id: string, rootTaskId: string): Promise<boolean[]> {
+    const pausedStates: boolean[] = [];
+    const visited = new Set<string>();
+    let frontier: string[] = [rootTaskId];
+    while (frontier.length > 0) {
+      const nodes = await this.taskRepository.find({
+        where: [
+          { task_id: In(frontier), batch: { batch_id } },
+          { task_dependency: In(frontier), batch: { batch_id } },
+        ],
+      });
+      const nextFrontier: string[] = [];
+      for (const n of nodes) {
+        if (!visited.has(n.task_id) && n.move_type !== MOVE_TYPE.PICK_ENTRY) {
+          visited.add(n.task_id);
+          pausedStates.push(n.is_paused || false);
+          nextFrontier.push(n.task_id);
+        }
+      }
+      // Discover dependents
+      const dependents = await this.taskRepository.find({
+        where: { task_dependency: In(nextFrontier), batch: { batch_id } },
+        select: ['task_id', 'is_paused'],
+      });
+      for (const d of dependents) {
+        if (!visited.has(d.task_id)) {
+          nextFrontier.push(d.task_id);
+        }
+      }
+      frontier = Array.from(new Set(nextFrontier));
+      if (frontier.length === 0) break;
+      frontier = frontier.filter((id) => !visited.has(id));
+    }
+    // Ensure root included
+    if (!visited.has(rootTaskId)) {
+      const root = await this.taskRepository.findOne({ 
+        where: { task_id: rootTaskId, batch: { batch_id }, move_type: Not(MOVE_TYPE.PICK_ENTRY) } 
+      });
+      if (root) {
+        pausedStates.unshift(root.is_paused || false);
+      }
+    }
+    return pausedStates;
+  }
+
+  // Helper: aggregate is_paused - if any task in chain is paused, return true
+  private aggregatePausedStates(pausedStates: boolean[]): boolean {
+    return pausedStates.some(state => state === true);
   }
 
   // Helper: provide a human-readable reason for HALTED tasks, consistent across views
@@ -498,6 +556,7 @@ export class TaskService implements OnModuleInit {
         activity_reason: activityReason,
         move_type: t.move_type,
         robot_id: t.robot_id,
+        robot_name: t.robot_id ? (await this.robotRepository.findOne({ where: { robot_id: t.robot_id } }))?.robot_name || '' : '',
         start_time: stime,
         end_time: etime,
         cargos: t.cargos,
@@ -711,9 +770,11 @@ export class TaskService implements OnModuleInit {
       return;
     }
     console.log(`--- start ${String(this.taskType)} cron job ---`);
+    this.isProcessing = true;
     try {
       if (!(await this.shouldCreateTask())) {
         console.log("664: system in waiting")
+        this.isProcessing = false;
         return;
       }
       await this.processWaitHaultedTasks();
@@ -722,6 +783,7 @@ export class TaskService implements OnModuleInit {
       }
       if (!(await this.shouldCreateTask())) {
         console.log("672: system in waiting")
+        this.isProcessing = false;
         return;
       }
       await this.processNextTask();
@@ -732,18 +794,22 @@ export class TaskService implements OnModuleInit {
   }
 
   async findNextTask(): Promise<Task | null> {
-    const nextTask = await this.taskRepository.findOne({
-      where: {
-        task_type: this.taskType,
-        status: TaskStatus.PENDING,
-        move_type: MOVE_TYPE.ZONE_TO_ZONE,
-      },
-      relations: ['batch'],
-      order: {
-        batch: { priority: 'ASC' },
-        priority: 'ASC'
-      },
-    });
+    // Use a single query with left join to check batch dependencies
+    const nextTask = await this.taskRepository
+      .createQueryBuilder('task')
+      .leftJoinAndSelect('task.batch', 'batch')
+      .leftJoin('batches', 'dependent_batch', 'batch.dependency = dependent_batch.batch_id')
+      .where('task.task_type = :taskType', { taskType: this.taskType })
+      .andWhere('task.status = :status', { status: TaskStatus.PENDING })
+      .andWhere('task.move_type = :moveType', { moveType: MOVE_TYPE.ZONE_TO_ZONE })
+      .andWhere(
+        '(batch.dependency IS NULL OR dependent_batch.status = :completedStatus)',
+        { completedStatus: BatchStatus.COMPLETED }
+      )
+      .orderBy('batch.priority', 'ASC')
+      .addOrderBy('task.priority', 'ASC')
+      .getOne();
+    
     return nextTask;
   }
 
@@ -775,30 +841,30 @@ export class TaskService implements OnModuleInit {
         continue;
       } // already has a next sequence task
 
-      let end_location_id: string | null = null;
+      let end_location_ids: string[] | null = null;
       if (task.end_location.location_attribute?.attribute_name === 'ZONE') {
-        end_location_id =
+        end_location_ids =
           await this.LocationManagerService.findOptimalDropLocation(
             task.end_location.location_attribute?.attribute_value,
             task.end_location.location_attribute?.attribute_zone_pair_id,
           );
-        if (!end_location_id) {
+        if (!end_location_ids) {
           continue;
         }
       } else {
-        end_location_id = task.end_location.location_attribute.attribute_value;
+        end_location_ids = [task.end_location.location_attribute.attribute_value];
       }
 
       if (
-        !(await this.LocationManagerService.reserveLocation(end_location_id))
+        !(await this.LocationManagerService.reserveLocation(end_location_ids[0]))
       ) {
         continue;
       }
 
-      const newTask = await this.createNextSequenceTask(task, end_location_id);
+      const newTask = await this.createNextSequenceTask(task, end_location_ids[0]);
       if (!newTask) continue;
 
-      newTask.end_location.location_id = end_location_id;
+      newTask.end_location.location_id = end_location_ids[0];
 
       // Send to WMS and increment - extracted to helper method
       const success = await this.sendTaskToWMSAndIncrement(
@@ -968,6 +1034,60 @@ export class TaskService implements OnModuleInit {
     }
   }
 
+  async updateWMSTaskState(task: Task, action: 'pause' | 'resume', payload?: any): Promise<void> {
+    try {
+      console.log(`${action.charAt(0).toUpperCase() + action.slice(1)}ing task ${task.task_id}`);
+      const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
+      const warehouse_key = process.env.WMS_WAREHOUSE_AUTH_KEY || 'test';
+      const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3030';
+      const fms_batch_id = task.fms_batch_id;
+      
+      // Build request body with action
+      const requestBody = {
+        action,
+        ...payload
+      };
+      
+      // Use the /state endpoint as per WMS API design
+      const endpoint = `${wms_base_url}/robot-job/${warehouse_name}/tasks/${fms_batch_id}/${task.task_id}/state`;
+      
+      const response = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: {
+          'authorization': warehouse_key,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      if (!response.ok) {
+        // Try to get error details
+        let errorMessage = response.statusText;
+        try {
+          const errorData = await response.text();
+          errorMessage = errorData || response.statusText;
+        } catch (e) {
+          // If can't read response, use statusText
+        }
+        throw new Error(`Failed to ${action} task ${task.task_id}: ${errorMessage}`);
+      }
+      
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        await response.json();
+      } else {
+        await response.text();
+      }
+      
+      return;
+      
+    } catch (error) {
+      console.error(`Error ${action}ing task ${task.task_id}:`, error);
+      throw new Error(`Failed to ${action} task ${task.task_id}: ${error.message}`);
+    }
+  }
+
   async cancelTaskFromWMS(task: Task): Promise<void> {
      try {
       console.log(`Cancelling task ${task.task_id}`);
@@ -1017,6 +1137,99 @@ export class TaskService implements OnModuleInit {
     } catch (error) {
       console.error(`Error cancelling task ${task.task_id}:`, error);
       throw new Error(`Failed to cancel task ${task.task_id}: ${error.message}`);
+    }
+  }
+
+  async pauseTask(task_id: string): Promise<any> {
+    const task = await this.taskRepository.findOne({ where: { task_id } });
+    if (!task) {
+      throw new BadRequestException(`Task ${task_id} not found`);
+    }
+
+    // Check if task is in PROCESSING status
+    if (task.status !== TaskStatus.PROCESSING) {
+      throw new BadRequestException(
+        `Task cannot be paused`
+      );
+    }
+
+    // Check if task is already paused
+    if (task.is_paused) {
+      throw new BadRequestException(
+        `Task ${task_id} is already paused`
+      );
+    }
+
+    // Call WMS API to pause the task using common function
+    try {
+      await this.updateWMSTaskState(task, 'pause', {
+        reason: "Paused via Crossdock Task Service"
+      });
+
+      // Update task in database
+      await this.taskRepository.update(
+        { task_id: task.task_id },
+        { is_paused: true }
+      );
+
+      await this.loggingService.log(
+        `Task ${task.task_id} paused successfully`,
+        this.taskType,
+        task.task_id,
+        task.batch_id,
+      );
+
+      return {
+        task_id: task.task_id,
+        status: 'paused',
+        message: 'Task paused successfully'
+      };
+    } catch (error) {
+      console.error(`Error pausing task:`, error);
+      throw new BadRequestException(`Failed to pause task: ${error.message}`);
+    }
+  }
+
+  async resumeTask(task_id: string): Promise<any> {
+    const task = await this.taskRepository.findOne({ where: { task_id } });
+    if (!task) {
+      throw new BadRequestException(`Task ${task_id} not found`);
+    }
+
+    // Check if task is paused
+    if (!task.is_paused) {
+      throw new BadRequestException(
+        `Task ${task_id} is not paused. Current is_paused: ${task.is_paused}`
+      );
+    }
+
+    // Call WMS API to resume the task using common function
+    try {
+      await this.updateWMSTaskState(task, 'resume', {
+        reason: "Resumed via Crossdock Task Service"
+      });
+
+      // Update task in database
+      await this.taskRepository.update(
+        { task_id: task.task_id },
+        { is_paused: false }
+      );
+
+      await this.loggingService.log(
+        `Task ${task.task_id} resumed successfully`,
+        this.taskType,
+        task.task_id,
+        task.batch_id,
+      );
+
+      return {
+        task_id: task.task_id,
+        status: 'resumed',
+        message: 'Task resumed successfully'
+      };
+    } catch (error) {
+      console.error(`Error resuming task:`, error);
+      throw new BadRequestException(`Failed to resume task: ${error.message}`);
     }
   }
 
@@ -1490,12 +1703,12 @@ export class TaskService implements OnModuleInit {
     let end_location_id: string | null = null;
     if (task.end_location.location_attribute?.attribute_name === 'ZONE' && !task.end_location.location_attribute.attribute_pending_next_intermediate_task) {
       // write the logic to find the pallet location in that zone
-      end_location_id =
+      const end_location_ids =
         await this.LocationManagerService.findOptimalDropLocation(
           task.end_location.location_attribute?.attribute_value,
           task.end_location.location_attribute?.attribute_zone_pair_id,
         );
-      if (!end_location_id) {
+      if (!end_location_ids) {
         if(task.task_type === TaskType.CROSSDOCK) {
           return;
         }
@@ -1530,6 +1743,8 @@ export class TaskService implements OnModuleInit {
           task.task_id,
           task.batch_id ?? null,
         );
+      } else {
+        end_location_id = end_location_ids[0];
       }
       task.end_location.location_id = end_location_id;
       await this.taskRepository.update(
@@ -1784,7 +1999,7 @@ export class TaskService implements OnModuleInit {
 
     return batchId;
   }
-  async processTasks(tasks: any[], priority: number, batch_job_id?: string): Promise<any> {
+  async processTasks(tasks: any[], priority: number, batch_job_id?: string, dependency?: string): Promise<any> {
 
     if(batch_job_id) {
       const existingBatch = await this.batchRepository.findOne({ where: { wms_batch_id: batch_job_id } });
@@ -1803,6 +2018,7 @@ export class TaskService implements OnModuleInit {
       status: BatchStatus.PENDING,
       total_tasks: 0, // Will be updated as tasks are created
       completed_tasks: 0,
+      dependency: dependency,
     });
     await this.batchRepository.save(batch);
     if (!batch) {
@@ -1900,11 +2116,11 @@ export class TaskService implements OnModuleInit {
       await this.batchRepository.save(batch);
     }
 
-    return tasks;
+    return { batch_id };
   }
 
   async isRobotAvailable(): Promise<boolean> {
-    const robots = await this.robotRepository.find({
+    const robots = await this.robotCountRepository.find({
       where: { operation_type: this.operationType },
     });
     if (robots.length === 0) {
@@ -1916,7 +2132,7 @@ export class TaskService implements OnModuleInit {
   async incrementRobotInUse(): Promise<void> {
     console.log('increment robot in use count');
     const queryRunner =
-      this.robotRepository.manager.connection.createQueryRunner();
+      this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -1949,7 +2165,7 @@ export class TaskService implements OnModuleInit {
 
   async decrementRobotInUse(): Promise<void> {
     const queryRunner =
-      this.robotRepository.manager.connection.createQueryRunner();
+      this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -1977,7 +2193,7 @@ export class TaskService implements OnModuleInit {
   }
 
   async getRobotInUse(): Promise<number> {
-    const robots = await this.robotRepository.find({
+    const robots = await this.robotCountRepository.find({
       where: { operation_type: this.operationType },
     });
     if (robots.length === 0) return 0;
@@ -1985,7 +2201,7 @@ export class TaskService implements OnModuleInit {
   }
 
   async checkIfSystemIsInWaitingState(): Promise<boolean> {
-    const robots = await this.robotRepository.find({
+    const robots = await this.robotCountRepository.find({
       where: { operation_type: this.operationType },
     });
     if (robots.length === 0) {
@@ -1997,7 +2213,7 @@ export class TaskService implements OnModuleInit {
 
   async markSystemAsWaiting(): Promise<void> {
     const queryRunner =
-      this.robotRepository.manager.connection.createQueryRunner();
+      this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -2022,7 +2238,7 @@ export class TaskService implements OnModuleInit {
 
   async unmarkSystemAsWaiting(): Promise<void> {
     const queryRunner =
-      this.robotRepository.manager.connection.createQueryRunner();
+      this.robotCountRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -2046,7 +2262,7 @@ export class TaskService implements OnModuleInit {
   }
 
   async setInitialConfiguration(): Promise<void> {
-    const robots = await this.robotRepository.find({
+    const robots = await this.robotCountRepository.find({
       where: { operation_type: this.operationType },
     });
     console.log(
@@ -2058,7 +2274,7 @@ export class TaskService implements OnModuleInit {
       newRobotConfig.total_robots = 1;
       newRobotConfig.robot_in_use = 0;
       newRobotConfig.is_waiting = false;
-      await this.robotRepository.save(newRobotConfig);
+      await this.robotCountRepository.save(newRobotConfig);
     }
 
     // await this.LocationManagerService.syncFMSLocations();

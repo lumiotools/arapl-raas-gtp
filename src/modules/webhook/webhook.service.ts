@@ -704,6 +704,7 @@ export class WebhookService {
         await this.CrossdockTaskService.taskService.handleCrossdockDropEntryCancellation(task);
       }
     } catch (err: any) {
+      console.log(err)
       this.logger.error(`Crossdock internal cancellation handling failed for ${task.task_id}: ${err.message}`);
       await this.loggingService.createErrorLog(
         `Crossdock internal cancellation handling failed: ${err.message}`,
