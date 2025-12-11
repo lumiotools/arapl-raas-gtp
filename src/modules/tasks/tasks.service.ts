@@ -313,6 +313,7 @@ export class TaskService implements OnModuleInit {
           { task_id: In(frontier), batch: { batch_id } },
           { task_dependency: In(frontier), batch: { batch_id } },
         ],
+        order: { sequence_order: 'ASC' },
       });
       const nextFrontier: string[] = [];
       for (const n of nodes) {
@@ -402,6 +403,7 @@ export class TaskService implements OnModuleInit {
           { task_id: In(frontier), batch: { batch_id } },
           { task_dependency: In(frontier), batch: { batch_id } },
         ],
+        order: { sequence_order: 'ASC' },
       });
       const nextFrontier: string[] = [];
       for (const n of nodes) {
@@ -488,6 +490,7 @@ export class TaskService implements OnModuleInit {
       const dependents = await this.taskRepository.find({
         where: { task_dependency: In(frontier), batch: { batch_id } },
         relations: ['batch'],
+        order: { sequence_order: 'ASC' },
       });
       const newlyDiscovered: Task[] = [];
       for (const dep of dependents) {
@@ -1526,7 +1529,9 @@ export class TaskService implements OnModuleInit {
           width: 1,
           height: 1,
         },
-        location_attribute: null as any,
+        location_attribute: ({
+          attribute_zone_pair_id: originalTask.start_location.location_attribute.attribute_zone_pair_id,
+        }) as any,
       };
 
       toStartEntryTask.end_location = {
@@ -1538,7 +1543,9 @@ export class TaskService implements OnModuleInit {
           width: 1,
           height: 1,
         },
-        location_attribute: null as any,
+        location_attribute: ({
+          attribute_zone_pair_id: originalTask.end_location.location_attribute.attribute_zone_pair_id,
+        }) as any,
       };
 
       toStartEntryTask.wait = null as any;
@@ -1575,7 +1582,9 @@ export class TaskService implements OnModuleInit {
           width: 1,
           height: 1,
         },
-        location_attribute: null as any,
+        location_attribute: ({
+          attribute_zone_pair_id: originalTask.start_location.location_attribute.attribute_zone_pair_id,
+        }) as any,
       };
 
       fromEndEntryTask.end_location = task.end_location;
@@ -1595,7 +1604,9 @@ export class TaskService implements OnModuleInit {
           width: 1,
           height: 1,
         },
-        location_attribute: null as any,
+        location_attribute: ({
+          attribute_zone_pair_id: originalTask.end_location.location_attribute.attribute_zone_pair_id,
+        }) as any,
       };
 
       task = await this.taskRepository.save(task);
@@ -2447,6 +2458,7 @@ export class TaskService implements OnModuleInit {
     while (frontier.length > 0) {
       const dependents = await this.taskRepository.find({
         where: { task_dependency: In(frontier) },
+        order: { sequence_order: 'ASC' },
       });
       const newly: Task[] = [];
       for (const dep of dependents) {
@@ -2480,7 +2492,7 @@ export class TaskService implements OnModuleInit {
       });
     }
 
-    const currDestinationLocation = await this.LocationManagerService.getLocation(splitTasks[splitTasks.length - 1].end_location?.location_id)
+    const currDestinationLocation = splitTasks.length > 0 ? await this.LocationManagerService.getLocation(splitTasks[splitTasks.length - 1].end_location?.location_id) : null;
 
     if (
       destinationZone &&
@@ -2530,7 +2542,7 @@ export class TaskService implements OnModuleInit {
         );
       }
 
-      if (dependentTask.end_location?.location_attribute) {
+      if (dependentTask.end_location?.location_attribute?.attribute_name) {
         originalTask.sequence_order = dependentTask.sequence_order + 1;
         originalTask.task_dependency = dependentTask.task_id;
         originalTask.end_location = {
@@ -2567,13 +2579,25 @@ export class TaskService implements OnModuleInit {
 
     const startLocation = await this.LocationManagerService.getLocation(originalTask.start_location.location_id);
     const startZone = startLocation?.parent_id || startLocation?.location_id;
-    const endLocation = await this.LocationManagerService.getLocation(originalTask.end_location.location_attribute.attribute_value);
+    const endLocation = await this.LocationManagerService.getLocation(originalTask.end_location?.location_attribute ? originalTask.end_location?.location_attribute.attribute_value : originalTask.end_location?.location_id);
     const endZone = endLocation?.parent_id || endLocation?.location_id;
     const zonePairId = await this.LocationManagerService.getZonePairId(startZone!, endZone!);
 
-    originalTask.start_location.location_attribute.attribute_zone_pair_id = zonePairId;
-    originalTask.end_location.location_attribute.attribute_zone_pair_id = zonePairId;
-    originalTask.end_location.location_attribute.attribute_pending_next_intermediate_task = undefined;
+    if (originalTask.start_location?.location_attribute) {
+      originalTask.start_location.location_attribute.attribute_zone_pair_id = zonePairId;
+    } else {
+      originalTask.start_location.location_attribute = ({
+        attribute_zone_pair_id: zonePairId,
+      }) as any;
+    }
+    if (originalTask.end_location?.location_attribute) {
+      originalTask.end_location.location_attribute.attribute_zone_pair_id = zonePairId;
+      originalTask.end_location.location_attribute.attribute_pending_next_intermediate_task = undefined;
+    } else {
+      originalTask.end_location.location_attribute = ({
+        attribute_zone_pair_id: zonePairId,
+      }) as any;
+    }
 
     return originalTask;
   }
@@ -2613,18 +2637,73 @@ export class TaskService implements OnModuleInit {
     if (!nextTask) return;
 
     const dropLocation = await this.LocationManagerService.getLocation(nextTask.end_location.location_id) as LocationEntity;
-    // const crossdockWMSLocations = await this.LocationManagerService.getCrossdockEmptyLocations(dropLocation.parent_id);
 
-    // for (const crossdockWMSLocation of crossdockWMSLocations) {
-    //   const location = await this.LocationManagerService.getLocation(crossdockWMSLocation.id) as LocationEntity;
-    //   if(crossdockWMSLocation.status === 'EMPTY' && location.location_status === LocationStatus.OCCUPIED) {
-    //     await this.LocationManagerService.freeLocation(crossdockWMSLocation.id);
-    //   } else if(crossdockWMSLocation.status === 'OCCUPIED' && location.location_status !== LocationStatus.OCCUPIED) {
-    //     await this.LocationManagerService.occupyLocation(crossdockWMSLocation.id);
-    //   }
-    // }
+    // Check if drop location is directly accessible (with ignoreReserved=true)
+    const isAccessible = (await this.LocationManagerService.checkDropLocationsDirectAccessibility([dropLocation.location_id], true, nextTask.end_location.location_attribute?.attribute_zone_pair_id))[0];
+    // if(isAccessible) return;
+    // Scenario 1: Current location is NOT accessible
+    if (!isAccessible) {
+      await this.loggingService.log(
+        `Drop location ${dropLocation.location_id} is not accessible, proceeding with cancellation and recreation`,
+        TaskType.CROSSDOCK,
+        nextTask.task_id,
+        nextTask.batch_id
+      );
+      // Proceed with normal cancellation flow (falls through to cancellation logic below)
+    } else {
+      // Current location IS accessible - check for better optimal location
+      const zoneId = dropLocation.parent_id;
+      const zonePairId = nextTask.end_location.location_attribute?.attribute_zone_pair_id;
+      
+      if (zoneId && zonePairId) {
+        // Find optimal drop location with ignoreReserved=true
+        const optimalLocations = await this.LocationManagerService.findOptimalDropLocation(zoneId, zonePairId, 1, true);
 
-    if((await this.LocationManagerService.checkDropLocationsDirectAccessibility([dropLocation.location_id], true, nextTask.end_location.location_attribute?.attribute_zone_pair_id))[0]) return;
+        console.log("New Optimal Locations: ", optimalLocations, " Current Location: ", dropLocation.location_id);
+        
+        if (optimalLocations && optimalLocations.length > 0) {
+          const optimalLocation = optimalLocations[0];
+          
+          // Scenario 3: Current location is accessible AND is already optimal
+          if (optimalLocation === dropLocation.location_id) {
+            await this.loggingService.log(
+              `Drop location ${dropLocation.location_id} is accessible and already optimal, no changes needed`,
+              TaskType.CROSSDOCK,
+              nextTask.task_id,
+              nextTask.batch_id
+            );
+            return; // Do nothing, location is perfect as-is
+          } else {
+            // Scenario 2: Current location is accessible BUT there's a better optimal location
+            await this.loggingService.log(
+              `Drop location ${dropLocation.location_id} is accessible but found better optimal location ${optimalLocation}, proceeding with cancellation and recreation`,
+              TaskType.CROSSDOCK,
+              nextTask.task_id,
+              nextTask.batch_id
+            );
+            // Proceed with cancellation to reassign to optimal location (falls through to cancellation logic below)
+          }
+        } else {
+          // No optimal location found, but current is accessible - keep it
+          await this.loggingService.log(
+            `Drop location ${dropLocation.location_id} is accessible and no optimal location found, keeping current location`,
+            TaskType.CROSSDOCK,
+            nextTask.task_id,
+            nextTask.batch_id
+          );
+          return;
+        }
+      } else {
+        // Can't determine optimal without zone info, but current is accessible - keep it
+        await this.loggingService.log(
+          `Drop location ${dropLocation.location_id} is accessible, no zone/zonePair info to check optimal, keeping current location`,
+          TaskType.CROSSDOCK,
+          nextTask.task_id,
+          nextTask.batch_id
+        );
+        return;
+      }
+    }
 
     await this.cancelTaskFromWMS(nextTask);
     nextTask.status = TaskStatus.CANCELLED;

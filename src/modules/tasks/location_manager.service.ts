@@ -139,7 +139,7 @@ export class LocationManagerService {
         return true;
     }
 
-    async findOptimalDropLocation(zone_id: string, zone_pair_id?: string, count: number = 1): Promise<string[] | null> {
+    async findOptimalDropLocation(zone_id: string, zone_pair_id?: string, count: number = 1, ignoreReserved: boolean = false): Promise<string[] | null> {
         const zone = await this.locationRepository.findOne({ where: { location_id: zone_id, location_type: LocationType.ZONE } });
         if (!zone) {
             console.log(`Zone with ID ${zone_id} not found.`);
@@ -156,7 +156,10 @@ export class LocationManagerService {
         });
 
         // Available locations only (candidates)
-        const available = allZoneLocations.filter(l => l.location_status === LocationStatus.AVAILABLE);
+        // If ignoreReserved is true, treat RESERVED as available too
+        const available = ignoreReserved 
+            ? allZoneLocations.filter(l => l.location_status === LocationStatus.AVAILABLE || l.location_status === LocationStatus.RESERVED)
+            : allZoneLocations.filter(l => l.location_status === LocationStatus.AVAILABLE);
         if (available.length === 0) {
             await this.loggingService.log(`No available drop locations in zone ${zone_id}`, this.taskType, null, null);
             return null;
@@ -174,7 +177,7 @@ export class LocationManagerService {
             // Collect multiple locations if count > 1
             const selectedLocations: string[] = [];
             for (const candidate of sorted) {
-                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, false, shouldReverseDrop);
+                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, ignoreReserved, shouldReverseDrop);
                 if (isDependencyAvailable) {
                     await this.loggingService.log(
                         `Selected drop location ${candidate.location_id} in zone ${zone_id} with priority ${candidate.drop_priority} (all direct access)`, 
@@ -203,7 +206,7 @@ export class LocationManagerService {
             ? [...withPriority].sort((a, b) => (a.drop_priority! - b.drop_priority!))
             : [...withPriority].sort((a, b) => (b.drop_priority! - a.drop_priority!));
             
-        const firstBlockedIdx = entranceOrder.findIndex(l => l.location_status !== LocationStatus.AVAILABLE);
+        const firstBlockedIdx = entranceOrder.findIndex(l => ignoreReserved ? l.location_status === LocationStatus.OCCUPIED : l.location_status !== LocationStatus.AVAILABLE);
 
         if (firstBlockedIdx === -1) {
             // No blockers: choose the smallest or largest drop_priority depending on reversal
@@ -214,7 +217,7 @@ export class LocationManagerService {
             // Collect multiple locations if count > 1
             const selectedLocations: string[] = [];
             for (const candidate of sortedNoBlock) {
-                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, false, shouldReverseDrop);
+                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, ignoreReserved, shouldReverseDrop);
                 if (isDependencyAvailable) {
                     await this.loggingService.log(
                         `Selected drop location ${candidate.location_id} in zone ${zone_id} with priority ${candidate.drop_priority} (no blockers)`, 
@@ -245,8 +248,8 @@ export class LocationManagerService {
         const selectedLocations: string[] = [];
         for (let i = firstBlockedIdx - 1; i >= 0; i--) {
             const candidate = entranceOrder[i];
-            if (candidate && candidate.location_status === LocationStatus.AVAILABLE) {
-                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, false, shouldReverseDrop);
+            if (candidate && ignoreReserved ? candidate.location_status !== LocationStatus.OCCUPIED : candidate.location_status === LocationStatus.AVAILABLE) {
+                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, ignoreReserved, shouldReverseDrop);
                 if (isDependencyAvailable) {
                     await this.loggingService.log(
                         `Selected drop location ${candidate.location_id} in zone ${zone_id} (before nearest block at priority ${entranceOrder[firstBlockedIdx].drop_priority})`, 

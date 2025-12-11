@@ -542,6 +542,7 @@ export class WebhookService {
       const dependents = await this.taskRepository.find({
         where: { task_dependency: In(frontier), batch_id: batchId, task_type: TaskType.CROSSDOCK },
         select: ['task_id', 'status', 'end_location'],
+        order: { sequence_order: 'ASC' },
       });
       const newly: string[] = [];
       for (const d of dependents) {
