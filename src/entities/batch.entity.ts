@@ -30,6 +30,9 @@ export class Batch extends BaseEntity {
   @PrimaryColumn({ type: 'varchar', length: 32 })
   batch_id: string;
   
+  @Column({ type: 'varchar', length: 64, unique: true, nullable: true })
+  wms_batch_id?: string;
+
   @Column({
     type: 'enum',
     enum: TaskType,
@@ -57,6 +60,9 @@ export class Batch extends BaseEntity {
 
   @Column({ type: 'int', default: 0 })
   cancelled_tasks: number;
+
+  @Column({ type: 'varchar', nullable: true })
+  dependency: string;
 
   // Relations
   @OneToMany('Task', 'batch')

@@ -16,6 +16,7 @@ export enum Role {
   FLOWOPS_OPERATOR = 'flowops.operator',
   FLOWOPS_ADMIN = 'flowops.admin',
   BASEOPS_ADMIN = 'baseops.admin',
+  CROSSDOCK_ADMIN = 'crossdock.admin',
 }
 
 @Entity('users')

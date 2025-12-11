@@ -1,6 +1,6 @@
 import { forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository, IsNull } from 'typeorm';
+import { Not, Repository, IsNull, LessThan, In } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { Batch, BatchStatus } from 'src/entities/batch.entity';
 import { Task, TaskStatus, TaskType } from 'src/entities/task.entity';
@@ -13,10 +13,11 @@ import { LoggingService } from '../../services/logging.service';
 import { WaitingLocationService } from '../waiting_location/waiting_location.service';
 import { Robot, RobotStatus } from 'src/entities/robots.entity';
 import { MOVE_TYPE } from 'src/entities/task.entity';
-import { BaseOpsLocationManagerService } from '../baseops_task/location_manager.service';
 import { BaseopsTaskService } from '../baseops_task/baseops_task.service';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { LocationAction } from 'src/entities';
+import { LocationType } from 'src/entities/location.entity';
+import { CrossdockTaskService } from '../crossdock_task/crossdock_task.service';
 import { StationsService } from '../stations/stations.service';
 import { InventoryService } from '../inventory/inventory.service';
 
@@ -42,9 +43,10 @@ export class WebhookService {
     @Inject(forwardRef(() => OrchestratorService))
     private readonly orchestratorService: OrchestratorService,
     private readonly loggingService: LoggingService,
-    private readonly BaseOpsLocationManagerService: BaseOpsLocationManagerService,
     @Inject(forwardRef(() => BaseopsTaskService))
     private readonly BaseOpsTaskService: BaseopsTaskService,
+    @Inject(forwardRef(() => CrossdockTaskService))
+    private readonly CrossdockTaskService: CrossdockTaskService,
 
     private readonly stationService: StationsService,
     private readonly inventoryService: InventoryService,
@@ -131,7 +133,9 @@ export class WebhookService {
       if (task.end_location.location_action === LocationAction.DROP && mappedStatus === TaskStatus.COMPLETED) {
         await this.updateRobotUsage(task.robot_id, false);
       }
-      else{ await this.updateRobotUsage(task.robot_id, true); }
+      else {
+        await this.updateRobotUsage(task.robot_id, true);
+      }
     }
     
     const currentTime = new Date();
@@ -148,25 +152,38 @@ export class WebhookService {
     }
     await this.taskRepository.save(task);
 
-    if (task.task_type === TaskType.BASEOPS){
+    if (task.task_type === TaskType.BASEOPS || task.task_type === TaskType.CROSSDOCK){
+      const taskService = task.task_type === TaskType.BASEOPS ? this.BaseOpsTaskService.taskService : this.CrossdockTaskService.taskService;
       if (mappedStatus === TaskStatus.PROCESSING){
-        await this.BaseOpsLocationManagerService.freeLocation(task.start_location.location_id);
+        await taskService.LocationManagerService.freeLocation(task.start_location.location_id);
         await this.loggingService.log(`Task ${task.task_id}: Freeing start location ${task.start_location.location_id}.`, task.task_type, task.task_id, task.batch_id);
       }
       if (mappedStatus === TaskStatus.COMPLETED){
-        this.BaseOpsTaskService.decrementRobotInUse();
-        await this.BaseOpsLocationManagerService.occupyLocation(task.end_location.location_id);
-        await this.loggingService.log(`Task ${task.task_id}: Completed. Occupied ${task.end_location.location_id} and decremented robot count.`, task.task_type, task.task_id, task.batch_id);
+        if(task.task_type !== TaskType.CROSSDOCK || task.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE || task.move_type === MOVE_TYPE.ZONE_TO_ZONE) {
+          await taskService.decrementRobotInUse();
+          await taskService.LocationManagerService.occupyLocation(task.end_location.location_id);
+          await this.loggingService.log(`Task ${task.task_id}: Completed. Occupied ${task.end_location.location_id} and decremented robot count.`, task.task_type, task.task_id, task.batch_id);
+        }
         // Log current robot in use after decrement if service exposes the metric
         try {
-          const current = await this.BaseOpsTaskService.getRobotInUse();
-          await this.loggingService.log(`Robot in use after completion: ${current}`, TaskType.BASEOPS, task.task_id, task.batch_id);
+          const current = await taskService.getRobotInUse();
+          await this.loggingService.log(`Robot in use after completion: ${current}`, task.task_type, task.task_id, task.batch_id);
         } catch (err) {
           // ignore if metric not available
         }
       }
+      // Crossdock internal cancellation handling for PICK/DROP ENTRY
+      if (
+        task.task_type === TaskType.CROSSDOCK &&
+        mappedStatus === TaskStatus.COMPLETED &&
+        (task.move_type === MOVE_TYPE.PICK_ENTRY || task.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY)
+      ) {
+        await this.handleCrossdockCancellation(task);
+        await this.updateBatchStatus(task.batch_id, task.task_type);
+        return;
+      }
       // Persist batch status to DB using BaseOps rules (mirrors findAllBatches logic)
-      await this.updateBaseOpsBatchStatus(task.batch_id);
+      await this.updateBatchStatus(task.batch_id, task.task_type);
       await this.loggingService.log(`Task ${task.task_id}: Updated batch ${task.batch_id} status`, task.task_type, task.task_id, task.batch_id);
       return;
     }
@@ -450,19 +467,47 @@ export class WebhookService {
   }
   
   // Compute and persist BaseOps batch status and aggregates so findAllBatches can avoid recalculation
-  async updateBaseOpsBatchStatus(batchId: string): Promise<void> {
+  async updateBatchStatus(batchId: string, task_type: TaskType): Promise<void> {
     try {
-      // Pull only top-level BaseOps tasks for the batch (task_dependency IS NULL), as used in findBatchTasks
+      if (task_type === TaskType.CROSSDOCK) {
+        // Crossdock: aggregate chain statuses per original task root (sequence_order = 0 preferred)
+        let roots = await this.taskRepository.find({
+          where: { batch_id: batchId, task_type, task_dependency: IsNull() },
+          order: { created_at: 'ASC' },
+        });
+        const hasSeqZero = roots.some(r => r.sequence_order === 0);
+        if (hasSeqZero) {
+          roots = roots.filter(r => r.sequence_order === 0);
+        }
+
+        const rootAggregates: TaskStatus[] = [];
+        for (const root of roots) {
+          const chainStatuses = await this.collectCrossdockChainStatuses(batchId, root.task_id);
+            // Reduce chain statuses to a single root aggregate
+          rootAggregates.push(this.aggregateStatuses(chainStatuses));
+        }
+        const total_tasks = roots.length;
+        const completed_tasks = rootAggregates.filter(s => s === TaskStatus.COMPLETED).length;
+        const cancelled_tasks = rootAggregates.filter(s => s === TaskStatus.CANCELLED).length;
+        const batchStatus = this.mapTaskToBatchStatus(this.aggregateStatuses(rootAggregates));
+
+        await this.batchRepository.update(
+          { batch_id: batchId },
+          { status: batchStatus, total_tasks, completed_tasks, cancelled_tasks }
+        );
+        return;
+      }
+
+      // BaseOps / other task types: Use top-level tasks only (existing logic)
       const tasks = await this.taskRepository.find({
         where: {
           batch_id: batchId,
-          task_type: TaskType.BASEOPS,
+          task_type: task_type,
           task_dependency: IsNull(),
         },
         order: { created_at: 'DESC' },
       });
 
-      // Normalize WAITING: If a ZONE_TO_WAIT task is COMPLETED but its dependent task doesn't exist, treat as WAITING
       const normalizedStatuses = await Promise.all(
         tasks.map(async (t) => {
           if (t.move_type === MOVE_TYPE.ZONE_TO_WAIT && t.status === TaskStatus.COMPLETED) {
@@ -477,23 +522,7 @@ export class WebhookService {
       const completed_tasks = normalizedStatuses.filter((s) => s === TaskStatus.COMPLETED).length;
       const cancelled_tasks = normalizedStatuses.filter((s) => s === TaskStatus.CANCELLED).length;
 
-      let nextStatus: BatchStatus;
-      if (normalizedStatuses.length > 0 && normalizedStatuses.every((s) => s === TaskStatus.COMPLETED || s === TaskStatus.CANCELLED)) {
-        nextStatus = BatchStatus.COMPLETED;
-      } else if (normalizedStatuses.some((s) => s === TaskStatus.PROCESSING)) {
-        nextStatus = BatchStatus.PROCESSING;
-      } else if (
-        normalizedStatuses.length > 0 &&
-        normalizedStatuses.every((s) => s === TaskStatus.COMPLETED || s === TaskStatus.WAITING)
-      ) {
-        nextStatus = BatchStatus.WAITING;
-      } else if (normalizedStatuses.some((s) => s === TaskStatus.HALTED)) {
-        nextStatus = BatchStatus.HALTED;
-      } else if (normalizedStatuses.every((s) => s === TaskStatus.CANCELLED)) {
-        nextStatus = BatchStatus.CANCELLED;
-      } else {
-        nextStatus = BatchStatus.PENDING;
-      }
+      const nextStatus = this.aggregateBaseOpsBatch(normalizedStatuses);
 
       await this.batchRepository.update(
         { batch_id: batchId },
@@ -501,6 +530,96 @@ export class WebhookService {
       );
     } catch (err: any) {
       this.logger.error(`Failed to update BaseOps batch status for ${batchId}: ${err.message}`);
+    }
+  }
+
+  // Crossdock chain status collection (fan-out BFS)
+  private async collectCrossdockChainStatuses(batchId: string, rootTaskId: string): Promise<TaskStatus[]> {
+    const statuses: TaskStatus[] = [];
+    const visited = new Set<string>();
+    let frontier: string[] = [rootTaskId];
+    while (frontier.length > 0) {
+      const dependents = await this.taskRepository.find({
+        where: { task_dependency: In(frontier), batch_id: batchId, task_type: TaskType.CROSSDOCK },
+        select: ['task_id', 'status', 'end_location'],
+      });
+      const newly: string[] = [];
+      for (const d of dependents) {
+        if (!visited.has(d.task_id)) {
+          visited.add(d.task_id);
+          if(d.status === TaskStatus.COMPLETED && d.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+            statuses.push(TaskStatus.WAITING);
+          } else {
+            statuses.push(d.status);
+          }
+          newly.push(d.task_id);
+        }
+      }
+      frontier = newly;
+    }
+    // Include root itself
+    const root = await this.taskRepository.findOne({ where: { task_id: rootTaskId } });
+    if (root) {
+      if(root.status === TaskStatus.COMPLETED && root.end_location?.location_attribute?.attribute_pending_next_intermediate_task) {
+        statuses.unshift(TaskStatus.WAITING);
+      } else {
+        statuses.unshift(root.status);
+      }
+    };
+    return statuses;
+  }
+
+  // Shared aggregation precedence (used for Crossdock root + batch aggregation)
+  private aggregateStatuses(statuses: TaskStatus[]): TaskStatus {
+    if (!statuses || statuses.length === 0) return TaskStatus.PENDING;
+    const unique = new Set(statuses);
+    if ((unique.size === 1 && unique.has(TaskStatus.CANCELLED)) || statuses.slice(-1)[0] === TaskStatus.CANCELLED) return TaskStatus.CANCELLED;
+    if (unique.has(TaskStatus.PROCESSING)) return TaskStatus.PROCESSING;
+    if (unique.has(TaskStatus.ASSIGNED) || unique.has(TaskStatus.INQUEUE)) return TaskStatus.ASSIGNED;
+    if (unique.has(TaskStatus.PENDING) || unique.has(TaskStatus.HALTED) || unique.has(TaskStatus.WAITING)) return TaskStatus.PENDING;
+    if (unique.has(TaskStatus.COMPLETED)) return TaskStatus.COMPLETED;
+    return statuses[0];
+  }
+
+  // Existing BaseOps batch mapping preserved but extracted for clarity
+  private aggregateBaseOpsBatch(normalizedStatuses: TaskStatus[]): BatchStatus {
+    if (normalizedStatuses.every((s) => s === TaskStatus.CANCELLED)) {
+      return BatchStatus.CANCELLED;
+    }
+    if (normalizedStatuses.length > 0 && normalizedStatuses.every((s) => s === TaskStatus.COMPLETED || s === TaskStatus.CANCELLED)) {
+      return BatchStatus.COMPLETED;
+    }
+    if (normalizedStatuses.some((s) => s === TaskStatus.PROCESSING)) {
+      return BatchStatus.PROCESSING;
+    }
+    if (normalizedStatuses.length > 0 && normalizedStatuses.every((s) => s === TaskStatus.COMPLETED || s === TaskStatus.WAITING)) {
+      return BatchStatus.WAITING;
+    }
+    if (normalizedStatuses.some((s) => s === TaskStatus.HALTED)) {
+      return BatchStatus.HALTED;
+    }
+    return BatchStatus.PENDING;
+  }
+
+  private mapTaskToBatchStatus(status: TaskStatus): BatchStatus {
+    switch (status) {
+      case TaskStatus.CANCELLED:
+        return BatchStatus.CANCELLED;
+      case TaskStatus.PROCESSING:
+        return BatchStatus.PROCESSING;
+      case TaskStatus.ASSIGNED:
+      case TaskStatus.INQUEUE:
+        // No explicit ASSIGNED in BatchStatus; reflect as IN_PROGRESS/PROCESSING? Keep PENDING/PROCESSING precedence handled earlier.
+        return BatchStatus.IN_PROGRESS;
+      case TaskStatus.PENDING:
+      case TaskStatus.HALTED:
+        return BatchStatus.HALTED;
+      case TaskStatus.WAITING:
+        return BatchStatus.PENDING;
+      case TaskStatus.COMPLETED:
+        return BatchStatus.COMPLETED;
+      default:
+        return BatchStatus.PENDING;
     }
   }
 
@@ -543,6 +662,59 @@ export class WebhookService {
       }
     } catch (error) {
       this.logger.error(`Failed to update robot ${robotId} status: ${error.message}`);
+    }
+  }
+
+  // Crossdock cancellation handling
+  private async handleCrossdockCancellation(task: Task): Promise<void> {
+    try {
+      await this.CrossdockTaskService.taskService.markSystemAsWaiting()
+      // Gate: only act if there exists any CROSSDOCK task with lower priority than current
+
+      if (task.move_type === MOVE_TYPE.PICK_ENTRY) {
+        const lowerPriorityTasks = await this.taskRepository.find({
+          where: {
+            task_type: TaskType.CROSSDOCK,
+            priority: LessThan(task.priority ?? Number.MAX_SAFE_INTEGER),
+            move_type: MOVE_TYPE.PICK_ENTRY,
+            status: Not(In([TaskStatus.CANCELLED, TaskStatus.COMPLETED]))
+          }
+        });
+
+        const validLowerPriorityTasks = lowerPriorityTasks.filter(t => t.start_location.location_id === task.start_location.location_id);
+
+        if(validLowerPriorityTasks.length > 0) {
+          await this.CrossdockTaskService.taskService.handleCrossdockPickEntryCancellation(task) as string;
+
+          const dropLocationAffectedTasks = await this.taskRepository.find({
+            where: {
+              task_type: TaskType.CROSSDOCK,
+              priority: LessThan(task.priority ?? Number.MAX_SAFE_INTEGER),
+              move_type: MOVE_TYPE.PICK_ENTRY,
+              status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING])
+            }
+          });
+
+          for (const affectedTask of dropLocationAffectedTasks) {
+            await this.CrossdockTaskService.taskService.handleCrossdockPickEntryCancellation(affectedTask);
+          }
+        }
+      } 
+      else if (task.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY) {
+        await this.CrossdockTaskService.taskService.handleCrossdockDropEntryCancellation(task);
+      }
+    } catch (err: any) {
+      console.log(err)
+      this.logger.error(`Crossdock internal cancellation handling failed for ${task.task_id}: ${err.message}`);
+      await this.loggingService.createErrorLog(
+        `Crossdock internal cancellation handling failed: ${err.message}`,
+        TaskType.CROSSDOCK,
+        task.task_id,
+        task.batch_id ?? null,
+        true,
+      );
+    } finally {
+      await this.CrossdockTaskService.taskService.unmarkSystemAsWaiting();
     }
   }
 }

@@ -9,6 +9,7 @@ import {
 import { BaseEntity } from './base.entity';
 
 export enum OperationType{
+  CROSSDOCK = "CROSSDOCK",
   BASEOPS = "BASEOPS",
   FLOWOPS = "FLOWOPS",
 }

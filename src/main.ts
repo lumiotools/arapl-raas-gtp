@@ -10,7 +10,7 @@ async function bootstrap() {
   // Enable CORS for development
   app.enableCors({
     origin: [
-      'https://arapl-raas-gtp-ui.vercel.app', // Added Vercel frontend URL
+      'http://10.10.2.90:3000', // Added Vercel frontend URL
       'http://localhost:3030', // Local development URL
       'http://localhost:3000', // Local development URL
       'http://localhost:9000', // Local development URL

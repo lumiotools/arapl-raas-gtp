@@ -31,6 +31,7 @@ import { truncate } from 'fs';
 import { Settings } from 'src/entities/settings.entity';
 import { SettingsService } from '../settings/settings.service';
 import { Robot, RobotStatus } from 'src/entities/robots.entity';
+import { CrossdockTaskService } from '../crossdock_task/crossdock_task.service';
 
 /**
  * OrchestratorService - Robust event-driven warehouse orchestration logic
@@ -66,6 +67,7 @@ export interface TaskDetails {
   display_task_id: number;
   batch_id: string;
   fms_batch_id?: string | null;
+  wms_batch_id?: string | null;
   origin_location: string;
   robot_id: string;
   robot_name: string;
@@ -127,6 +129,7 @@ export class OrchestratorService {
     private readonly stationService: StationsService,
     private readonly waitingLocationService: WaitingLocationService,
     private readonly baseOpsService: BaseopsTaskService,
+    private readonly crossdockService: CrossdockTaskService,
     private readonly settingsService: SettingsService,
   ) { }
 
@@ -1470,7 +1473,8 @@ export class OrchestratorService {
   // Manual trigger method for testing
   @Cron('*/5 * * * * *')
   async orchestratorCronJob() {
-    await this.baseOpsService.baseOpsOrchestrator();
+    await this.baseOpsService.taskService.orchestrator();
+    await this.crossdockService.taskService.orchestrator();
     await this.triggerOrchestrator();
   }
 
@@ -1711,7 +1715,7 @@ export class OrchestratorService {
         where: {
           status: TaskStatus.PENDING,
           created_at: LessThan(twoMinutesAgo),
-          task_type: Not(TaskType.BASEOPS),
+          task_type: TaskType.GOODS_TO_PERSON,
         },
         order: { created_at: 'ASC' } // FIFO order
       });
@@ -2233,11 +2237,22 @@ export class OrchestratorService {
     });
   }
 
-  async getRobotReport(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps") {
+  async getRobotReport(startDate: Date | undefined, endDate: Date | undefined, module: OperationType) {
     console.log(`Generating robot report from ${startDate} to ${endDate} for module ${module}`);
-    const whereCondition: any = {
-      task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
-    };
+    const whereCondition: any = {};
+
+    if(module === OperationType.FLOWOPS) {
+      whereCondition.task_type = TaskType.GOODS_TO_PERSON;
+    }
+    else if(module === OperationType.BASEOPS) {
+      whereCondition.task_type = TaskType.BASEOPS;
+    }
+    else if(module === OperationType.CROSSDOCK) {
+      whereCondition.task_type = TaskType.CROSSDOCK;
+    } else {
+      throw new BadRequestException('Invalid module type. Must be FLOWOPS, BASEOPS, or CROSSDOCK.');
+    }
+
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
     }
@@ -2252,7 +2267,14 @@ export class OrchestratorService {
       where: whereCondition,
     });
 
-    const allRobots = await this.robotRepository.find({ where: { task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS } });
+    const allRobots = await this.robotRepository.find({ 
+      where: { 
+        task_type: module === OperationType.FLOWOPS ? 
+          TaskType.GOODS_TO_PERSON : 
+          module === OperationType.BASEOPS ? 
+          TaskType.BASEOPS : TaskType.CROSSDOCK 
+      } 
+    });
     // keep a set of all the robot IDs used in allTasks
     const robotIds = new Set<string>();
     allRobots.forEach(robot => {
@@ -2276,14 +2298,23 @@ export class OrchestratorService {
           unloading_time: {},
           completedTasks: 0,
           canceledTasks: 0,
-          move_types: {
-            [MOVE_TYPE.INVENTORY_TO_STATION]: { 'total_tasks': 0, 'picking_times': [], 'travel_times': [] },
-            [MOVE_TYPE.STATION_TO_STATION]: { 'total_tasks': 0, 'picking_times': [], 'travel_times': [] },
-            [MOVE_TYPE.STATION_TO_INVENTORY]: { 'total_tasks': 0, 'travel_times': [] },
-            [MOVE_TYPE.STATION_TO_WAITING_LOCATION]: { 'total_tasks': 0, 'travel_times': [] },
-            [MOVE_TYPE.WAITING_LOCATION_TO_STATION]: { 'total_tasks': 0, 'travel_times': [] },
-            [MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION]: { 'total_tasks': 0, 'travel_times': [] },
-          }
+          move_types: module === OperationType.FLOWOPS ? {
+            [MOVE_TYPE.INVENTORY_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
+            [MOVE_TYPE.STATION_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
+            [MOVE_TYPE.STATION_TO_INVENTORY]: {'total_tasks': 0, 'travel_times': []},
+            [MOVE_TYPE.STATION_TO_WAITING_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.WAITING_LOCATION_TO_STATION]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.WAITING_LOCATION_TO_EMPTY_LOCATION]: {'total_tasks': 0, 'travel_times': [] },
+          } : module === OperationType.BASEOPS ? {
+            [MOVE_TYPE.ZONE_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.ZONE_TO_WAIT]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.WAIT_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
+          } : module === OperationType.CROSSDOCK ? {
+            [MOVE_TYPE.PICK_ENTRY]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.ZONE_TO_DROP_ENTRY]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.DROP_ENTRY_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
+            [MOVE_TYPE.ZONE_TO_ZONE]: {'total_tasks': 0, 'travel_times': [] },
+          } : {}
         };
       }
       // get travel_time
@@ -2452,7 +2483,7 @@ export class OrchestratorService {
 
   }
 
-  async getMovementReport(startDate: Date | undefined, endDate: Date | undefined, module: "FlowOps" | "BaseOps") {
+  async getMovementReport(startDate: Date | undefined, endDate: Date | undefined, module: OperationType) {
     const whereCondition: any = {};
     if (startDate && endDate) {
       whereCondition.created_at = Between(startDate, endDate);
@@ -2466,7 +2497,7 @@ export class OrchestratorService {
     const allTasks = await this.taskRepository.find({
       where: whereCondition,
     });
-    const res: Record<string, number[]> = module === "FlowOps" ? {
+    const res: Record<string, number[]> = module === OperationType.FLOWOPS ? {
       "InventoryToStation": [],
       "InventoryToWaitingLocation": [],
       "StationToWaitingLocation": [],
@@ -2478,13 +2509,19 @@ export class OrchestratorService {
       "EmptyToEmptyLocation": [],
       "InventoryToInventory": [],
       "ToQuarantine":[],
-    } : module === "BaseOps" ? {
+    } : module === OperationType.BASEOPS ? {
       "ZoneToZone": [],
+    } : module === OperationType.CROSSDOCK ? {
+      "ZoneToZone": [],
+      "PickEntry": [],
+      "ZoneToDropEntry": [],
+      "DropEntryToZone": []
     } : {};
 
-    if (module === "FlowOps") {
-      for (const task of allTasks) {
-        if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION) {
+    if(module === OperationType.FLOWOPS){
+    for (const task of allTasks){
+      if (task.task_type != TaskType.GOODS_TO_PERSON) continue;
+      if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION) {
           if ((task.inqueue || task.processing) && task.completed) {
             const travelTime = Math.floor((Number(task.completed) - Number(task.inqueue || task.processing)) / 1000);
             res.InventoryToStation.push(travelTime);
@@ -2557,23 +2594,60 @@ export class OrchestratorService {
           }
         }
       }
-    } else if (module === "BaseOps") {
-      for (const task of allTasks) {
-        if (task.task_type === TaskType.BASEOPS) {
-          if (task.processing && task.completed) {
-            const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
-            res.ZoneToZone.push(travelTime);
-          }
+  }  else if (module === OperationType.BASEOPS){
+    for (const task of allTasks){
+      if (task.task_type != TaskType.BASEOPS) continue;
+      if (task.move_type === MOVE_TYPE.ZONE_TO_ZONE){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.ZoneToZone.push(travelTime);
         }
       }
-    }
+    } 
+  } else if (module === OperationType.CROSSDOCK){
+    for (const task of allTasks){
+      if (task.task_type != TaskType.CROSSDOCK) continue;
+      if (task.move_type === MOVE_TYPE.ZONE_TO_ZONE){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.ZoneToZone.push(travelTime);
+        }
+      } else if (task.move_type === MOVE_TYPE.PICK_ENTRY){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.PickEntry.push(travelTime);
+        }
+      } else if (task.move_type === MOVE_TYPE.ZONE_TO_DROP_ENTRY){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.ZoneToDropEntry.push(travelTime);
+        }
+      } else if (task.move_type === MOVE_TYPE.DROP_ENTRY_TO_ZONE){
+        if (task.processing && task.completed) {
+          const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
+          res.DropEntryToZone.push(travelTime);
+        }
+      }
+    } 
+  }
     return res;
   }
 
-  async getTasksByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined, module: "FlowOps" | "BaseOps") {
-    const whereCondition: any = {
-      task_type: module === "FlowOps" ? TaskType.GOODS_TO_PERSON : TaskType.BASEOPS
-    };
+  
+  async getTasksByStatus(statusList: string[], start_time: Date | undefined, end_time: Date | undefined, module: OperationType) {
+    const whereCondition: any = {};
+
+    if(module === OperationType.FLOWOPS) {
+      whereCondition.task_type = TaskType.GOODS_TO_PERSON;
+    }
+    else if(module === OperationType.BASEOPS) {
+      whereCondition.task_type = TaskType.BASEOPS;
+    }
+    else if(module === OperationType.CROSSDOCK) {
+      whereCondition.task_type = TaskType.CROSSDOCK;
+    } else {
+      throw new BadRequestException('Invalid module type. Must be FLOWOPS, BASEOPS, or CROSSDOCK.');
+    }
 
     if (!statusList || statusList.length === 0) {
       throw new BadRequestException('Status is required');
@@ -2627,17 +2701,18 @@ export class OrchestratorService {
     console.log(`first task: ${JSON.stringify(TaskItems[0])}`);
     for (const task of TaskItems) {
       const robot = await this.robotRepository.findOne({ where: { robot_id: task.robot_id } });
-      if (!robot) { continue; }
+      // if (!robot) { continue; }
       const taskDetails: TaskDetails = {
         task_id: task.task_id,
         display_task_id: task.display_task_id,
         batch_id: task.batch_id,
         fms_batch_id: task.fms_batch_id,
+        wms_batch_id: task.batch.wms_batch_id,
         origin_location: task.origin_location,
         move_type: task.move_type,
         status: task.status,
         robot_id: task.robot_id,
-        robot_name: robot.robot_name || task.robot_id,
+        robot_name: task.robot_id && robot ? robot.robot_name || '' : '',
         start_location_id: task.start_location.location_id,
         end_location_id: task.end_location.location_id,
         start_location_attribute_value: task.start_location.location_attribute?.attribute_value || '',
@@ -2737,18 +2812,18 @@ export class OrchestratorService {
     return res;
   }
 
-  async updateTotalRobots(totalRobots: number, module: "FlowOps" | "BaseOps") {
+  async updateTotalRobots(totalRobots: number, module: OperationType) {
     const result = await this.robotCountRepository
       .createQueryBuilder()
       .select('COUNT(*)', 'count')
-      .where({ operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS })
+      .where({ operation_type: module })
       .getRawOne();
 
     if (result.count === 0) {
       await this.robotCountRepository.save({
         id: crypto.randomUUID(),
         is_waiting: false,
-        operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS,
+        operation_type: module,
         total_robots: totalRobots,
         robot_in_use: 0
       });
@@ -2763,13 +2838,13 @@ export class OrchestratorService {
     if (inProgressOrders) {
       throw new BadRequestException('Cannot update total robots while orders are in progress');
     }
-    const robotRecord = (await this.robotCountRepository.find({ where: { operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS } }))[0];
+    const robotRecord = (await this.robotCountRepository.find({where: {operation_type: module }}))[0];
 
-    await this.robotCountRepository.update({ id: robotRecord.id, operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS }, { total_robots: totalRobots });
+    await this.robotCountRepository.update({ id: robotRecord.id, operation_type: module  }, { total_robots: totalRobots });
   }
 
-  async getTotalRobots(module: "FlowOps" | "BaseOps") {
-    const result = await this.robotCountRepository.find({ where: { operation_type: module === "FlowOps" ? OperationType.FLOWOPS : OperationType.BASEOPS } });
+  async getTotalRobots(module: OperationType) {
+    const result = await this.robotCountRepository.find({where: {operation_type: module }});
     if (result.length === 0) {
       return 0;
     }

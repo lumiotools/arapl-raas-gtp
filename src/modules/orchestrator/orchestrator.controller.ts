@@ -8,6 +8,7 @@ import { RolesGuard } from '../auth/guard/roles.guard';
 import { BadRequestDto } from '../orders/dto/error-responses.dto';
 import { Role } from 'src/entities/user.entity';
 import { TaskType } from 'src/entities';
+import { OperationType } from 'src/entities/robot-count.entity';
 
 @ApiTags('Orchestrator')
 @Controller('orchestrator')
@@ -140,7 +141,7 @@ export class OrchestratorController {
 
   @Get('tasks')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.ADMIN)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.CROSSDOCK_ADMIN)
   @ApiOperation({
     summary: 'Get all tasks in the system',
     description: 'Retrieve all tasks from the database with their complete details including locations, status, and dependencies.',
@@ -672,11 +673,11 @@ export class OrchestratorController {
       }
     })
     @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.ADMIN)
+    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.CROSSDOCK_ADMIN)
     async getRobotReport(
       @Query('start_time') startTime?: string,
       @Query('end_time') endTime?: string,
-      @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
+      @Query('module') module: OperationType = OperationType.FLOWOPS
     ) {
       let startDate: Date | undefined;
       let endDate: Date | undefined;
@@ -751,11 +752,11 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.ADMIN)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.CROSSDOCK_ADMIN)
   async getMovementReport(
     @Query('start_time') startTime?: string,
     @Query('end_time') endTime?: string,
-    @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
+    @Query('module') module: OperationType = OperationType.FLOWOPS
   ) {
     let startDate: Date | undefined;
     let endDate: Date | undefined;
@@ -784,7 +785,7 @@ export class OrchestratorController {
   @Get('by-status')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.ADMIN)
+    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.CROSSDOCK_ADMIN)
     @ApiOperation({
     summary: 'Get orders by status and time range',
     description: 'Retrieve all orders filtered by their status and optionally by time range. Multiple statuses can be provided as comma-separated values.',
@@ -821,7 +822,7 @@ export class OrchestratorController {
     @Query('status') status: string,
     @Query('start_time') startTime?: string,
     @Query('end_time') endTime?: string,
-    @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
+    @Query('module') module: OperationType = OperationType.FLOWOPS
     ): Promise<TaskDetails[]> {
     if (!status) {
       throw new BadRequestException('Status query parameter is required');
@@ -992,8 +993,8 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.ADMIN)
-  async updateTotalRobots(@Body('total_robots') totalRobots: number, @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps") {
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.CROSSDOCK_ADMIN)
+  async updateTotalRobots(@Body('total_robots') totalRobots: number, @Query('module') module: OperationType = OperationType.FLOWOPS) {
     if (!totalRobots || totalRobots <= 0) {
       throw new BadRequestException('total_robots must be a positive number');
     }
@@ -1026,7 +1027,7 @@ export class OrchestratorController {
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
-  async getTotalRobots(@Query('module') module: "FlowOps" | "BaseOps" = "FlowOps") {
+  async getTotalRobots(@Query('module') module: OperationType = OperationType.FLOWOPS) {
     const totalRobots = await this.orchestratorService.getTotalRobots(module);
 
     return {
@@ -1067,7 +1068,7 @@ export class OrchestratorController {
     }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.ADMIN)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.CROSSDOCK_ADMIN)
   async getRobotStatus(@Param('robot_id') robotId: string, @Query('task_type') task_type: TaskType) {
     const robot = await this.orchestratorService.getRobotStatus(robotId, task_type);
     return robot;

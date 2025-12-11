@@ -1,30 +1,20 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { CreateLocationDto } from './dto/create-location.dto';
 import { UpdateLocationDto } from './dto/update-location.dto';
-import { Repository, Not } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { LocationEntity, LocationType } from 'src/entities/location.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UpdateZoneDto } from './dto/update-zone.dto';
+import { LocationManagerService } from '../tasks/location_manager.service';
+import { LocationStatus } from 'src/entities/station.entity';
 
 @Injectable()
 export class LocationsService {
 
   constructor(
+    readonly LocationManagerService: LocationManagerService,
     @InjectRepository(LocationEntity)
     private readonly locationRepository: Repository<LocationEntity>,
   ) {}
-
-  create(createLocationDto: CreateLocationDto) {
-    return 'This action adds a new location';
-  }
-
-  findAll() {
-    return `This action returns all locations`;
-  }
-
-  findOne(id: number) {
-    return `This action returns a #${id} location`;
-  }
 
   async update(id: any, updateLocationDto: UpdateLocationDto) {
     const locationId = String(id);
@@ -64,19 +54,54 @@ export class LocationsService {
       }
       existing.attributes = attrs as any;
     }
+    // Handle all_locations_directly_accessible attribute similar to is_waiting_area
+    if (body.all_locations_directly_accessible !== undefined) {
+      // Ensure attributes array exists
+      if (!Array.isArray(existing.attributes)) {
+        existing.attributes = [] as any;
+      }
+      const attrs: any[] = existing.attributes as any[];
+      const idx = attrs.findIndex(
+        a => a && a.attribute_name === 'all_locations_directly_accessible',
+      );
+
+      if (body.all_locations_directly_accessible === false) {
+        // remove the attribute entry entirely when explicitly false
+        if (idx >= 0) {
+          attrs.splice(idx, 1);
+        }
+      } else {
+        const value =
+          body.all_locations_directly_accessible === null
+            ? null
+            : body.all_locations_directly_accessible;
+        if (idx >= 0) {
+          attrs[idx].attribute_value = value;
+        } else {
+          attrs.push({
+            attribute_name: 'all_locations_directly_accessible',
+            attribute_value: value,
+          });
+        }
+      }
+      existing.attributes = attrs as any;
+    }
+    if (updates.location_status &&  [LocationType.PALLET, LocationType.ENTRY].includes(existing.location_type) && updates.location_status !== existing.location_status) {
+      if(updates.location_status === LocationStatus.AVAILABLE) {
+        await this.LocationManagerService.updateLocationStatusInFMS(existing.location_id, "Empty")
+      } else if (updates.location_status === LocationStatus.OCCUPIED) {
+        await this.LocationManagerService.updateLocationStatusInFMS(existing.location_id, "Occupied")
+      }
+    }
 
     Object.assign(existing, updates);
     await this.locationRepository.save(existing);
     return existing;
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} location`;
-  }
-
   async findByZone(zoneId: string) {
     // Return only actual locations that belong to the zone (exclude the zone record itself)
-    return await this.locationRepository.find({ where: { parent_id: zoneId, location_type: LocationType.PALLET }, order: { display_name: 'ASC' } });
+    return await this.locationRepository.find({ where: { parent_id: zoneId, location_type: In([LocationType.PALLET, LocationType.ENTRY]) }, order: { display_name: 'ASC' } });
   }
 
   async findZones() {
@@ -130,11 +155,32 @@ export class LocationsService {
       mutated = true;
     }
 
+    if (dto.all_locations_directly_accessible !== undefined) {
+      // Ensure attributes array exists
+      if (!Array.isArray(zone.attributes)) {
+        zone.attributes = [] as any;
+      }
+      const attrs: any[] = zone.attributes as any[];
+      const idx = attrs.findIndex(a => a && a.attribute_name === 'all_locations_directly_accessible');
+
+      if (idx >= 0) {
+        attrs[idx].attribute_value = dto.all_locations_directly_accessible === null ? null : dto.all_locations_directly_accessible;
+      } else {
+        attrs.push({ attribute_name: 'all_locations_directly_accessible', attribute_value: dto.all_locations_directly_accessible === null ? null : dto.all_locations_directly_accessible });
+      }
+      zone.attributes = attrs as any;
+      mutated = true;
+    }
+
     if (!mutated) {
-      throw new BadRequestException('No updatable fields provided (display_name or category or is_waiting_area).');
+      throw new BadRequestException('No updatable fields provided (display_name or category or is_waiting_area or all_locations_directly_accessible).');
     }
 
     await this.locationRepository.save(zone);
     return zone;
+  }
+
+  async findAll() {
+    return await this.locationRepository.find();
   }
 }

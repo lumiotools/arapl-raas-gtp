@@ -19,7 +19,8 @@ import { OrderItem } from './order-item.entity';
 import { BaseEntity } from './base.entity';
 
 export enum TaskType {
-  CROSSDOCK = 'Crossdock',
+  CROSSDOCK = 'CROSSDOCK',
+  CROSSDOCK_INTERNAL = 'CROSSDOCK_INTERNAL',
   PUTAWAY = 'Putaway', 
   PICKING = 'PICKING',
   BASEOPS = 'BASEOPS',
@@ -44,6 +45,9 @@ export  enum MOVE_TYPE {
   WAITING_LOCATION_TO_EMPTY_LOCATION = 'WaitingLocationToEmptyLocation',
   EMPTY_TO_EMPTY_LOCATION = 'EmptyToEmptyLocation',
   WAITING_TO_WAITING_LOCATION = 'WaitingToWaitingLocation',
+  PICK_ENTRY = 'PickEntry',
+  ZONE_TO_DROP_ENTRY = 'ZoneToDropEntry',
+  DROP_ENTRY_TO_ZONE = 'DropEntryToZone',
   TO_QUARANTINE = 'ToQuarantine',
 }
 
@@ -85,6 +89,9 @@ export class Task extends BaseEntity {
 
   @Column({ type: 'varchar', length: 64, nullable: true })
   fms_batch_id: string;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  wms_task_id: string;
 
   @Column({ type: 'varchar', length: 10, nullable: true })
   origin_location: string;
@@ -153,8 +160,14 @@ export class Task extends BaseEntity {
   @Column({ type: 'timestamptz', precision: 3, nullable: true })
   triggered: Date;
 
+  @Column({ type: 'varchar', nullable: true })
+  message: string;
+  
   @Column({ type: 'boolean', default: false })
   is_gtp_cancelled: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  is_paused: boolean;
 
   @ManyToMany(() => OrderItem, (orderItem) => orderItem.completedTasks)
   @JoinTable() // This should be on one side of the ManyToMany relation
