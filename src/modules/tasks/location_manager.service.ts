@@ -1041,7 +1041,7 @@ export class LocationManagerService {
         const fmsLocations = await this.fetchFMSLocations();
         console.log("Fetched FMS locations");
 
-        for (const { zone_id, locations, entry_point } of fmsLocations) {
+        for (const { zone_id, locations, entry_points } of fmsLocations) {
             const existing_zone = await this.locationRepository.findOne({ where: { location_id: zone_id, location_type: LocationType.ZONE } });
             if (!existing_zone) {
                 const zoneRecord = this.locationRepository.create({
@@ -1084,22 +1084,27 @@ export class LocationManagerService {
                 }
             }
 
-            if (entry_point) {
-                const existingEntry = await this.locationRepository.findOne({ where: { parent_id: zone_id, location_type: LocationType.ENTRY } });
-                if (!existingEntry) {
-                    const entryRecord = this.locationRepository.create({
-                        location_id: String(entry_point.location_id).trim(),
-                        parent_id: zone_id,
-                        display_name: entry_point.display_name ?? String(entry_point.location_id).trim(),
-                        location_type: LocationType.ENTRY,
-                    });
-                    await this.locationRepository.save(entryRecord);
-                    console.log(`Created new entry point ${entry_point.location_id} under zone ${zone_id}`);
-                    await this.loggingService.log(`Created new entry point ${entry_point.location_id} under zone ${zone_id} from FMS sync`, this.taskType, null, null);
-                } else {
-                    existingEntry.location_status = entry_point.location_attribute?.attribute_value === "Empty" ? LocationStatus.AVAILABLE : LocationStatus.OCCUPIED;
-                    await this.locationRepository.save(existingEntry);
-                    console.log(`Updated entry point ${entry_point.location_id} under zone ${zone_id}`);
+            if (entry_points && entry_points.length > 0) {
+                const existingEntries = await this.locationRepository.find({ where: { parent_id: zone_id, location_type: LocationType.ENTRY } });
+                
+                for (const entry_point of entry_points) {
+                    const existingEntry = existingEntries.find(e => e.location_id === String(entry_point.location_id).trim());
+                    
+                    if (!existingEntry) {
+                        const entryRecord = this.locationRepository.create({
+                            location_id: String(entry_point.location_id).trim(),
+                            parent_id: zone_id,
+                            display_name: entry_point.customer_location_id ?? String(entry_point.location_id).trim(),
+                            location_type: LocationType.ENTRY,
+                        });
+                        await this.locationRepository.save(entryRecord);
+                        console.log(`Created new entry point ${entry_point.location_id} under zone ${zone_id}`);
+                        await this.loggingService.log(`Created new entry point ${entry_point.location_id} under zone ${zone_id} from FMS sync`, this.taskType, null, null);
+                    } else {
+                        existingEntry.location_status = entry_point.location_attribute?.attribute_value === "Empty" ? LocationStatus.AVAILABLE : LocationStatus.OCCUPIED;
+                        await this.locationRepository.save(existingEntry);
+                        console.log(`Updated entry point ${entry_point.location_id} under zone ${zone_id}`);
+                    }
                 }
             }
         }
@@ -1114,7 +1119,7 @@ export class LocationManagerService {
         const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3000/robot-job';
         console.log(`Fetching WMS locations from ${wms_base_url}`);
         const zones = Array.isArray(fms_zones) && fms_zones.length ? fms_zones : [];
-        const entries = await Promise.all(zones.map(async (zone_type: { zone: string; type: string }) => {
+        const entries = await Promise.all(zones.map(async (zone_type: { zone: string; type: string, entry_type: string }) => {
             const locationsUrl = `${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=${encodeURIComponent(zone_type.zone)}&location_type=${encodeURIComponent(zone_type.type)}`;
             console.log(`Fetching locations for zone ${zone_type.zone} from ${locationsUrl}`);
             const locationsResponse = await fetch(locationsUrl, {
@@ -1131,7 +1136,7 @@ export class LocationManagerService {
             }
             locationsData.available_location_types.sort((a, b)=> a.location_id.localeCompare(b.location_id));
 
-            const entryPointUrl = `${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=${encodeURIComponent(zone_type.zone)}&location_type=entry`;
+            const entryPointUrl = `${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=${encodeURIComponent(zone_type.zone)}&location_type=${encodeURIComponent(zone_type.entry_type)}`;
             console.log(`Fetching locations for zone ${zone_type.zone} from ${entryPointUrl}`);
             const entryPointResponse = await fetch(entryPointUrl, {
             method: 'GET',
@@ -1149,7 +1154,7 @@ export class LocationManagerService {
             return {
                 zone_id: zone_type.zone,
                 locations: locationsData.available_location_types,
-                entry_point: entryPointData.available_location_types[0]
+                entry_points: entryPointData.available_location_types
             };
         }));
 
