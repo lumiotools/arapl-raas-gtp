@@ -77,12 +77,16 @@ export class CrossdockTaskService {
         } else {
           palletEndLocationIds.add(endLocationId);
         }
+      } else if (endLocationType === 'ZONE') {
+        if(!endZoneId) {
+          validationErrors.push(`End Location Zone for '${task['end_location_location_id']}' could not be determined`);
+        }
       }
 
       // 7. Check if the start and end location ids exist in the system and they are available
       const startLocationValid = await this.taskService.LocationManagerService.isValidLocationId(startLocationId, true);
       if (!startLocationValid) {
-        validationErrors.push(`Start Location '${startLocation?.display_name}' is not available or does not exist in the system`);
+        validationErrors.push(`Start Location '${startLocationId}' is not available or does not exist in the system`);
       }
       const OtherTaskWithStartLocation = await this.taskService.LocationManagerService.otherTaskWithStartLocation(startLocationId);
       if (OtherTaskWithStartLocation){
