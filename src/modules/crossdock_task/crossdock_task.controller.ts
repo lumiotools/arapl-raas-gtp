@@ -51,6 +51,13 @@ export class CrossdockTaskController {
     return this.crossdockTaskService.resumeTask(id);
   }
 
+  @Post(':id/retry')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.CROSSDOCK_ADMIN)
+  async retryTask(@Param('id') id: string) {
+    return this.crossdockTaskService.retryTask(id);
+  }
+
   @Post('set-configuration')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.CROSSDOCK_ADMIN)

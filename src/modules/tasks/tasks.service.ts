@@ -1037,7 +1037,7 @@ export class TaskService implements OnModuleInit {
     }
   }
 
-  async updateWMSTaskState(task: Task, action: 'pause' | 'resume', payload?: any): Promise<void> {
+  async updateWMSTaskState(task: Task, action: 'pause' | 'resume' | 'cancel&retry', payload?: any): Promise<void> {
     try {
       console.log(`${action.charAt(0).toUpperCase() + action.slice(1)}ing task ${task.task_id}`);
       const warehouse_name = process.env.WMS_WAREHOUSE_NAME || 'warehouse';
@@ -1233,6 +1233,46 @@ export class TaskService implements OnModuleInit {
     } catch (error) {
       console.error(`Error resuming task:`, error);
       throw new BadRequestException(`Failed to resume task: ${error.message}`);
+    }
+  }
+
+  async retryTask(task_id: string): Promise<any> {
+    const originalTask = await this.taskRepository.findOne({ 
+      where: { task_id },
+      relations: ['batch']
+    });
+    if (!originalTask) {
+      throw new BadRequestException(`Task ${task_id} not found`);
+    }
+
+    const new_task_id = crypto.randomUUID();
+
+    try {
+      await this.updateWMSTaskState(originalTask, 'cancel&retry', {
+        new_task_id: new_task_id
+      });
+
+      // Update the task_id of the existing task
+      await this.taskRepository.update(
+        { task_id: task_id },
+        { task_id: new_task_id }
+      );
+
+      await this.loggingService.log(
+        `Task ${new_task_id} created as retry of ${task_id} successfully`,
+        this.taskType,
+        new_task_id,
+        originalTask.batch_id,
+      );
+
+      return {
+        task_id: new_task_id,
+        status: 'retry_task_created',
+        message: 'Retry task created successfully'
+      };
+    } catch (error) {
+      console.error(`Error resuming task:`, error);
+      throw new BadRequestException(`Failed to retry task: ${error.message}`);
     }
   }
 

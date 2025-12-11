@@ -379,6 +379,10 @@ export class CrossdockTaskService {
     return await this.taskService.resumeTask(task_id);
   }
 
+  async retryTask(task_id: string): Promise<any> {
+    return await this.taskService.retryTask(task_id);
+  }
+
   async createWMSBatchJob(batch_job: WMSBatchJob): Promise<string> {
     // Collect all unique location IDs to fetch in parallel
     const locationIdsToFetch = new Set<string>();
