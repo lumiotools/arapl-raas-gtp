@@ -21,6 +21,7 @@ import { EmptyLocationsModule } from './modules/empty_locations/empty_locations.
 import { SettingsModule } from './modules/settings/settings.module';
 import { CrossdockTaskModule } from './modules/crossdock_task/crossdock_task.module';
 import { WMSIntegrationWrapperModule } from './modules/wms_integration_wrapper/wms_integration_wrapper.module';
+import { TasksModule } from './modules/tasks/tasks.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { WMSIntegrationWrapperModule } from './modules/wms_integration_wrapper/w
     CrossdockTaskModule,
     EmptyLocationsModule,
     SettingsModule,
+    TasksModule,
     WMSIntegrationWrapperModule,
   ],
   controllers: [],

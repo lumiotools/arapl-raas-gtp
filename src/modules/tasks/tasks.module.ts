@@ -12,6 +12,7 @@ import { WebhookModule } from '../webhook/webhook.module';
 import { LoggingModule } from '../logging/logging.module';
 import { OperationType } from 'src/entities/robot-count.entity';
 import { Robot } from 'src/entities/robots.entity';
+import { TasksController } from './tasks.controller';
 
 @Module({})
 export class TasksModule {
@@ -24,6 +25,7 @@ export class TasksModule {
         forwardRef(() => WebhookModule),
         LoggingModule,
       ],
+      controllers: [TasksController],
       providers: [
         TaskService,
         LocationManagerService,
