@@ -91,13 +91,15 @@ export class SettingsService {
           where: { location_id : robot_task.end_location.location_id },
         });
       }
+      let travel_status =  robot_task ? ((robot_task.status === TaskStatus.PROCESSING || robot_task.status === TaskStatus.INQUEUE) ? `MOVING TO ${end_location.location_name}` : (robot_task.status === TaskStatus.COMPLETED ? `REACHED ${end_location.location_name}` : `ERROR`)) : (robot.status === RobotStatus.ONLINE ? '-' : 'INACTIVE');
       res.push({
         'id': robot.robot_id,
         'robot_name': robot.robot_name || robot.robot_id,
         'status': robot.status,
-        'travel_status': robot_task ? ((robot_task.status === TaskStatus.PROCESSING || robot_task.status === TaskStatus.INQUEUE) ? `MOVING TO ${end_location.location_name}` : (robot_task.status === TaskStatus.COMPLETED ? `REACHED ${end_location.location_name}` : `ERROR`)) : (robot.status === RobotStatus.ONLINE ? '-' : 'INACTIVE'),
+        'travel_status': travel_status,
         'current_status_time': robot.updated_at ? (Date.now() - new Date(robot.updated_at).getTime()) / 1000 : 0,
-        'reason': robot.message_code ? robot.message_code : null
+        'reason': robot.message_code ? robot.message_code : null,
+        'is_paused': robot_task ? robot_task.is_paused : false,
       });
     }
     return res;
