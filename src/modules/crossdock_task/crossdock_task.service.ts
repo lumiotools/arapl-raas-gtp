@@ -193,13 +193,23 @@ export class CrossdockTaskService {
     if (startPalletIds.length > 0) {
       const pickAccessibility = await this.taskService.LocationManagerService.checkPickLocationsDirectAccessibility(startPalletIds, false, zonePairId);
       const blockedPickIds = startPalletIds.filter((id, idx) => !pickAccessibility.accessible[idx]);
-      if (blockedPickIds.length > 0) {
+      const blockedDisplayNames: string[] = [];
+      const blockingDisplayNames: string[] = [];
+      for (const id of blockedPickIds) {
+        const blockedDisplayName = (await this.taskService.LocationManagerService.getLocation(id))?.display_name || id;
+        blockedDisplayNames.push(blockedDisplayName);
+      }
+      for (const id of pickAccessibility.blockingLocations) {
+        const blockingDisplayName = (await this.taskService.LocationManagerService.getLocation(id))?.display_name || id;
+        blockingDisplayNames.push(blockingDisplayName);
+      }
+      if (blockedDisplayNames.length > 0) {
         // Only throw error if partial pick is not allowed
         if (!allowPartialPick) {
           // Build detailed error message with all blocking locations
-          const errorMessage = pickAccessibility.blockingLocations.length > 0
-            ? `Pick locations not directly accessible: ${blockedPickIds.join(', ')} (blocked by: ${pickAccessibility.blockingLocations.join(', ')})`
-            : `Pick locations not directly accessible: ${blockedPickIds.join(', ')}`;
+          const errorMessage = blockingDisplayNames.length > 0
+            ? `Pick locations not directly accessible: ${blockedDisplayNames.join(', ')} (blocked by: ${blockingDisplayNames.join(', ')})`
+            : `Pick locations not directly accessible: ${blockedDisplayNames.join(', ')}`;
           
           // clean up temporary fields before throwing
           tasks.forEach(t => {

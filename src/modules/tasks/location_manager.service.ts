@@ -465,7 +465,7 @@ export class LocationManagerService {
 
         if (allDirect) {
             const allBlockingLocations = new Set<string>();
-            const results = await Promise.all(location_ids.map(async id => {
+            const results = await Promise.all(location_ids.map(async (id, currentIndex) => {
                 const loc = candidateById.get(id);
                 if (!loc || loc.location_type !== LocationType.PALLET || loc.parent_id !== zoneId) {
                     return { accessible: false };
@@ -473,25 +473,44 @@ export class LocationManagerService {
                 // Check if dependent location is available
                 const isDependencyAvailable = await this.isDependentLocationAvailable(loc, !!ignoreReserved, shouldReversePick);
                 if (!isDependencyAvailable) {
-                    // Add blocking location to the list
+                    // Check if dependent location is in input and comes prior
+                    let isAccessibleDespiteDependency = false;
+                    
                     if (shouldReversePick) {
-                        // In reversed mode, locations that depend on this one are blocking
+                        // In reversed mode, check if any dependent location is in input and comes prior
                         const dependents = await this.locationRepository.find({
                             where: { dependent_location: loc.location_id }
                         });
                         for (const dep of dependents) {
-                            if (!inputLocationSet.has(dep.location_id)) {
-                                allBlockingLocations.add(dep.location_id);
+                            const depIndex = location_ids.indexOf(dep.location_id);
+                            if (depIndex !== -1 && depIndex < currentIndex) {
+                                isAccessibleDespiteDependency = true;
+                                break;
+                            }
+                        }
+                        // Add blocking locations only if dependency is not resolved
+                        if (!isAccessibleDespiteDependency) {
+                            for (const dep of dependents) {
+                                if (!inputLocationSet.has(dep.location_id)) {
+                                    allBlockingLocations.add(dep.location_id);
+                                }
                             }
                         }
                     } else {
-                        // In normal mode, the dependent location is blocking
-                        if (loc.dependent_location && !inputLocationSet.has(loc.dependent_location)) {
-                            allBlockingLocations.add(loc.dependent_location);
+                        // In normal mode, check if the dependent location is in input and comes prior
+                        if (loc.dependent_location) {
+                            const depIndex = location_ids.indexOf(loc.dependent_location);
+                            if (depIndex !== -1 && depIndex < currentIndex) {
+                                isAccessibleDespiteDependency = true;
+                            } else if (!inputLocationSet.has(loc.dependent_location)) {
+                                allBlockingLocations.add(loc.dependent_location);
+                            }
                         }
                     }
+                    
+                    return { accessible: isAccessibleDespiteDependency };
                 }
-                return { accessible: isDependencyAvailable };
+                return { accessible: true };
             }));
             await this.loggingService.log(`Pick accessibility check (all-direct): computed availability for ${location_ids.length} locations`, this.taskType, null, null);
             return {
@@ -525,7 +544,8 @@ export class LocationManagerService {
         const accessibleResults: boolean[] = [];
         const allBlockingLocations = new Set<string>();
 
-        for (const id of location_ids) {
+        for (let currentIndex = 0; currentIndex < location_ids.length; currentIndex++) {
+            const id = location_ids[currentIndex];
             const loc = candidateById.get(id);
             // Default false for unknown, wrong type, wrong zone, or no pick_priority
             if (!loc || loc.location_type !== LocationType.PALLET || loc.parent_id !== zoneId || loc.pick_priority == null) {
@@ -553,23 +573,45 @@ export class LocationManagerService {
             
             // Add blocking location to the list if dependency check failed
             if (!isDependencyAvailable) {
+                // Check if dependent location is in input and comes prior
+                let isAccessibleDespiteDependency = false;
+                
                 if (shouldReversePick) {
-                    // In reversed mode, locations that depend on this one are blocking
+                    // In reversed mode, check if any dependent location is in input and comes prior
                     const dependents = await this.locationRepository.find({
                         where: { dependent_location: loc.location_id }
                     });
                     for (const dep of dependents) {
-                        if (!inputLocationSet.has(dep.location_id)) {
-                            allBlockingLocations.add(dep.location_id);
+                        const depIndex = location_ids.indexOf(dep.location_id);
+                        if (depIndex !== -1 && depIndex < currentIndex) {
+                            isAccessibleDespiteDependency = true;
+                            break;
+                        }
+                    }
+                    // Add blocking locations only if dependency is not resolved
+                    if (!isAccessibleDespiteDependency) {
+                        for (const dep of dependents) {
+                            if (!inputLocationSet.has(dep.location_id)) {
+                                allBlockingLocations.add(dep.location_id);
+                            }
                         }
                     }
                 } else {
-                    // In normal mode, the dependent location is blocking
-                    if (loc.dependent_location && !inputLocationSet.has(loc.dependent_location)) {
-                        allBlockingLocations.add(loc.dependent_location);
+                    // In normal mode, check if the dependent location is in input and comes prior
+                    if (loc.dependent_location) {
+                        const depIndex = location_ids.indexOf(loc.dependent_location);
+                        if (depIndex !== -1 && depIndex < currentIndex) {
+                            isAccessibleDespiteDependency = true;
+                        } else if (!inputLocationSet.has(loc.dependent_location)) {
+                            allBlockingLocations.add(loc.dependent_location);
+                        }
                     }
                 }
-                hasBlockers = true;
+                
+                // Only mark as blocked if dependency is not resolved by prior input location
+                if (!isAccessibleDespiteDependency) {
+                    hasBlockers = true;
+                }
             }
             
             accessibleResults.push(!hasBlockers);
