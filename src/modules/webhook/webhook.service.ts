@@ -250,7 +250,7 @@ export class WebhookService {
       'in-progress': TaskStatus.PROCESSING,
       'in progress': TaskStatus.PROCESSING,
       'pickup_successful': TaskStatus.PROCESSING,
-      'robot_movement_started': TaskStatus.INQUEUE,
+      'robot_movement_started': TaskStatus.PROCESSING,
       'completed': TaskStatus.COMPLETED,
       'cancelled': TaskStatus.CANCELLED,
       'canceled': TaskStatus.CANCELLED,
