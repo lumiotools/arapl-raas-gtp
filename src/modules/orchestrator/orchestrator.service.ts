@@ -2299,6 +2299,7 @@ export class OrchestratorService {
           unloading_time: {},
           completedTasks: 0,
           canceledTasks: 0,
+          pause_time: 0,
           move_types: module === OperationType.FLOWOPS ? {
             [MOVE_TYPE.INVENTORY_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
             [MOVE_TYPE.STATION_TO_STATION]: {'total_tasks': 0, 'picking_times': [], 'travel_times': []},
@@ -2319,11 +2320,32 @@ export class OrchestratorService {
         };
       }
       // get travel_time
+      
       for (const task of filteredTasks) {
         if (task.processing && task.completed) {
           const travelTime = Math.floor((Number(task.completed) - Number(task.processing)) / 1000);
           res[robotId].travel_time.push(travelTime);
         }
+
+        let pause_time = 0;
+        const pause_logs = task.pause_resume_logs;
+        if (pause_logs){
+          for (let i = 1; i < pause_logs.length; i++) {
+            const log = pause_logs[i];
+            const prev_log = pause_logs[i - 1];
+            if (log.status === 'resume' && prev_log.status === 'pause') {
+              pause_time += (new Date(log.timestamp).getTime()/1000) - (new Date(prev_log.timestamp).getTime()/1000);
+            }
+          }
+          if (pause_logs.length % 2 !== 0) {
+            const last_log = pause_logs[pause_logs.length - 1];
+            if (last_log.status === 'pause') {
+              pause_time += (Date.now()/1000) - (new Date(last_log.timestamp).getTime()/1000);
+            }
+          }
+          res[robotId].pause_time += pause_time;
+        }
+
 
         if (task.end_location.location_attribute?.attribute_value === 'station' && task.completed && task.triggered) {
           const unloadingTime = Math.floor((Number(task.triggered) - Number(task.completed)) / 1000);
