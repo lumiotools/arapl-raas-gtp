@@ -87,6 +87,7 @@ export interface TaskDetails {
   inqueue?: Date;
   processing?: Date;
   completed?: Date;
+  pause_time?: number;
 }
 
 @Injectable()
@@ -2698,10 +2699,26 @@ export class OrchestratorService {
         relations: ['batch', 'orderItems']
       }));
     }
-    console.log(`first task: ${JSON.stringify(TaskItems[0])}`);
     for (const task of TaskItems) {
       const robot = await this.robotRepository.findOne({ where: { robot_id: task.robot_id } });
-      // if (!robot) { continue; }
+      const pause_logs = task.pause_resume_logs;
+      let pause_time = 0;
+      if (pause_logs){
+        for (let i = 1; i < pause_logs.length; i++) {
+          const log = pause_logs[i];
+          const prev_log = pause_logs[i - 1];
+          if (log.status === 'resume' && prev_log.status === 'pause') {
+            pause_time += (new Date(log.timestamp).getTime()/1000) - (new Date(prev_log.timestamp).getTime()/1000);
+          }
+        }
+        if (pause_logs.length % 2 !== 0) {
+          const last_log = pause_logs[pause_logs.length - 1];
+          if (last_log.status === 'pause') {
+            pause_time += (Date.now()/1000) - (new Date(last_log.timestamp).getTime()/1000);
+          }
+        }
+      }
+      
       const taskDetails: TaskDetails = {
         task_id: task.task_id,
         display_task_id: task.display_task_id,
@@ -2727,6 +2744,7 @@ export class OrchestratorService {
         inqueue: task.inqueue,
         processing: task.processing,
         completed: task.completed,
+        pause_time: pause_time,
       }
       results.push(taskDetails);
     }

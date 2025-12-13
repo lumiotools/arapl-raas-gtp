@@ -74,6 +74,10 @@ export enum TaskStatus {
   WAITING = 'WAITING',
 
 }
+class PauseResumeLogs{
+  status: 'pause' | 'resume';
+  timestamp: Date;
+}
 
 @Entity('tasks')
 export class Task extends BaseEntity {
@@ -144,6 +148,9 @@ export class Task extends BaseEntity {
 
   @Column({ type: 'json', nullable: true })
   cargos: Cargo[];
+
+  @Column({ type: 'json', nullable: true })
+  pause_resume_logs: PauseResumeLogs[];
 
   @Column({ type: 'timestamptz', precision: 3, nullable: true })
   task_acknowledged: Date;

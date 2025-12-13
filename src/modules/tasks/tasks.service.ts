@@ -1166,11 +1166,15 @@ export class TaskService implements OnModuleInit {
         reason: "Paused via Crossdock Task Service"
       });
 
-      // Update task in database
-      await this.taskRepository.update(
-        { task_id: task.task_id },
-        { is_paused: true }
-      );
+      task.is_paused = true;
+      if (!task.pause_resume_logs){
+        task.pause_resume_logs = [];
+      }
+      task.pause_resume_logs.push({
+        timestamp: new Date(),
+        status: 'pause'
+      });
+      await this.taskRepository.save(task);
 
       await this.loggingService.log(
         `Task ${task.task_id} paused successfully`,
@@ -1208,12 +1212,20 @@ export class TaskService implements OnModuleInit {
       await this.updateWMSTaskState(task, 'resume', {
         reason: "Resumed via Crossdock Task Service"
       });
-
+      task.is_paused = false;
       // Update task in database
       await this.taskRepository.update(
         { task_id: task.task_id },
         { is_paused: false }
       );
+      if (!task.pause_resume_logs){
+        task.pause_resume_logs = [];
+      }
+      task.pause_resume_logs.push({
+        timestamp: new Date(),
+        status: 'resume'
+      });
+      await this.taskRepository.save(task);
 
       await this.loggingService.log(
         `Task ${task.task_id} resumed successfully`,
