@@ -79,31 +79,43 @@ export class ToolService {
         console.log(`Empty Locations: ${JSON.stringify(res)}`);
         return res;
     }
+    async convertUtcToLocal(utcTimestamp: string): Promise<string> {
+        const date = new Date(utcTimestamp);
+        return date.toLocaleDateString();
+    }
+    async getLocalTime(){
+        const date = new Date();
+        return date.toLocaleDateString();
+    }
 
     async getContext(param: ContextParams): Promise<string>{
         const contexts = {
             [ContextParams.ORDER_ITEMS]: `
-            1. assigned_gtp_location: ID of the GTP location or Pick Location. One License Plate can be assigned to only 
-            one Pick Location. Assigned GTP (Pick Location) location can be used to find corresponding station.
+            1. destination_pallet_slot_id: ID of the GTP location or Pick Location where the order is assigned. Each GTP or Pick/Pallet slot is related to a station.
+            2. order_batch_id: Groups order items that were uploaded together.
+            3. source_location_id: ID of the inventory/quarantine location from where the item is picked.
+            4. status: IN_PROGRESS - User has started processing, COMPLETED - Order completed, CANCELLED - Order cancelled.
             `,
             [ContextParams.GTP_LOCATIONS]: `
-            1. gtp_location_id: ID of the GTP location or Pick Location.
+            
+            1. gtp_location_id: ID of the GTP location or Pick Location or Pallet Slot.
             2. station_id: ID of the station to which this GTP location is assigned.`,
             [ContextParams.STATIONS]: `
-            1. station_id: ID of the station.`,
+            1. station_id: ID of the station.
+            2. location_name: Name of the station.
+            3. is_active: Station is not fit to work, take or complete orders.
+            `,
             [ContextParams.EMPTY_LOCATIONS]: `
             1. location_id: ID of the empty location.
-            2. location_description: Description of the empty location.
+            2. location_description: Empty Locations (Empty Pallets) has nothing to do with status = Available or Occupied. Empty Locations are just a category of locations that are designated for storing empty pallets.
             3. status: Status of the empty location (e.g., available, occupied).
-            4. is_active: Indicates if the empty location is active or inactive. If active, need to be included in the response.
+            4. is_active: Whether the empty locatio is fit taking empty pallets or not.
+            5. location_name: Name of the empty location.
             `,
             [ContextParams.INVENTORY_LOCATIONS]:  `
             1. location_id: ID of the inventory location.
-            2. location_description: Description of the inventory location.
+            2. location_name: Name of the inventory location.
             3. status: Status of the inventory location (e.g., available, occupied).
-            4. is_active: Indicates if the inventory location is active or inactive. If active, need to be included in the response.
-            5. is_empty: Indicates if the inventory location is at empty location or not.
-            6. isProcessing: Indicates if the inventory location is being OCCUPIED or not.
             `
         };
         return contexts[param] || '';
@@ -262,6 +274,35 @@ export const Tools: ChatCompletionTool[] = [
         function: {
             name: 'getInventories',
             description: 'Get all inventory locations in the warehouse system',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'convertUtcToLocal',
+            description: 'Convert a UTC timestamp to a local date string based on the provided timezone',
+            parameters: {
+                type: 'object',
+                properties: {
+                    utcTimestamp: {
+                        type: 'string',
+                        description: 'The UTC timestamp to convert'
+                    }
+                },
+                required: ['utcTimestamp']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'getLocalTime',
+            description: 'Get the current local date string',
             parameters: {
                 type: 'object',
                 properties: {},

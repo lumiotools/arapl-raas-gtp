@@ -402,6 +402,23 @@ export class InventoryService {
     if (!inventory){
       throw new BadRequestException("Inventory not found");
     }
+    if (inventory.is_quarantine){
+      const tasks = await this.taskRepository.find({
+        where: { move_type: In([MOVE_TYPE.TO_QUARANTINE]), status: In([TaskStatus.PROCESSING, TaskStatus.INQUEUE]) },
+      });
+      for (const task of tasks){
+        if (task.end_location.location_id === inventoryId){
+          return {
+            robot_id: task?.robot_id || null,
+            source: task?.origin_location || null,
+            status: "MOVING"
+          }
+        }
+      }
+      return {
+        robot_id: null,
+      }
+    }
     if (inventory.holded_by === null){
       return {robot_id: null}
     }
@@ -410,7 +427,7 @@ export class InventoryService {
     });
     return {
       robot_id: task?.robot_id || null,
-      source: task?.start_location.location_id || null,
+      source: task?.origin_location || null,
       status: "HOLDED"
     }
   }
