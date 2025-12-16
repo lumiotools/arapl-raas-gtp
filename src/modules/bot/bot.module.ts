@@ -6,11 +6,13 @@ import { GtpLocation, Inventory, OrderItem, Product, Station, Task, WaitingLocat
 import { ToolService } from './tools';
 import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { EmptyLocationsModule } from '../empty_locations/empty_locations.module';
+import { OrchestratorModule } from '../orchestrator/orchestrator.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports:[TypeOrmModule.forFeature([Inventory, Product, OrderItem, Station, GtpLocation, WaitingLocation,
     EmptyLocation, Task
-  ]),EmptyLocationsModule
+  ]),EmptyLocationsModule, SettingsModule
   ],
   controllers: [BotController],
   providers: [BotService, ToolService],

@@ -56,7 +56,7 @@ export class SettingsService {
     return `This action removes a #${id} setting`;
   }
 
-  async getAllRobots(task_type: TaskType) {
+  public async getAllRobots(task_type: TaskType) {
     const robots = await this.robotRepository.find({
       where: { task_type: task_type },
     });

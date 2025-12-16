@@ -1,10 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Inventory, OrderItem, Product, Station, GtpLocation, WaitingLocation, Task, TaskStatus, OrderItemStatus } from "src/entities";
+import { Inventory, OrderItem, Product, Station, GtpLocation, WaitingLocation, Task, TaskStatus, OrderItemStatus, TaskType } from "src/entities";
 import { Between, Repository } from "typeorm";
 import { ChatCompletionTool } from 'openai/resources/chat/completions';
 import { EmptyLocation } from "src/entities/empty-location.entity";
 import { EmptyLocationsService } from "../empty_locations/empty_locations.service";
+import { SettingsService } from "../settings/settings.service";
 
 enum ContextParams {
     ORDER_ITEMS = 'order_items',
@@ -35,6 +36,7 @@ export class ToolService {
         private readonly taskRepository: Repository<Task>,
 
         private readonly emptyLocationService: EmptyLocationsService,
+        private readonly settingsService: SettingsService
     ) {}
 
     async getInventories(): Promise<Inventory[]> {
@@ -45,6 +47,7 @@ export class ToolService {
         const inventories = await this.inventoryRepository.find();
         const totalOrders = orderItems.length;
         const completedOrders = orderItems.filter(order => order.status === OrderItemStatus.COMPLETED).length;
+        const assignedOrders = orderItems.filter(order => order.status === OrderItemStatus.ASSIGNED).length;
         const inProgressOrders = orderItems.filter(order => order.status === OrderItemStatus.IN_PROGRESS).length;
         const cancelledOrders = orderItems.filter(order => order.status === OrderItemStatus.CANCELLED).length;
         const startLocationStats = {};
@@ -56,6 +59,7 @@ export class ToolService {
             if (order.status === OrderItemStatus.COMPLETED) { startLocationStats[inventory_name].completed = (startLocationStats[inventory_name].completed || 0) + 1;  }
             else if (order.status === OrderItemStatus.IN_PROGRESS) { startLocationStats[inventory_name].inProgress = (startLocationStats[inventory_name].inProgress || 0) + 1; }
             else if (order.status === OrderItemStatus.CANCELLED) { startLocationStats[inventory_name].cancelled = (startLocationStats[inventory_name].cancelled || 0) + 1; }
+            else if (order.status === OrderItemStatus.ASSIGNED) { startLocationStats[inventory_name].assigned = (startLocationStats[inventory_name].assigned || 0) + 1; }
         }
         const destionationLocationStats = {};
         for (const order of orderItems) {
@@ -68,15 +72,30 @@ export class ToolService {
             if (order.status === OrderItemStatus.COMPLETED) { destionationLocationStats[station_name].completed = (destionationLocationStats[station_name].completed || 0) + 1;  }
             else if (order.status === OrderItemStatus.IN_PROGRESS) { destionationLocationStats[station_name].inProgress = (destionationLocationStats[station_name].inProgress || 0) + 1; }
             else if (order.status === OrderItemStatus.CANCELLED) { destionationLocationStats[station_name].cancelled = (destionationLocationStats[station_name].cancelled || 0) + 1; }
+            else if (order.status === OrderItemStatus.ASSIGNED) { destionationLocationStats[station_name].assigned = (destionationLocationStats[station_name].assigned || 0) + 1; }
         }
+        console.log({
+            totalOrders,
+            completedOrders,
+            assignedOrders,
+            inProgressOrders,
+            cancelledOrders,
+            startLocationStats,
+            destionationLocationStats
+        })
         return {
             totalOrders,
             completedOrders,
+            assignedOrders,
             inProgressOrders,
             cancelledOrders,
             startLocationStats,
             destionationLocationStats
         };
+    }
+
+    async ordersByTimeRange(): Promise<OrderItem[]> {
+        return await this.orderItemRepository.find({ select: ['order_item_id', 'created_at']});
     }
 
     async getStations(): Promise<Station[]> {
@@ -152,6 +171,10 @@ export class ToolService {
         };
     }
 
+    async tasksByTimeRange(){
+        return await this.taskRepository.find({ select: ['task_id', 'created_at']});
+    }
+
     async getContext(param: ContextParams): Promise<string>{
         const contexts = {
             [ContextParams.ORDER_ITEMS]: `
@@ -182,6 +205,9 @@ export class ToolService {
         };
         return contexts[param] || '';
     }
+    async getRobots() {
+        return this.settingsService.getAllRobots(TaskType.GOODS_TO_PERSON);
+    }
 }
 
 export const Tools: ChatCompletionTool[] = [
@@ -190,6 +216,18 @@ export const Tools: ChatCompletionTool[] = [
         function: {
             name: 'orderStats',
             description: 'Get all order items currently in the system',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'getRobots',
+            description: 'Get all robots in the warehouse system',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -383,5 +421,29 @@ export const Tools: ChatCompletionTool[] = [
                 required: []
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'ordersByTimeRange',
+            description: 'Get order items within a specified time range',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'tasksByTimeRange',
+            description: 'Get tasks within a specified time range',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        },
     }
 ];
