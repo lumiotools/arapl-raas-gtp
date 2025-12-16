@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Inventory, OrderItem, Product, Station, GtpLocation, WaitingLocation } from "src/entities";
-import { Repository } from "typeorm";
+import { Inventory, OrderItem, Product, Station, GtpLocation, WaitingLocation, Task, TaskStatus, OrderItemStatus } from "src/entities";
+import { Between, Repository } from "typeorm";
 import { ChatCompletionTool } from 'openai/resources/chat/completions';
 import { EmptyLocation } from "src/entities/empty-location.entity";
 import { EmptyLocationsService } from "../empty_locations/empty_locations.service";
@@ -31,6 +31,8 @@ export class ToolService {
         private readonly waitingLocationRepository: Repository<WaitingLocation>,
         @InjectRepository(EmptyLocation)
         private readonly emptyLocationRepository: Repository<EmptyLocation>,
+        @InjectRepository(Task)
+        private readonly taskRepository: Repository<Task>,
 
         private readonly emptyLocationService: EmptyLocationsService,
     ) {}
@@ -38,8 +40,43 @@ export class ToolService {
     async getInventories(): Promise<Inventory[]> {
         return await this.inventoryRepository.find();
     }
-    async getOrderItems(): Promise<OrderItem[]> {
-        return await this.orderItemRepository.find();
+    async orderStats() {
+        const orderItems = await this.orderItemRepository.find();
+        const inventories = await this.inventoryRepository.find();
+        const totalOrders = orderItems.length;
+        const completedOrders = orderItems.filter(order => order.status === OrderItemStatus.COMPLETED).length;
+        const inProgressOrders = orderItems.filter(order => order.status === OrderItemStatus.IN_PROGRESS).length;
+        const cancelledOrders = orderItems.filter(order => order.status === OrderItemStatus.CANCELLED).length;
+        const startLocationStats = {};
+        for (const order of orderItems) {
+            const inventory_name = inventories.find(inv => inv.id === order.source_location_id)?.location_name || 'Unknown Location';
+            if (!startLocationStats[inventory_name]) {
+                startLocationStats[inventory_name] = {};
+            }
+            if (order.status === OrderItemStatus.COMPLETED) { startLocationStats[inventory_name].completed = (startLocationStats[inventory_name].completed || 0) + 1;  }
+            else if (order.status === OrderItemStatus.IN_PROGRESS) { startLocationStats[inventory_name].inProgress = (startLocationStats[inventory_name].inProgress || 0) + 1; }
+            else if (order.status === OrderItemStatus.CANCELLED) { startLocationStats[inventory_name].cancelled = (startLocationStats[inventory_name].cancelled || 0) + 1; }
+        }
+        const destionationLocationStats = {};
+        for (const order of orderItems) {
+            const gtpLocation = await this.gtpLocationRepository.findOne({ where: { gtp_location_id: order.destination_pallet_slot_id } });
+            const station = gtpLocation ? await this.stationRepository.findOne({ where: { station_id: gtpLocation.station_id } }) : null;
+            const station_name = station ? station.location_name : 'Unknown Station';
+            if (!destionationLocationStats[station_name]) {
+                destionationLocationStats[station_name] = {};
+            }
+            if (order.status === OrderItemStatus.COMPLETED) { destionationLocationStats[station_name].completed = (destionationLocationStats[station_name].completed || 0) + 1;  }
+            else if (order.status === OrderItemStatus.IN_PROGRESS) { destionationLocationStats[station_name].inProgress = (destionationLocationStats[station_name].inProgress || 0) + 1; }
+            else if (order.status === OrderItemStatus.CANCELLED) { destionationLocationStats[station_name].cancelled = (destionationLocationStats[station_name].cancelled || 0) + 1; }
+        }
+        return {
+            totalOrders,
+            completedOrders,
+            inProgressOrders,
+            cancelledOrders,
+            startLocationStats,
+            destionationLocationStats
+        };
     }
 
     async getStations(): Promise<Station[]> {
@@ -88,6 +125,33 @@ export class ToolService {
         return date.toLocaleDateString();
     }
 
+    async taskStats(){
+        const tasks = await this.taskRepository.find();
+        const inventories = await this.inventoryRepository.find();
+        const totalTasks = tasks.length;
+        const completedTasks = tasks.filter(task => task.status === TaskStatus.COMPLETED || task.status === TaskStatus.TRIGERRED).length;
+        const inProgressTasks = tasks.filter(task => task.status === TaskStatus.PROCESSING).length;
+        const cancelledTasks = tasks.filter(task => task.status === TaskStatus.CANCELLED).length;
+        const originLocationStats = {};
+        for (const task of tasks) {
+            const inventory_name = inventories.find(inv => inv.id === task.origin_location)?.location_name || 'Unknown Location';
+            if (!originLocationStats[inventory_name]) {
+                originLocationStats[inventory_name] = {};
+            }
+            
+            if (task.status === TaskStatus.COMPLETED || task.status === TaskStatus.TRIGERRED) { originLocationStats[inventory_name].completed = (originLocationStats[inventory_name].completed || 0) + 1;  }
+            else if (task.status === TaskStatus.PROCESSING) { originLocationStats[inventory_name].inProgress = (originLocationStats[inventory_name].inProgress || 0) + 1; }
+            else if (task.status === TaskStatus.CANCELLED) { originLocationStats[inventory_name].cancelled = (originLocationStats[inventory_name].cancelled || 0) + 1; }
+        }
+        return {
+            totalTasks,
+            completedTasks,
+            inProgressTasks,
+            cancelledTasks,
+            originLocationStats
+        };
+    }
+
     async getContext(param: ContextParams): Promise<string>{
         const contexts = {
             [ContextParams.ORDER_ITEMS]: `
@@ -97,7 +161,6 @@ export class ToolService {
             4. status: IN_PROGRESS - User has started processing, COMPLETED - Order completed, CANCELLED - Order cancelled.
             `,
             [ContextParams.GTP_LOCATIONS]: `
-            
             1. gtp_location_id: ID of the GTP location or Pick Location or Pallet Slot.
             2. station_id: ID of the station to which this GTP location is assigned.`,
             [ContextParams.STATIONS]: `
@@ -107,10 +170,9 @@ export class ToolService {
             `,
             [ContextParams.EMPTY_LOCATIONS]: `
             1. location_id: ID of the empty location.
-            2. location_description: Empty Locations (Empty Pallets) has nothing to do with status = Available or Occupied. Empty Locations are just a category of locations that are designated for storing empty pallets.
-            3. status: Status of the empty location (e.g., available, occupied).
-            4. is_active: Whether the empty locatio is fit taking empty pallets or not.
-            5. location_name: Name of the empty location.
+            2. status: Status of the empty location (e.g., available, occupied).
+            3. is_active: Whether the empty locatio is fit taking empty pallets or not.
+            4. location_name: Name of the empty location.
             `,
             [ContextParams.INVENTORY_LOCATIONS]:  `
             1. location_id: ID of the inventory location.
@@ -126,7 +188,7 @@ export const Tools: ChatCompletionTool[] = [
     {
         type: 'function',
         function: {
-            name: 'getOrderItems',
+            name: 'orderStats',
             description: 'Get all order items currently in the system',
             parameters: {
                 type: 'object',
@@ -303,6 +365,18 @@ export const Tools: ChatCompletionTool[] = [
         function: {
             name: 'getLocalTime',
             description: 'Get the current local date string',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'taskStats',
+            description: 'Get statistics about tasks in the system',
             parameters: {
                 type: 'object',
                 properties: {},

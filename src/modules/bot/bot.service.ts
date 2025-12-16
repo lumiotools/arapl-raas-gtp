@@ -42,9 +42,13 @@ export class BotService {
         content: `You are a helpful assistant that uses tool calls to answer user queries. 
         Info: 
         1. GTP locations are also named as pallet slots or pick locations. 
-        2. For finding inventories at empty location/pallet or empty inventories, find all the inventory then check is_empty = true.
+        2. Empty Locations (Empty Pallets) has nothing to do with status = Available or Occupied. Empty Locations are just a category of locations that are designated for storing empty pallets. For finding inventories/quarantine at empty location/pallet or empty inventories, find all the inventory then check is_empty = true.
         3. For Quarantine Location, fetch all inventories with is_quarantine = true.
         4. For display or response about location, use location_name field only.
+        5. To check if the pallet is present at the inventory/quarantine location, use the field barcode_number. If null, then no pallet is present.
+        6. Orders.source_location_id -> Inventory.location_id. Orders.destionation_pallet_slot_id -> gtp_locations.id.
+        7. Gtp location.station_id -> station.station_id.
+        8. task.origin_location -> inventory.location_id. Tasks and Orders are different entities. Tasks are created to fulfill orders.
         `,
     });
     
@@ -64,7 +68,7 @@ export class BotService {
 
     // Available functions mapping
     const availableFunctions = {
-        "getOrderItems": this.toolService.getOrderItems.bind(this.toolService),
+        "orderStats": this.toolService.orderStats.bind(this.toolService),
         "getStations": this.toolService.getStations.bind(this.toolService),
         "getPickLocations": this.toolService.getPickLocations.bind(this.toolService),
         "getStationFromPickLocation": this.toolService.getStationFromPickLocation.bind(this.toolService),
@@ -75,18 +79,20 @@ export class BotService {
         "getInventories": this.toolService.getInventories.bind(this.toolService),
         "convertUtcToLocal": this.toolService.convertUtcToLocal.bind(this.toolService),
         "getLocalTime": this.toolService.getLocalTime.bind(this.toolService),
+        "taskStats": this.toolService.taskStats.bind(this.toolService),
     };
 
     // Functions that don't need arguments
     const functionsWithoutArgs = [
         'getAllInventory', 
-        'getAllProducts', 
-        'getOrderItems',
+        'getAllProducts',
         'getStations', 
         'getPickLocations',
         'getWaitingLocations',
         'getEmptyLocations',
-        'getInventories'
+        'getInventories',
+        'getLocalTime',
+        'taskStats'
     ];
 
     // Make the initial completion call
@@ -221,7 +227,7 @@ export class BotService {
 
     // Return the content or a default message
     return { 
-        response: finalMessage.content || "I processed your request but couldn't generate a text response." 
+        response: finalMessage.content || "I'm sorry, I couldn't generate a response at this time." 
     };
 }
 }
