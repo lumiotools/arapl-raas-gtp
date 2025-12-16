@@ -8,10 +8,11 @@ import { EmptyLocation } from 'src/entities/empty-location.entity';
 import { EmptyLocationsModule } from '../empty_locations/empty_locations.module';
 import { OrchestratorModule } from '../orchestrator/orchestrator.module';
 import { SettingsModule } from '../settings/settings.module';
+import { Settings } from 'src/entities/settings.entity';
 
 @Module({
   imports:[TypeOrmModule.forFeature([Inventory, Product, OrderItem, Station, GtpLocation, WaitingLocation,
-    EmptyLocation, Task
+    EmptyLocation, Task, Settings
   ]),EmptyLocationsModule, SettingsModule
   ],
   controllers: [BotController],

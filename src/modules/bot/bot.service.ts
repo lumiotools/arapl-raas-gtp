@@ -42,7 +42,7 @@ export class BotService {
         content: `You are a helpful assistant that uses tool calls to answer user queries. 
         Info: 
         1. GTP locations are also named as pallet slots or pick locations. 
-        2. Empty Locations (Empty Pallets) has nothing to do with status = Available or Occupied. Empty Locations are just a category of locations that are designated for storing empty pallets. For finding inventories/quarantine at empty location/pallet or empty inventories, find all the inventory then check is_empty = true.
+        2. Empty Locations (Empty Pallets) has nothing to do with status = Available or Occupied. Empty Locations are just a category of locations that are designated for storing empty pallets. For finding inventories/quarantine at empty location/pallet or empty inventories, find all the inventory then check is_empty = true. Don't mention inventory.status in the response.
         3. For Quarantine Location, fetch all inventories with is_quarantine = true.
         4. Mention location_name (not id) while referring to a location (inventory/quarantine/station/empty locations) in the response.
         5. To check if the pallet is present at the inventory/quarantine location, use the field barcode_number. If null, then no pallet is present.
@@ -50,6 +50,7 @@ export class BotService {
         7. Gtp location.station_id -> station.station_id.
         8. task.origin_location -> inventory.location_id. Tasks and Orders are different entities. Tasks are created to fulfill orders.
         9. Don't mention the internal states like tool calls, attributes, function names etc. in the final response. User don't need it.
+        10. Provide responses in simple text, no tables
         `,
     });
     
@@ -84,6 +85,7 @@ export class BotService {
         "ordersByTimeRange": this.toolService.ordersByTimeRange.bind(this.toolService),
         "tasksByTimeRange": this.toolService.tasksByTimeRange.bind(this.toolService),
         "getRobots": this.toolService.getRobots.bind(this.toolService),
+        "settings": this.toolService.settings.bind(this.toolService),
     };
 
     // Functions that don't need arguments
@@ -97,9 +99,8 @@ export class BotService {
         'getInventories',
         'getLocalTime',
         'taskStats',
-        'ordersByTimeRange',
-        'tasksByTimeRange',
-        'getRobots'
+        'getRobots',
+        'settings'
     ];
 
     // Make the initial completion call

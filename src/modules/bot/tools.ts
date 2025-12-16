@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Inventory, OrderItem, Product, Station, GtpLocation, WaitingLocation, Task, TaskStatus, OrderItemStatus, TaskType } from "src/entities";
 import { Between, Repository } from "typeorm";
@@ -6,13 +6,15 @@ import { ChatCompletionTool } from 'openai/resources/chat/completions';
 import { EmptyLocation } from "src/entities/empty-location.entity";
 import { EmptyLocationsService } from "../empty_locations/empty_locations.service";
 import { SettingsService } from "../settings/settings.service";
+import { Settings } from "src/entities/settings.entity";
 
 enum ContextParams {
     ORDER_ITEMS = 'order_items',
     GTP_LOCATIONS = 'gtp_locations',
     STATIONS = 'stations',
     EMPTY_LOCATIONS = 'empty_locations',
-    INVENTORY_LOCATIONS = 'inventory_locations'
+    INVENTORY_LOCATIONS = 'inventory_locations',
+    SETTINGS = 'settings'
 }
 
 @Injectable()
@@ -34,6 +36,8 @@ export class ToolService {
         private readonly emptyLocationRepository: Repository<EmptyLocation>,
         @InjectRepository(Task)
         private readonly taskRepository: Repository<Task>,
+        @InjectRepository(Settings)
+        private readonly settingRepository: Repository<Settings>,
 
         private readonly emptyLocationService: EmptyLocationsService,
         private readonly settingsService: SettingsService
@@ -94,7 +98,10 @@ export class ToolService {
         };
     }
 
-    async ordersByTimeRange(): Promise<OrderItem[]> {
+    async ordersByTimeRange(require_detail?:boolean): Promise<OrderItem[]> {
+        if (require_detail){
+            return await this.orderItemRepository.find({ select: ['order_item_id','source_location_id','destination_pallet_slot_id']})
+        }
         return await this.orderItemRepository.find({ select: ['order_item_id', 'created_at']});
     }
 
@@ -171,7 +178,10 @@ export class ToolService {
         };
     }
 
-    async tasksByTimeRange(){
+    async tasksByTimeRange(require_detail?:boolean){
+        if (require_detail){
+            return await this.taskRepository.find({ select: ['task_id', 'start_location', 'end_location'] });
+        }
         return await this.taskRepository.find({ select: ['task_id', 'created_at']});
     }
 
@@ -201,12 +211,18 @@ export class ToolService {
             1. location_id: ID of the inventory location.
             2. location_name: Name of the inventory location.
             3. status: Status of the inventory location (e.g., available, occupied).
+            `,
+            [ContextParams.SETTINGS]:  `
+            1. Empty Location Allocation Type: Strategy used for allocating empty locations (e.g., NEAREST, RANDOM).
             `
         };
         return contexts[param] || '';
     }
     async getRobots() {
         return this.settingsService.getAllRobots(TaskType.GOODS_TO_PERSON);
+    }
+    async settings(){
+        return await this.settingRepository.find();
     }
 }
 
@@ -362,7 +378,7 @@ export const Tools: ChatCompletionTool[] = [
                     param: {
                         type: 'string',
                         enum: Object.values(ContextParams),
-                        description: 'The context parameter to retrieve information for'
+                        description: 'The context parameter to retrieve information for (e.g., order_items, gtp_locations, stations, empty_locations, inventory_locations, settings)'
                     }
                 },
                 required: ['param']
@@ -429,7 +445,12 @@ export const Tools: ChatCompletionTool[] = [
             description: 'Get order items within a specified time range',
             parameters: {
                 type: 'object',
-                properties: {},
+                properties: {
+                    require_detail: {
+                        type: 'boolean',
+                        description: 'Whether to include detailed information about each order item (optional)'
+                    }
+                },
                 required: []
             }
         },
@@ -441,9 +462,26 @@ export const Tools: ChatCompletionTool[] = [
             description: 'Get tasks within a specified time range',
             parameters: {
                 type: 'object',
-                properties: {},
+                properties: {
+                    require_detail: {
+                        type: 'boolean',
+                        description: 'Whether to include detailed information about each task (optional)'
+                    }
+                },
                 required: []
             }
         },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'settings',
+            description: 'Get all settings in the warehouse system - Empty Location Allocation Type',
+            parameters: {
+                type: 'object',
+                properties: {},
+                required: []
+            }
+        }
     }
 ];
