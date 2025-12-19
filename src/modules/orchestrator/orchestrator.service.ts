@@ -1529,10 +1529,11 @@ export class OrchestratorService {
         station_id: gtpLocation?.station_id || '',
       }
     })) {
-      await this.productRequirementRepository.save({
+      const req = this.productRequirementRepository.create({
         source_location_id: sourceLocation,
         station_id: gtpLocation?.station_id || '',
-      });
+      })
+      await this.productRequirementRepository.save(req);
     }
     // console.log(`Order ${order_id} started successfully`);
     return { message: 'Order started successfully' };
@@ -2074,7 +2075,7 @@ export class OrchestratorService {
     for (const requirement of prdReqForStation) {
       const origin_location = requirement.source_location_id;
       const carrying_task = await this.taskRepository.findOne({
-        where: { origin_location: origin_location, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION, MOVE_TYPE.WAITING_TO_WAITING_LOCATION, MOVE_TYPE.STATION_TO_INVENTORY, MOVE_TYPE.INVENTORY_TO_INVENTORY]) }
+        where: { origin_location: origin_location, fms_batch_id: Not(IsNull()), status: Not(In([TaskStatus.CANCELLED, TaskStatus.COMPLETED])), move_type: In([MOVE_TYPE.STATION_TO_WAITING_LOCATION, MOVE_TYPE.WAITING_TO_WAITING_LOCATION, MOVE_TYPE.STATION_TO_INVENTORY, MOVE_TYPE.INVENTORY_TO_INVENTORY, MOVE_TYPE.TO_QUARANTINE]) }
       });
       // console.log(`carrying task: ${JSON.stringify(carrying_task)}`);
       try {
@@ -2102,6 +2103,11 @@ export class OrchestratorService {
             cargos: carrying_task.cargos
           });
           if (task && task_id) {
+            if (carrying_task.move_type === MOVE_TYPE.TO_QUARANTINE) {
+              inventory.isProcessing = true;
+              inventory.barcode_number = carrying_task.cargos[0]?.cargo_code;
+              await this.inventoryRepository.save(inventory);
+            }
             await this.waitingLocationRepository.update({ location_id: carrying_task.end_location.location_id }, { status: LocationStatus.AVAILABLE, holded_by: null });
             await this.taskRepository.update({ task_id: carrying_task.task_id }, { status: TaskStatus.CANCELLED });
             await this.loggingService.log(`Cancel Task: ${carrying_task.task_id} and create new Task: ${task_id}, start location: ${carrying_task.end_location.location_id} (inventory), destination location: ${stationId} (station)`, TaskType.GOODS_TO_PERSON, task_id, null);

@@ -12,7 +12,7 @@ import {
   ProcessedOrderItemDto,
   UploadResponseDto,
 } from './dto/upload-order.dto';
-import { Log, ProductRequirement, Task, TaskStatus, TaskType } from 'src/entities';
+import { Log, ProductRequirement, Station, Task, TaskStatus, TaskType } from 'src/entities';
 import { LoggingService } from '../../services/logging.service';
 import { ScheduleMapping } from 'src/entities/schedule_mapping.entity';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
@@ -61,6 +61,8 @@ export class OrdersService {
     private productRequirementRepository: Repository<ProductRequirement>,
     @InjectRepository(Robot)
     private robotRepository: Repository<Robot>,
+    @InjectRepository(Station)
+    private stationRepository: Repository<Station>,
     private readonly orchestrationService: OrchestratorService,
     private readonly loggingService: LoggingService,
     private readonly inventoryService: InventoryService,
@@ -478,8 +480,12 @@ export class OrdersService {
       },
       order: { created_at: 'DESC' }
     });
+    const gtpLocation = await this.gtpLocationRepository.findOne({
+      where: { gtp_location_id: orderItem.destination_pallet_slot_id }
+    });
+    const station = gtpLocation ? await this.stationRepository.findOne({ where: { station_id: gtpLocation.station_id } }) : null;
     try{
-      if (task && task.status !== TaskStatus.CANCELLED && task.status !== TaskStatus.COMPLETED){
+      if (task && task.status !== TaskStatus.CANCELLED && task.status !== TaskStatus.COMPLETED && station && task.end_location.location_id===station.station_id){
         await this.orchestrationService.CancelTask(task);
         task.status = TaskStatus.CANCELLED;
         await this.taskRepository.save(task);
@@ -490,8 +496,11 @@ export class OrdersService {
         TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
       throw new BadRequestException(`Failed to cancel Task ID ${task?.task_id} related to Order Item ID ${orderItem.order_item_id}`);
     }
-    await this.productRequirementRepository.delete({ source_location_id: orderItem.source_location_id });
+    await this.productRequirementRepository.delete({ source_location_id: orderItem.source_location_id, station_id: station ? station.station_id : '' });
     if (!task) { return ; }
+    if (task.end_location.location_id !== (station ? station.station_id : '')) {
+      return ;
+    }
     if (!task.processing && task.start_location.location_attribute.attribute_value === 'inventory'){
         // make the inventory available
         await this.inventoryService.setInventoryAvailable(task.origin_location);

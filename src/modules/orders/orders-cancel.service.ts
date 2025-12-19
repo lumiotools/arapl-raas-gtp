@@ -84,7 +84,7 @@ export class OrdersCancelService {
                     orderItem.status = OrderItemStatus.CANCELLED;
                     await this.orderItemRepository.save(orderItem);
                     // remove the product requirement
-                    await this.productRequirementRepository.delete({source_location_id: orderItem.source_location_id, station_id: task.end_location.location_id});
+                    await this.productRequirementRepository.delete({source_location_id: orderItem.source_location_id});
                 }
             }
             if (!task.processing && task.start_location.location_attribute.attribute_value === 'inventory'){
@@ -160,7 +160,11 @@ export class OrdersCancelService {
             // cancel the order Items
             if (destionation_location_type ==='station'){
               const station_id = task.end_location.location_id;
-              const orderItems = await this.orderItemRepository.find({where: {source_location_id: task.origin_location, status: OrderItemStatus.IN_PROGRESS }});
+              const station = await this.stationRepository.findOne({where: {station_id: station_id}, relations: ['gtpLocations']});
+              if (!station){
+                throw new NotFoundException(`Station with ID ${station_id} not found`);
+              }
+              const orderItems = await this.orderItemRepository.find({where: {source_location_id: task.origin_location, status: OrderItemStatus.IN_PROGRESS, destination_pallet_slot_id: In(station.gtpLocations.map(loc => loc.gtp_location_id))  }});
               for (const orderItem of orderItems){
                   orderItem.status = OrderItemStatus.CANCELLED;
                   await this.orderItemRepository.save(orderItem);
@@ -201,24 +205,31 @@ export class OrdersCancelService {
             throw new BadRequestException(`Task with id ${taskId} could not be cancelled`); 
           }
           await this.inventoryService.makeInventoryProcessing(quarantine_location_id);
-          const orderItems = await this.orderItemRepository.find({
-            where: {
-              source_location_id: task.origin_location,
-              status: In([OrderItemStatus.IN_PROGRESS])
-            },
-          });
           // make the source location unavailable
           if (task.origin_location !== quarantine_location_id){
             await this.inventoryService.makeInventoryUnavailable(task.origin_location);
           }
-          
-          if (orderItems.length > 0){
-            orderItems.forEach(async (orderItem) => {
-              await this.cancelOneOrderItem(orderItem.order_item_id);
-              await this.loggingService.log(`Incremented retry_reassign_attempts for Order Item ID ${orderItem.order_item_id} due to reassignment`,
-                TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
+
+          const station = await this.stationRepository.findOne({where: {station_id: task.end_location.location_id}, relations: ['gtpLocations']});
+          if (station){
+            const orderItems = await this.orderItemRepository.find({
+              where: {
+                source_location_id: task.origin_location,
+                destination_pallet_slot_id: In(station.gtpLocations.map(loc => loc.gtp_location_id)),
+                status: In([OrderItemStatus.IN_PROGRESS])
+              },
             });
-            await this.productRequirementRepository.delete({ source_location_id: task.origin_location });
+            
+            
+            if (orderItems.length > 0){
+              orderItems.forEach(async (orderItem) => {
+                await this.cancelOneOrderItem(orderItem.order_item_id);
+                await this.loggingService.log(`Incremented retry_reassign_attempts for Order Item ID ${orderItem.order_item_id} due to reassignment`,
+                  TaskType.GOODS_TO_PERSON, null, orderItem.order_batch_id || '');
+              });
+              await this.productRequirementRepository.delete({ source_location_id: task.origin_location, station_id: station.station_id });
+            }
+          
           }
           
           const [newTaskId, newTask] = await this.orchestrationService.createTask({
@@ -280,4 +291,8 @@ export class OrdersCancelService {
       }
     
   }
+}
+
+function NotNull(): string | import("typeorm").FindOperator<string> | undefined {
+  throw new Error('Function not implemented.');
 }
