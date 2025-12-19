@@ -48,7 +48,7 @@ export class SettingsService {
     return `This action returns a #${id} setting`;
   }
 
-  update(id: number, updateSettingDto: UpdateSettingDto) {
+  update(id: string, updateSettingDto: any) {
     return `This action updates a #${id} setting`;
   }
 
@@ -141,5 +141,18 @@ export class SettingsService {
       "robot_in_use": robots.length > 0 ? robots[0].robot_in_use : 0,
       "is_waiting": robots.length > 0 ? robots[0].is_waiting : false,
     };
+  }
+
+  async updateAutoStart(auto_start: number) {
+    const setting = await this.settingsRepository.findOne({
+      where: {operation_type: OperationType.FLOWOPS}
+    });
+    if (setting) {
+      setting.value['AUTO_START'] = auto_start;
+      await this.settingsRepository.save(setting);
+      return { message: `AUTO_START updated to ${auto_start}` };
+    } else {
+      throw new Error('FLOWOPS settings not found');
+    }
   }
 }

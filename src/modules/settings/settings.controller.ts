@@ -40,14 +40,14 @@ export class SettingsController {
     return await this.settingsService.findAll();
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateSettingDto: UpdateSettingDto) {
-    return this.settingsService.update(+id, updateSettingDto);
+  @Patch('update-auto-start')
+  async updateAutoStart(@Body() body: { auto_start: number }) {
+    return await this.settingsService.updateAutoStart(body.auto_start);
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.settingsService.remove(+id);
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateSettingDto: any) {
+    return this.settingsService.update(id, updateSettingDto);
   }
 
   @Patch(':robot_id/update')

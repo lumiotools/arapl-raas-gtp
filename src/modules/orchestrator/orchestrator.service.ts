@@ -721,6 +721,7 @@ export class OrchestratorService {
         operation_type: OperationType.FLOWOPS,
         value: {
           "EMPTY_LOCATION": "ROUND_ROBIN",
+          "AUTO_START": 1,
         }
       })
     }
