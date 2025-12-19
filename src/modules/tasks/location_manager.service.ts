@@ -701,7 +701,7 @@ export class LocationManagerService {
         return endLocation;
     }
 
-    async getOptimalWaitLocation(required_location_id: string, zone_pair_id: string): Promise<string | null> {
+    async getOptimalWaitLocation(required_location_id: string, start_zone_id: string): Promise<string | null> {
         console.log("Finding optimal wait location...");
 
         const requiredLocation = await this.locationRepository.findOne({ where: { location_id: required_location_id } });
@@ -788,7 +788,7 @@ export class LocationManagerService {
             console.log(`Checking wait zone: ${waitZone.location_id}`);
             
             // Get zone pair for movement: requiredLocationZone -> waitZone
-            const waitZonePairId = await this.getZonePairId(requiredLocationZoneId, waitZone.location_id);
+            const waitZonePairId = await this.getZonePairId(start_zone_id, waitZone.location_id);
             
             // Use findOptimalDropLocation which handles all the priority logic and dependency checks
             const optimalWaitLocations = await this.findOptimalDropLocation(

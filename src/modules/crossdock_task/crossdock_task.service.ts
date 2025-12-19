@@ -237,7 +237,7 @@ export class CrossdockTaskService {
           for (const blockingLocation of validBlockingLocations) {
             const waitLocationId = await this.taskService.LocationManagerService.getOptimalWaitLocation(
               blockingLocation.location_id,
-              zonePairId!
+              startZoneId!
             );
             
             if (!waitLocationId) {
