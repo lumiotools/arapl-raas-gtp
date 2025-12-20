@@ -155,4 +155,17 @@ export class SettingsService {
       throw new Error('FLOWOPS settings not found');
     }
   }
+
+  async updateTaskAllocationStrategy(task_allocation_strategy: string) {
+    const setting = await this.settingsRepository.findOne({
+      where: {operation_type: OperationType.FLOWOPS}
+    });
+    if (setting) {
+      setting.value['TASK_ALLOCATION_STRATEGY'] = task_allocation_strategy;
+      await this.settingsRepository.save(setting);
+      return { message: `TASK_ALLOCATION_STRATEGY updated to ${task_allocation_strategy}` };
+    } else {
+      throw new Error('FLOWOPS settings not found');
+    }
+  }
 }

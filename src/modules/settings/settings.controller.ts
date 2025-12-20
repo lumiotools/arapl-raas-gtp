@@ -44,6 +44,10 @@ export class SettingsController {
   async updateAutoStart(@Body() body: { auto_start: number }) {
     return await this.settingsService.updateAutoStart(body.auto_start);
   }
+  @Patch('update-task-allocation-strategy')
+  async updateTaskAllocationStrategy(@Body() body: { task_allocation_strategy: string }) {
+    return await this.settingsService.updateTaskAllocationStrategy(body.task_allocation_strategy);
+  }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateSettingDto: any) {
