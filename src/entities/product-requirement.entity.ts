@@ -29,6 +29,9 @@ export class ProductRequirement extends BaseEntity {
   @Column({ type: 'boolean', default: false })
   isCancelled: boolean; 
 
+  @Column({ type: 'boolean', default: false })
+  task_created : boolean;
+  
   // If you want to keep both the column and relationship, don't use @JoinColumn
   @ManyToOne(() => Inventory, { nullable: true })
   sourceLocation: Relation<Inventory>;

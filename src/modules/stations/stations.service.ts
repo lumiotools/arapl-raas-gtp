@@ -281,14 +281,6 @@ export class StationsService {
     return productRequirements.length > 0;
   }
 
-  async getCancelledStations(): Promise<string[]> {
-    const cancelledRequirements = await this.productRequirementRepository.find({
-      where: { isCancelled: true }
-    });
-    const cancelledStationIds = new Set(cancelledRequirements.map(req => req.station_id))
-    return Array.from(cancelledStationIds);
-  }
-
   async removeProductRequirment(station_id: string): Promise<void> {
     const productRequirements = await this.productRequirementRepository.find({
       where: { station_id }
