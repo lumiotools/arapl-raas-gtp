@@ -652,6 +652,10 @@ export class OrchestratorService {
         return null;
       }
       await this.inventoryRepository.update({ id: inventory.id }, { isProcessing: true });
+      await this.productRequirementRepository.update(
+        { source_location_id: inventory.id, station_id: targetStation.station_id },
+        { task_created: true }
+      );
       await this.markSystemAsWaiting();
       await this.loggingService.log(`System marked as waiting state.`, TaskType.GOODS_TO_PERSON, taskId, null);
       await this.incrementRobotInUse();
@@ -1159,6 +1163,10 @@ export class OrchestratorService {
           { station_id: nextAvailableStation.station_id },
           { holded_by: newTask.task_id, status: LocationStatus.RESERVED }
         );
+        await this.productRequirementRepository.update(
+          { source_location_id: completedTask.origin_location, station_id: nextAvailableStation.station_id },
+          { task_created: true }
+        );
 
         // await this.loggingService.log(`Station ${nextAvailableStation.station_id}: Marked as Occupied`, newTask.task_type, newTask.task_id, null);
         this.loggingService.log(`New Task: ${taskId}, start location: ${completedTask.end_location.location_id} (station), destination location: ${nextAvailableStation.station_id} (station)`, TaskType.GOODS_TO_PERSON, taskId, null);
@@ -1498,6 +1506,10 @@ export class OrchestratorService {
                 await this.stationRepository.update(station.station_id, { status: LocationStatus.AVAILABLE });
                 continue;
               }
+              await this.productRequirementRepository.update(
+                { source_location_id: task.origin_location, station_id: station.station_id },
+                { task_created: true }
+              );
               await this.sendSingleTaskToWms(returnTask);
               await this.loggingService.log(`Station ${station.station_id}: Marked as Occupied`, returnTask.task_type, returnTask.task_id, null);
               this.logger.log(`New Task: ${returnTaskId}, Origin Location: ${task.origin_location}, start location: ${waitingLocation.location_id} (waiting location), destination location: ${station.station_id} (station)`);
