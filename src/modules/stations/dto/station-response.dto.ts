@@ -1,39 +1,34 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { GtpLocationResponseDto } from '../../gtp/dto/gtp-response.dto';
 
 export class StationResponseDto {
-  @ApiProperty({
-    description: 'Unique identifier for the station',
-    example: 'ST001',
-  })
+  @ApiProperty({ example: '2025-12-11T10:27:36.314Z' })
+  created_at: string;
+
+  @ApiProperty({ example: '2025-12-19T06:36:29.880Z' })
+  updated_at: string;
+
+  @ApiProperty({ example: 'ST001' })
   station_id: string;
 
-  @ApiProperty({
-    description: 'Name of the station',
-    example: 'Main Station',
-  })
-  station_name: string;
+  @ApiProperty({ example: 'Station 1' })
+  location_name: string;
 
-  @ApiProperty({
-    description: 'Priority level of the station',
-    example: 1,
-  })
+  @ApiProperty({ example: 'OCCUPIED' })
+  status: string;
+
+  @ApiProperty({ example: 1 })
   priority: number;
 
-  @ApiProperty({
-    description: 'Whether the station is active',
-    example: true,
-  })
+  @ApiProperty({ example: true })
   is_active: boolean;
 
   @ApiProperty({
-    description: 'Timestamp when the station was created',
-    example: '2024-01-15T10:30:00.000Z',
+    example: '77c24cf1-0fe4-4a1b-ba8f-e049b9ba2206',
+    nullable: true,
   })
-  created_at: Date;
+  holded_by: string | null;
 
-  @ApiProperty({
-    description: 'Timestamp when the station was last updated',
-    example: '2024-01-15T10:30:00.000Z',
-  })
-  updated_at: Date;
+  @ApiProperty({ type: [GtpLocationResponseDto] })
+  gtpLocations: GtpLocationResponseDto[];
 }

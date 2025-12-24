@@ -419,12 +419,17 @@ export class InventoryService {
         robot_id: null,
       }
     }
-    if (inventory.holded_by === null){
-      return {robot_id: null}
-    }
+    // if (inventory.holded_by === null){
+    //   return {robot_id: null}
+    // }
     const task = await this.taskRepository.findOne({
-      where: { task_id: inventory.holded_by },
+      where: { origin_location: inventoryId }, order: { created_at: 'DESC' }
     });
+    if ((task?.end_location.location_attribute.attribute_value === 'empty_location'|| task?.end_location.location_attribute.attribute_value==='inventory') && (task?.status === TaskStatus.COMPLETED || task?.status === TaskStatus.CANCELLED)){
+      return {
+        robot_id: null,
+      }
+    }
     return {
       robot_id: task?.robot_id || null,
       source: task?.origin_location || null,

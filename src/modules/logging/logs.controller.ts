@@ -23,11 +23,6 @@ export class LogsController {
     description: 'Maximum number of logs to return (optional - returns all logs if not specified)',
     example: 100
   })
-  @ApiQuery({
-    name: 'taskType',
-    required: false,
-    description: 'Optional filter to return logs only for a given task type (e.g., BASEOPS, GOODS_TO_PERSON)'
-  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Logs retrieved successfully',
@@ -36,9 +31,15 @@ export class LogsController {
       items: {
         type: 'object',
         properties: {
-          log_id: { type: 'number', example: 1 },
-          message: { type: 'string', example: 'Task 123 created successfully' },
-          timestamp: { type: 'string', format: 'date-time', example: '2024-01-01T00:00:00.000Z' },
+          created_at: { type: 'string', format: 'date-time', example: '2025-12-22T05:39:46.831Z' },
+          updated_at: { type: 'string', format: 'date-time', example: '2025-12-22T05:39:46.831Z' },
+          log_id: { type: 'number', example: 10555 },
+          message: { type: 'string', example: 'Robot in use decremented. Current robot in use: 0' },
+          task_type: { type: 'string', example: 'GoodsToPerson' },
+          task_id: { type: 'string', example: 'ae46809c-1802-401f-9f0f-377632bdc758' },
+          order_batch_id: { type: 'string', nullable: true, example: null },
+          is_error: { type: 'boolean', example: false },
+          timestamp: { type: 'string', format: 'date-time', example: '2025-12-22T05:39:46.834Z' },
         }
       }
     }

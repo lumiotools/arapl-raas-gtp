@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus, BadRequestException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus, BadRequestException, UseGuards, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { GtpService } from './gtp.service';
 import { CreateGtpDto } from './dto/create-gtp.dto';
@@ -22,6 +22,7 @@ export class GtpController {
   constructor(private readonly gtpService: GtpService) {}
 
   @Post()
+  @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ 
     summary: 'Create a new GTP location',
     description: 'Create a new Goods To Person location with the specified details. The GTP location ID must be unique.'

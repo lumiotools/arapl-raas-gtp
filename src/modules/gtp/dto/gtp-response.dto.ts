@@ -39,4 +39,13 @@ export class GtpLocationResponseDto {
     example: '2024-01-15T10:30:00.000Z',
   })
   updated_at: Date;
+
+  @ApiProperty({
+    description: 'Station object associated with this GTP location (optional)',
+    type: Object,
+    nullable: true,
+    required: false,
+    example: null,
+  })
+  station?: Record<string, any> | null;
 }

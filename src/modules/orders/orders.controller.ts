@@ -22,6 +22,8 @@ import {
   ApiBody,
   ApiResponse,
   ApiOperation,
+  ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { OrdersService, OrderItemDetails } from './orders.service';
 import { UploadResponseDto } from './dto/upload-order.dto';
@@ -42,7 +44,7 @@ export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly ordersCancelService: OrdersCancelService,
-  ) {}
+  ) { }
 
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
@@ -54,6 +56,10 @@ export class OrdersController {
     description:
       'Upload a CSV or Excel file containing order data to create orders and order items in the system.',
   })
+  @ApiQuery({
+    name: 'upload_mode',
+    description: 'Mode of upload: "merge" to merge with existing orders, "transit" to create transit orders',
+  })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -63,7 +69,7 @@ export class OrdersController {
           type: 'string',
           format: 'binary',
           description:
-            'CSV or Excel file containing order data with columns: Order ID, Product Id, Qty, License Plate ID',
+            'CSV or Excel file containing order data with columns: source_location, destionation_location',
         },
       },
       required: ['file'],
@@ -120,25 +126,29 @@ export class OrdersController {
       type: 'object',
       properties: {
         success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Found 25 order items' },
-        data: { 
-          type: 'array', 
+        message: { type: 'string', example: 'Found 211 order items' },
+        data: {
+          type: 'array',
           items: {
             type: 'object',
             properties: {
-              order_item_id: { type: 'number', example: 1 },
-              order_id: { type: 'string', example: 'ORD001' },
-              product_id: { type: 'string', example: 'PROD001' },
-              quantity: { type: 'number', example: 10 },
-              license_plate_id: { type: 'string', example: 'LP001' },
-              status: { type: 'string', example: 'PENDING' },
-              created_at: { type: 'string', format: 'date-time' },
-              updated_at: { type: 'string', format: 'date-time' },
-              assignedGtpLocation: {
+              created_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:48:08.647Z' },
+              updated_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:48:08.647Z' },
+              order_item_id: { type: 'number', example: 557 },
+              order_batch_id: { type: 'string', example: 'Batch-1766566088396' },
+              source_location_id: { type: 'string', example: 'R10X04' },
+              destination_pallet_slot_id: { type: 'string', example: 'PL002' },
+              status: { type: 'string', example: 'ASSIGNED' },
+              merged_order_item_id: { type: 'number', nullable: true, example: null },
+              destinationPalletSlot: {
                 type: 'object',
                 properties: {
-                  gtp_location_id: { type: 'string', example: 'GTP001' },
-                  station_id: { type: 'string', example: 'STA001' }
+                  created_at: { type: 'string', format: 'date-time', example: '2025-12-13T12:45:01.508Z' },
+                  updated_at: { type: 'string', format: 'date-time', example: '2025-12-13T12:45:01.508Z' },
+                  gtp_location_id: { type: 'string', example: 'PL002' },
+                  station_id: { type: 'string', example: 'ST002' },
+                  is_active: { type: 'boolean', example: true },
+                  status: { type: 'string', example: 'AVAILABLE' }
                 }
               }
             }
@@ -147,7 +157,7 @@ export class OrdersController {
       }
     }
   })
-  @ApiResponse({
+    @ApiResponse({
     status: HttpStatus.INTERNAL_SERVER_ERROR,
     description: 'Internal server error',
     type: InternalServerErrorDto,
@@ -215,55 +225,87 @@ export class OrdersController {
   ): Promise<{ status: boolean }> {
     return await this.ordersService.getGtpLocationStatus(gtpLocationId);
   }
-
   @Get('by-status')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
-    @ApiOperation({
+  @ApiOperation({
     summary: 'Get orders by status and time range',
     description: 'Retrieve all orders filtered by their status and optionally by time range. Multiple statuses can be provided as comma-separated values.',
-    })
-    @ApiResponse({
+  })
+  @ApiQuery({
+    name: 'status',
+    description: 'Comma-separated list of order statuses to filter by (e.g., PENDING,COMPLETED)',
+    example: 'PENDING,COMPLETED',
+    required: true,
+  })
+  @ApiQuery({
+    name: 'start_time',
+    description: 'Optional start time to filter orders created after this time (ISO 8601 format)',
+    example: '2025-08-19T09:00:00',
+    required: false,
+  })
+  @ApiQuery({
+    name: 'end_time',
+    description: 'Optional end time to filter orders created before this time (ISO 8601 format)',
+    example: '2025-08-19T17:00:00',
+    required: false,
+  })
+  @ApiResponse({
     status: HttpStatus.OK,
     description: 'Successfully retrieved orders by status and time range',
     schema: {
       type: 'object',
       properties: {
-      success: { type: 'boolean', example: true },
-      message: { type: 'string', example: 'Found 5 orders with status PENDING, COMPLETED' },
-      data: {
-        type: 'array',
-        items: {
-        type: 'object',
-        properties: {
-          order_id: { type: 'string', example: 'ORD001' },
-          status: { type: 'string', example: 'PENDING' },
-          created_at: { type: 'string', format: 'date-time' },
-          updated_at: { type: 'string', format: 'date-time' }
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Found 5 orders with status PENDING, COMPLETED' },
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              order_item_id: { type: 'number', example: 557 },
+              order_batch_id: { type: 'string', example: 'Batch-1766566088396' },
+              source_location_id: { type: 'string', example: 'R10X04' },
+              destination_station_id: { type: 'string', example: 'ST002' },
+              status: { type: 'string', example: 'ASSIGNED' },
+              robot_ids: {
+                type: 'array',
+                items: { type: 'string' },
+                example: []
+              },
+              total_unloading_time: { type: 'number', example: 0 },
+              start_time: { type: 'string', format: 'date-time', example: '2025-12-24T08:48:08.647Z' },
+              created_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:48:08.647Z' },
+              updated_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:48:08.647Z' },
+              completedTasks: {
+                type: 'array',
+                items: { type: 'object' },
+                example: []
+              }
+            }
+          }
         }
-        }
-      }
       }
     }
-    })
-    @ApiResponse({
+  })
+  @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Invalid status parameter or time range',
     type: BadRequestDto,
-    })
-    async getOrdersByStatus(
+  })
+  async getOrdersByStatus(
     @Query('status') status: string,
     @Query('start_time') startTime?: string,
     @Query('end_time') endTime?: string
-    ): Promise<OrderItemDetails[]> {
+  ): Promise<OrderItemDetails[]> {
     if (!status) {
       throw new BadRequestException('Status query parameter is required');
     }
-    
+
     // Split comma-separated statuses and trim whitespace
     const statusList = status.split(',').map(s => s.trim()).filter(s => s.length > 0);
-    
+
     if (statusList.length === 0) {
       throw new BadRequestException('At least one valid status must be provided');
     }
@@ -275,21 +317,21 @@ export class OrdersController {
     if (startTime) {
       startDate = new Date(startTime);
       if (isNaN(startDate.getTime())) {
-      throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
+        throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
       }
     }
 
     if (endTime) {
       endDate = new Date(endTime);
       if (isNaN(endDate.getTime())) {
-      throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
+        throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
       }
     }
 
     if (startDate && endDate && startDate >= endDate) {
       throw new BadRequestException('start_time must be before end_time');
     }
-    
+
     return await this.ordersService.getOrdersByStatus(statusList, startDate, endDate);
   }
 
@@ -301,15 +343,48 @@ export class OrdersController {
     summary: 'Get station report summary',
     description: 'Returns a summary report for stations within the specified date range.',
   })
+  @ApiQuery({
+    name: 'start_time',
+    description: 'Optional start time to filter station report (ISO 8601 format)',
+    example: '2025-08-19T09:00:00',
+    required: false,
+  })
+  @ApiQuery({
+    name: 'end_time',
+    description: 'Optional end time to filter station report (ISO 8601 format)',
+    example: '2025-08-19T17:00:00',
+    required: false,
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Successfully retrieved station report summary',
     schema: {
       type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Station report summary generated' },
-        data: { type: 'array', items: { type: 'object' } }
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          completed: { type: 'number', example: 93 },
+          in_progress: { type: 'number', example: 1 },
+          cancelled: { type: 'number', example: 8 },
+          pending: { type: 'number', example: 0 },
+          assigned: { type: 'number', example: 4 }
+        }
+      },
+      example: {
+        ST001: {
+          completed: 93,
+          in_progress: 1,
+          cancelled: 8,
+          pending: 0,
+          assigned: 4
+        },
+        ST002: {
+          completed: 92,
+          in_progress: 1,
+          cancelled: 8,
+          pending: 0,
+          assigned: 4
+        }
       }
     }
   })
@@ -329,14 +404,14 @@ export class OrdersController {
     if (startTime) {
       startDate = new Date(startTime);
       if (isNaN(startDate.getTime())) {
-      throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
+        throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
       }
     }
 
     if (endTime) {
       endDate = new Date(endTime);
       if (isNaN(endDate.getTime())) {
-      throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
+        throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
       }
     }
 
@@ -354,15 +429,83 @@ export class OrdersController {
     summary: 'Get inventory report summary',
     description: 'Returns a summary report for inventory within the specified date range.',
   })
+  @ApiQuery({
+    name: 'start_time',
+    description: 'Optional start time to filter inventory report (ISO 8601 format)',
+    example: '2025-08-19T09:00:00',
+    required: false,
+  })
+  @ApiQuery({
+    name: 'end_time',
+    description: 'Optional end time to filter inventory report (ISO 8601 format)',
+    example: '2025-08-19T17:00:00',
+    required: false,
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Successfully retrieved inventory report summary',
     schema: {
       type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Inventory report summary generated' },
-        data: { type: 'array', items: { type: 'object' } }
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          completed: { type: 'number', example: 29 },
+          in_progress: { type: 'number', example: 0 },
+          cancelled: { type: 'number', example: 4 },
+          pending: { type: 'number', example: 0 },
+          assigned: { type: 'number', example: 2 },
+          is_quarantine: { type: 'boolean', example: false }
+        }
+      },
+      example: {
+        R10X03: {
+          completed: 29,
+          in_progress: 0,
+          cancelled: 4,
+          pending: 0,
+          assigned: 2,
+          is_quarantine: false
+        },
+        R10X23: {
+          completed: 31,
+          in_progress: 0,
+          cancelled: 4,
+          pending: 0,
+          assigned: 0,
+          is_quarantine: false
+        },
+        R10X01: {
+          completed: 33,
+          in_progress: 0,
+          cancelled: 1,
+          pending: 0,
+          assigned: 2,
+          is_quarantine: false
+        },
+        R10X02: {
+          completed: 30,
+          in_progress: 1,
+          cancelled: 3,
+          pending: 0,
+          assigned: 1,
+          is_quarantine: false
+        },
+        R10X04: {
+          completed: 31,
+          in_progress: 0,
+          cancelled: 2,
+          pending: 0,
+          assigned: 2,
+          is_quarantine: true
+        },
+        R20X01: {
+          completed: 31,
+          in_progress: 1,
+          cancelled: 2,
+          pending: 0,
+          assigned: 1,
+          is_quarantine: false
+        }
       }
     }
   })
@@ -382,14 +525,14 @@ export class OrdersController {
     if (startTime) {
       startDate = new Date(startTime);
       if (isNaN(startDate.getTime())) {
-      throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
+        throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
       }
     }
 
     if (endTime) {
       endDate = new Date(endTime);
       if (isNaN(endDate.getTime())) {
-      throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
+        throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
       }
     }
 
@@ -402,7 +545,7 @@ export class OrdersController {
   @Get('source/gtp-location/:gtp_location_id')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('admin', 'flowops.operator','flowops.admin')
+  @Roles('admin', 'flowops.operator', 'flowops.admin')
   @ApiOperation({
     summary: 'Get source by GTP location',
     description: 'Retrieve all source associated with the specified GTP location ID.',
@@ -412,21 +555,64 @@ export class OrdersController {
     description: 'Successfully retrieved source for the GTP location',
     schema: {
       type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Found 3 sources for GTP location GTP001' },
-        data: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              source_id: { type: 'string', example: 'SRC001' },
-              order_id: { type: 'string', example: 'ORD001' },
-              status: { type: 'string', example: 'ACTIVE' },
-              created_at: { type: 'string', format: 'date-time' },
-              updated_at: { type: 'string', format: 'date-time' }
-            }
+      additionalProperties: {
+        type: 'object',
+        properties: {
+          totalOrder: { type: 'number', example: 15 },
+          completed: { type: 'number', example: 12 }
+        },
+        additionalProperties: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', example: 'COMPLETED' },
+            merged_order_item_id: { type: 'number', nullable: true, example: null }
           }
+        }
+      },
+      example: {
+        R10X04: {
+          '352': {
+            status: 'CANCELLED',
+            merged_order_item_id: null
+          },
+          '364': {
+            status: 'COMPLETED',
+            merged_order_item_id: null
+          },
+          '551': {
+            status: 'ASSIGNED',
+            merged_order_item_id: null
+          },
+          totalOrder: 15,
+          completed: 12
+        },
+        R10X03: {
+          '351': {
+            status: 'CANCELLED',
+            merged_order_item_id: null
+          },
+          '363': {
+            status: 'COMPLETED',
+            merged_order_item_id: null
+          },
+          '550': {
+            status: 'ASSIGNED',
+            merged_order_item_id: null
+          },
+          totalOrder: 15,
+          completed: 13
+        },
+        R10X01: {
+          '350': {
+            status: 'COMPLETED',
+            merged_order_item_id: null
+          },
+          '549': {
+            status: 'ASSIGNED',
+            merged_order_item_id: null
+          },
+          totalOrder: 16,
+          completed: 15
         }
       }
     }
@@ -444,9 +630,46 @@ export class OrdersController {
     }
     return await this.ordersService.getSourceByGtpLocation(gtpLocationId);
   }
-
   @Post('order-completed-tasks')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get completed tasks for order items',
+    description: 'Retrieve all completed tasks associated with the provided order_item_id list.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        order_item_ids: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'List of order_item_id to fetch completed tasks for',
+          example: [1, 2, 3]
+        }
+      },
+      required: ['order_item_ids']
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved completed tasks',
+    schema: {
+      type: 'object',
+      additionalProperties: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        }
+      },
+      example: {
+        "546": [
+          "af84992d-ef3b-45f2-aad6-b98a0150f71d",
+          "29d59ac0-df60-4b17-8446-53dde49e93ec"
+        ]
+      }
+    }
+  })
   async getCompletedTasksForOrderItems(
     @Body() body: { order_item_ids: number[] }
   ) {
@@ -461,6 +684,17 @@ export class OrdersController {
     summary: 'Cancel order item',
     description: 'Cancel an order item by its ID. Optionally, specify if the item is a group using the is_group query parameter.',
   })
+  @ApiParam({
+    name: 'order_item_id',
+    description: 'The ID of the order item to be canceled',
+    example: 557
+  })
+  @ApiQuery({
+    name: 'is_group',
+    description: 'Optional flag to indicate if the order item is a group',
+    required: false,
+    example: false
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Order item cancelled successfully',
@@ -468,8 +702,7 @@ export class OrdersController {
       type: 'object',
       properties: {
         success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Order item cancelled successfully' },
-        data: { type: 'object' }
+        message: { type: 'string', example: 'Order item cancelled successfully' }
       }
     }
   })
@@ -490,6 +723,51 @@ export class OrdersController {
 
   @Patch('cancel')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cancel an order or task',
+    description: 'Cancel an order by task ID or order item ID. Optionally specify a quarantine location and reason for cancellation.',
+  })
+  @ApiQuery({
+    name: 'task_id',
+    description: 'The task ID associated with the order to be canceled',
+    required: false,
+    example: 'ae46809c-1802-401f-9f0f-377632bdc758'
+  })
+  @ApiQuery({
+    name: 'order_item_id',
+    description: 'The order item ID to be canceled',
+    required: false,
+    example: 557
+  })
+  @ApiQuery({
+    name: 'quarantine_location_id',
+    description: 'Optional quarantine location ID where items will be moved upon cancellation',
+    required: false,
+    example: 'QUAR001'
+  })
+  @ApiQuery({
+    name: 'reason',
+    description: 'Reason for cancellation',
+    required: false,
+    example: 'retry'
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Order or task canceled successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Order/task canceled successfully' },
+        data: { type: 'object' }
+      }
+    }
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid parameters for cancellation',
+    type: BadRequestDto,
+  })
   async cancel(
     @Query('task_id') task_id?: string,
     @Query('order_item_id') order_item_id?: number,
@@ -500,6 +778,40 @@ export class OrdersController {
   }
 
   @Patch('pre-cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cancel an order or task',
+    description: 'Cancel an order by task ID or order item ID. Optionally specify a quarantine location and reason for cancellation.',
+  })
+  @ApiQuery({
+    name: 'task_id',
+    description: 'The task ID associated with the order to be canceled',
+    required: false,
+    example: 'ae46809c-1802-401f-9f0f-377632bdc758'
+  })
+  @ApiQuery({
+    name: 'order_item_id',
+    description: 'The order item ID to be canceled',
+    required: false,
+    example: 557
+  })
+  @ApiQuery({
+    name: 'quarantine_location_id',
+    description: 'Optional quarantine location ID where items will be moved upon cancellation',
+    required: false,
+    example: 'QUAR001'
+  })
+  @ApiQuery({
+    name: 'reason',
+    description: 'Reason for cancellation',
+    required: false,
+    example: 'retry'
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid parameters for cancellation',
+    type: BadRequestDto,
+  })
   @HttpCode(HttpStatus.OK)
   async preCancel(
     @Query('task_id') task_id?: string,

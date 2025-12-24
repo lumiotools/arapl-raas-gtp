@@ -11,16 +11,16 @@ import {
   UseGuards,
   Query,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiQuery } from '@nestjs/swagger';
 import { StationsService } from './stations.service';
 import { CreateStationDto } from './dto/create-station.dto';
 import { UpdateStationDto } from './dto/update-station.dto';
 import { StationResponseDto } from './dto/station-response.dto';
-import { 
-  SuccessResponseDto, 
-  NotFoundResponseDto, 
-  ValidationErrorResponseDto, 
-  ConflictResponseDto 
+import {
+  SuccessResponseDto,
+  NotFoundResponseDto,
+  ValidationErrorResponseDto,
+  ConflictResponseDto
 } from 'src/common/dto/common-responses.dto';
 import { Roles } from '../auth/guard/roles.decorator';
 import { JwtAuthGuard } from '../auth/guard/auth.guard';
@@ -30,26 +30,26 @@ import { Role } from 'src/entities/user.entity';
 @ApiTags('Stations')
 @Controller('stations')
 export class StationsController {
-  constructor(private readonly stationsService: StationsService) {}
+  constructor(private readonly stationsService: StationsService) { }
 
   @Post()
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Create a new station',
     description: 'Create a new station with the specified details. Station ID must be unique.'
   })
   @ApiBody({ type: CreateStationDto })
-  @ApiResponse({ 
-    status: HttpStatus.CREATED, 
+  @ApiResponse({
+    status: HttpStatus.CREATED,
     description: 'Station created successfully',
     type: StationResponseDto
   })
-  @ApiResponse({ 
-    status: HttpStatus.BAD_REQUEST, 
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
     description: 'Invalid input data or validation errors',
     type: ValidationErrorResponseDto
   })
-  @ApiResponse({ 
-    status: HttpStatus.CONFLICT, 
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
     description: 'Station with this ID already exists',
     type: ConflictResponseDto
   })
@@ -58,67 +58,61 @@ export class StationsController {
   async create(@Body() createStationDto: CreateStationDto) {
     return await this.stationsService.create(createStationDto);
   }
-
-
-    @Get('unloading-times')
-    @ApiOperation({
-      summary: 'Get unloading times for all stations',
-      description: 'Retrieve the unloading times for all stations in the system within the specified time range.'
-    })
-    @ApiResponse({
-      status: HttpStatus.OK,
-      description: 'Unloading times for all stations',
-      schema: {
-        example: [
-          {
-            station_id: 'ST001',
-            unloading_time: 120,
-            unit: 'seconds'
-          },
-          {
-            station_id: 'ST002',
-            unloading_time: 90,
-            unit: 'seconds'
-          }
-        ]
+  @Get('unloading-times')
+  @ApiOperation({
+    summary: 'Get unloading times for all stations',
+    description: 'Retrieve the unloading times for all stations in the system within the specified time range.'
+  })
+  @ApiQuery({ name: 'start_time', required: false, description: 'Start time in ISO 8601 format (e.g., 2025-08-19T09:00:00)' })
+  @ApiQuery({ name: 'end_time', required: false, description: 'End time in ISO 8601 format (e.g., 2025-08-19T17:00:00)' })
+  @ApiQuery({ name: 'module', required: false, description: 'Module to filter by (FlowOps or BaseOps)', enum: ['FlowOps', 'BaseOps'], example: 'FlowOps' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Unloading times for all stations',
+    schema: {
+      example: {
+        "ST001": {
+          "unloading_time": [165, 10, 344, 154, 52, 11, 51, 180, 12]
+        }
       }
-    })
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
-    async getUnloadingTimes(
-      @Query('start_time') startTime?: string,
-      @Query('end_time') endTime?: string,
-      @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
-    ) {
-      let startDate: Date | undefined;
+    }
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
+  async getUnloadingTimes(
+    @Query('start_time') startTime?: string,
+    @Query('end_time') endTime?: string,
+    @Query('module') module: "FlowOps" | "BaseOps" = "FlowOps"
+  ) {
+    let startDate: Date | undefined;
     let endDate: Date | undefined;
 
     if (startTime) {
       startDate = new Date(startTime);
       if (isNaN(startDate.getTime())) {
-      throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
+        throw new BadRequestException('Invalid start_time format. Use ISO 8601 format (e.g., 2025-08-19T09:00:00)');
       }
     }
 
     if (endTime) {
       endDate = new Date(endTime);
       if (isNaN(endDate.getTime())) {
-      throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
+        throw new BadRequestException('Invalid end_time format. Use ISO 8601 format (e.g., 2025-08-19T17:00:00)');
       }
     }
 
     if (startDate && endDate && startDate >= endDate) {
       throw new BadRequestException('start_time must be before end_time');
     }
-      return await this.stationsService.getUnloadingTimes(startDate, endDate, module);
-    }
+    return await this.stationsService.getUnloadingTimes(startDate, endDate, module);
+  }
   @Get()
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Get all stations',
     description: 'Retrieve a list of all stations in the system with their associated GTP locations.'
   })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'List of all stations',
     type: [StationResponseDto]
   })
@@ -129,18 +123,18 @@ export class StationsController {
   }
 
   @Get(':id')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Get a station by ID',
     description: 'Retrieve a specific station by its unique identifier.'
   })
   @ApiParam({ name: 'id', description: 'Station ID', example: 'ST001' })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Station found',
     type: StationResponseDto
   })
-  @ApiResponse({ 
-    status: HttpStatus.NOT_FOUND, 
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
     description: 'Station not found',
     type: NotFoundResponseDto
   })
@@ -152,24 +146,24 @@ export class StationsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Update a station',
     description: 'Update an existing station with new details. Only provided fields will be updated.'
   })
   @ApiParam({ name: 'id', description: 'Station ID', example: 'ST001' })
   @ApiBody({ type: UpdateStationDto })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Station updated successfully',
     type: StationResponseDto
   })
-  @ApiResponse({ 
-    status: HttpStatus.NOT_FOUND, 
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
     description: 'Station not found',
     type: NotFoundResponseDto
   })
-  @ApiResponse({ 
-    status: HttpStatus.BAD_REQUEST, 
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
     description: 'Invalid input data or validation errors',
     type: ValidationErrorResponseDto
   })
@@ -182,23 +176,23 @@ export class StationsController {
         `URL parameter ID (${id}) must match the ID in request body (${updateStationDto.station_id})`
       );
     }
-    
+
     return await this.stationsService.update(id, updateStationDto);
   }
 
   @Delete(':id')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Delete a station',
     description: 'Remove a station from the system. This action cannot be undone and will affect associated GTP locations.'
   })
   @ApiParam({ name: 'id', description: 'Station ID', example: 'ST001' })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Station deleted successfully',
     type: SuccessResponseDto
   })
-  @ApiResponse({ 
-    status: HttpStatus.NOT_FOUND, 
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
     description: 'Station not found',
     type: NotFoundResponseDto
   })
@@ -216,14 +210,24 @@ export class StationsController {
   @ApiParam({ name: 'id', description: 'Station ID', example: 'ST001' })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Active robot at the station',
+    description: 'Active robot at the station. If no robot is available, response will contain only robot_id: null.',
     schema: {
-      example: {
-        robot_id: 'RB001',
-        status: 'active',
-        assigned_station: 'ST001',
-        // ...other robot fields
-      }
+      oneOf: [
+        {
+          example: {
+            robot_name: 'RoboOne',
+            robot_id: 'RB001',
+            source: 'LOC123',
+            status: 'active',
+            source_location_id: 'LOC123'
+          }
+        },
+        {
+          example: {
+            robot_id: null
+          }
+        }
+      ]
     }
   })
   @ApiResponse({

@@ -199,7 +199,7 @@ export class EmptyLocationsService {
         where: { location_id: empty_location_id, status: Not(LocationStatus.AVAILABLE) },
       });
       if (!emptyLocation) {
-        throw new BadRequestException("Empty location not found")
+        throw new BadRequestException("Empty location not found or it is not occupied");
       }
       const tasks = await this.taskRepository.find({
         where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]) },

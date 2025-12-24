@@ -48,10 +48,6 @@ export class SettingsService {
     return `This action returns a #${id} setting`;
   }
 
-  update(id: string, updateSettingDto: any) {
-    return `This action updates a #${id} setting`;
-  }
-
   remove(id: number) {
     return `This action removes a #${id} setting`;
   }
