@@ -1147,7 +1147,12 @@ export class TaskService implements OnModuleInit {
     }
 
     // Check if task is in PROCESSING status
-    if (task.status !== TaskStatus.PROCESSING) {
+    if (task.task_type === TaskType.GOODS_TO_PERSON && (task.status === TaskStatus.COMPLETED || task.status === TaskStatus.CANCELLED || !task.fms_batch_id  || !task.robot_id)) {
+      throw new BadRequestException(
+        `Task cannot be paused`
+      );
+    }
+    else if (task.status !== TaskStatus.PROCESSING) {
       throw new BadRequestException(
         `Task cannot be paused`
       );
