@@ -86,9 +86,10 @@ export class WebhookService {
       [TaskStatus.CANCELLED]: 7,
       [TaskStatus.COMPLETED]: 6,
       [TaskStatus.PROCESSING]: 5,
-      [TaskStatus.INQUEUE]: 4,
-      [TaskStatus.ASSIGNED]: 3,
-      [TaskStatus.PENDING]: 2
+      [TaskStatus.IN_PROGRESS]: 4,
+      [TaskStatus.INQUEUE]: 3,
+      [TaskStatus.ASSIGNED]: 2,
+      [TaskStatus.PENDING]: 1
     };
 
     const oldStatus = task.status;
@@ -141,6 +142,8 @@ export class WebhookService {
     const currentTime = new Date();
     if (mappedStatus === TaskStatus.INQUEUE) {
       task.inqueue = currentTime;
+    } else if (mappedStatus === TaskStatus.IN_PROGRESS) {
+      task.in_progress = currentTime;
     } else if (mappedStatus === TaskStatus.PROCESSING) {
       task.processing = currentTime;
     } else if (mappedStatus === TaskStatus.COMPLETED) {
@@ -250,7 +253,7 @@ export class WebhookService {
       'in-progress': TaskStatus.PROCESSING,
       'in progress': TaskStatus.PROCESSING,
       'pickup_successful': TaskStatus.PROCESSING,
-      'robot_movement_started': TaskStatus.PROCESSING,
+      'robot_movement_started': TaskStatus.IN_PROGRESS,
       'completed': TaskStatus.COMPLETED,
       'cancelled': TaskStatus.CANCELLED,
       'canceled': TaskStatus.CANCELLED,
@@ -576,6 +579,7 @@ export class WebhookService {
     const unique = new Set(statuses);
     if ((unique.size === 1 && unique.has(TaskStatus.CANCELLED)) || statuses.slice(-1)[0] === TaskStatus.CANCELLED) return TaskStatus.CANCELLED;
     if (unique.has(TaskStatus.PROCESSING)) return TaskStatus.PROCESSING;
+    if (unique.has(TaskStatus.IN_PROGRESS)) return TaskStatus.IN_PROGRESS;
     if (unique.has(TaskStatus.ASSIGNED) || unique.has(TaskStatus.INQUEUE)) return TaskStatus.ASSIGNED;
     if (unique.has(TaskStatus.PENDING) || unique.has(TaskStatus.HALTED) || unique.has(TaskStatus.WAITING)) return TaskStatus.PENDING;
     if (unique.has(TaskStatus.COMPLETED)) return TaskStatus.COMPLETED;
@@ -593,6 +597,9 @@ export class WebhookService {
     if (normalizedStatuses.some((s) => s === TaskStatus.PROCESSING)) {
       return BatchStatus.PROCESSING;
     }
+    if (normalizedStatuses.some((s) => s === TaskStatus.IN_PROGRESS)) {
+      return BatchStatus.IN_PROGRESS;
+    }
     if (normalizedStatuses.length > 0 && normalizedStatuses.every((s) => s === TaskStatus.COMPLETED || s === TaskStatus.WAITING)) {
       return BatchStatus.WAITING;
     }
@@ -608,6 +615,8 @@ export class WebhookService {
         return BatchStatus.CANCELLED;
       case TaskStatus.PROCESSING:
         return BatchStatus.PROCESSING;
+      case TaskStatus.IN_PROGRESS:
+        return BatchStatus.IN_PROGRESS;
       case TaskStatus.ASSIGNED:
       case TaskStatus.INQUEUE:
         // No explicit ASSIGNED in BatchStatus; reflect as IN_PROGRESS/PROCESSING? Keep PENDING/PROCESSING precedence handled earlier.
@@ -692,7 +701,7 @@ export class WebhookService {
               task_type: TaskType.CROSSDOCK,
               priority: LessThan(task.priority ?? Number.MAX_SAFE_INTEGER),
               move_type: MOVE_TYPE.PICK_ENTRY,
-              status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING])
+              status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING, TaskStatus.IN_PROGRESS])
             }
           });
 

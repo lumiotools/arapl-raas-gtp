@@ -371,6 +371,7 @@ export class TaskService implements OnModuleInit {
     }
     // Any PROCESSING -> PROCESSING
     if (unique.has(TaskStatus.PROCESSING)) return TaskStatus.PROCESSING;
+    if (unique.has(TaskStatus.IN_PROGRESS)) return TaskStatus.IN_PROGRESS;
     // Any ASSIGNED or INQUEUE -> ASSIGNED
     if (unique.has(TaskStatus.ASSIGNED) || unique.has((TaskStatus as any).INQUEUE)) return TaskStatus.ASSIGNED;
     // Any HALTED -> HALTED
@@ -587,7 +588,7 @@ export class TaskService implements OnModuleInit {
         // - Else if next task exists and has progressed beyond PENDING -> WAIT is COMPLETED
         // - Else -> WAITING
         const waitStatus =
-          t.status === TaskStatus.PROCESSING
+          t.status === TaskStatus.PROCESSING || t.status === TaskStatus.IN_PROGRESS
             ? TaskStatus.PENDING
             : nextTask && nextTask.status !== TaskStatus.PENDING
               ? TaskStatus.COMPLETED
@@ -1150,7 +1151,7 @@ export class TaskService implements OnModuleInit {
     }
 
     // Check if task is in PROCESSING status
-    if (task.status !== TaskStatus.PROCESSING) {
+    if (task.status !== TaskStatus.PROCESSING && task.status !== TaskStatus.IN_PROGRESS) {
       throw new BadRequestException(
         `Task cannot be paused`
       );
@@ -1514,7 +1515,7 @@ export class TaskService implements OnModuleInit {
         task_type: TaskType.CROSSDOCK,
         priority: MoreThan(originalTask.priority ?? Number.MAX_SAFE_INTEGER),
         move_type: MOVE_TYPE.PICK_ENTRY,
-        status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING])
+        status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING, TaskStatus.IN_PROGRESS])
       }
     });
 
@@ -1536,7 +1537,7 @@ export class TaskService implements OnModuleInit {
         where: {
           task_type: TaskType.CROSSDOCK,
           move_type: MOVE_TYPE.PICK_ENTRY,
-          status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING])
+          status: In([TaskStatus.ASSIGNED, TaskStatus.INQUEUE, TaskStatus.PROCESSING, TaskStatus.IN_PROGRESS])
         }
       });
 
@@ -2760,7 +2761,7 @@ export class TaskService implements OnModuleInit {
       where: {
         task_type: TaskType.CROSSDOCK,
         move_type: MOVE_TYPE.ZONE_TO_DROP_ENTRY,
-        status: TaskStatus.PROCESSING
+        status: In([TaskStatus.PROCESSING, TaskStatus.IN_PROGRESS])
       },
     })
 

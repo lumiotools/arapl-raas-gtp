@@ -459,7 +459,8 @@ export class CrossdockTaskService {
       let task_status = WMSBatchJobTaskStatus.TASK_ACKNOWLEDGED;
 
       if(task.robot_id) task_status = WMSBatchJobTaskStatus.TASK_ACKNOWLEDGED;
-      if(task.status === TaskStatus.PROCESSING) task_status = WMSBatchJobTaskStatus.PICKUP_SUCCESSFUL;
+      if(task.status === TaskStatus.PROCESSING || task.status === TaskStatus.IN_PROGRESS) task_status = WMSBatchJobTaskStatus.PICKUP_SUCCESSFUL;
+      if(task.status === TaskStatus.IN_PROGRESS) task_status = WMSBatchJobTaskStatus.ROBOT_ASSIGNED;
       if(task.status === TaskStatus.ASSIGNED) task_status = WMSBatchJobTaskStatus.ROBOT_ASSIGNED;
       if(task.status === TaskStatus.COMPLETED && task.end_location?.location_attribute?.attribute_pending_next_intermediate_task) task_status = WMSBatchJobTaskStatus.DROP_SUCCESSFUL;
       if(task.status === TaskStatus.COMPLETED && !task.end_location?.location_attribute?.attribute_pending_next_intermediate_task) task_status = WMSBatchJobTaskStatus.TASK_COMPLETED;
