@@ -65,7 +65,7 @@ export class StationsController {
   })
   @ApiQuery({ name: 'start_time', required: false, description: 'Start time in ISO 8601 format (e.g., 2025-08-19T09:00:00)' })
   @ApiQuery({ name: 'end_time', required: false, description: 'End time in ISO 8601 format (e.g., 2025-08-19T17:00:00)' })
-  @ApiQuery({ name: 'module', required: false, description: 'Module to filter by (FlowOps or BaseOps)', enum: ['FlowOps', 'BaseOps'], example: 'FlowOps' })
+  @ApiQuery({ name: 'module', required: true, description: 'Module to filter by (FlowOps or BaseOps)', enum: ['FlowOps', 'BaseOps'], example: 'FlowOps' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Unloading times for all stations',
@@ -109,7 +109,7 @@ export class StationsController {
   @Get()
   @ApiOperation({
     summary: 'Get all stations',
-    description: 'Retrieve a list of all stations in the system with their associated GTP locations.'
+    description: 'Retrieve a list of all stations in the system with their associated Pick Locations.'
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -183,7 +183,7 @@ export class StationsController {
   @Delete(':id')
   @ApiOperation({
     summary: 'Delete a station',
-    description: 'Remove a station from the system. This action cannot be undone and will affect associated GTP locations.'
+    description: 'Remove a station from the system. This action cannot be undone and will affect associated Pick Locations.'
   })
   @ApiParam({ name: 'id', description: 'Station ID', example: 'ST001' })
   @ApiResponse({
@@ -222,11 +222,6 @@ export class StationsController {
             source_location_id: 'LOC123'
           }
         },
-        {
-          example: {
-            robot_id: null
-          }
-        }
       ]
     }
   })

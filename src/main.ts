@@ -3,6 +3,8 @@ import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
 import * as cookieParser from 'cookie-parser';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { join } from 'path';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -36,11 +38,9 @@ async function bootstrap() {
 
       This API provides comprehensive GTP capabilities including:
       - Order management and file upload processing
-      - GTP (Goods To Person) location management
-      - Station management and configuration
-      - Product catalog management
+      - Moveops location management
+      - Station management and Pallet Slot assignments
       - Inventory tracking and bulk operations
-      - License plate to GTP location mapping
       
       All endpoints include proper validation, error handling, and support file uploads where applicable.
     `)
@@ -54,16 +54,25 @@ async function bootstrap() {
       },
       'api-key',
     )
-    .addTag('Orders', 'Order management, file uploads, and license plate mapping')
-    .addTag('GTP Locations', 'Goods To Person location management and configuration')
-    .addTag('Stations', 'Station management and GTP location assignments')
-    .addTag('Products', 'Product catalog management')
+    .addTag('Orders', 'Order management, file uploads, and cancellations.')
+    .addTag('Pick Locations', 'Pick location management and configuration')
+    .addTag('Stations', 'Station management and Pallet Slot assignments')
     .addTag('Inventory', 'Inventory tracking, management, and bulk operations')
     .addTag('Orchestrator', 'Task orchestration and batch processing for warehouse operations')
     .addTag('Webhook', 'Webhook endpoints for receiving status updates from WMS API layer')
     .build();
+  
+  
 
   const document = SwaggerModule.createDocument(app, config);
+  const swaggerDir = join(process.cwd(), 'docs', 'swagger');
+  if (!existsSync(swaggerDir)) {
+    mkdirSync(swaggerDir, { recursive: true });
+  }
+  writeFileSync(
+    './docs/swagger/swagger-spec.json',
+    JSON.stringify(document, null, 2),
+  );
   SwaggerModule.setup('api-docs', app, document, {
     swaggerOptions: {
       persistAuthorization: true,

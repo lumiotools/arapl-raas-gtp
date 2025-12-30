@@ -9,6 +9,7 @@ import { jwtConfig } from 'src/config/jwt.config';
 import { JwtAuthGuard } from './guard/auth.guard';
 import { Role } from 'src/entities/user.entity';
 import { ApiBody, ApiConsumes, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import e from 'express';
 
 @Controller('auth')
 export class AuthController {
@@ -141,24 +142,33 @@ export class AuthController {
 
   // Protected route - any authenticated user
   @Get('/profile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get user profile',
+    description: 'Retrieves the profile of the authenticated user.'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The user profile has been successfully retrieved.',
+    schema: {
+        type: 'object',
+        properties: {
+          user: {
+            type: 'object',
+            properties: {
+              sub: { type: 'string' },
+              user_name: { type: 'string' },
+              role: { type: 'string' },
+              exp: { type: 'number' },
+              iat: { type: 'number'
+            }
+          }
+        }
+      }
+    }
+  })
   @UseGuards(JwtAuthGuard)
   async getProfile(@Req() req) {
     return { user: req.user };
-  }
-
-  // Admin only route
-  @Get('/admin/users')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN)
-  async getAllUsers() {
-    return { message: 'Only admins can see this' };
-  }
-
-  // Multiple roles allowed
-  @Get('/admin/reports')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN)
-  async getReports() {
-    return { message: 'Admins and operators can see this' };
   }
 }

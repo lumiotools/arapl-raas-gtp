@@ -158,244 +158,236 @@ export class OrchestratorController {
     return waitingLocation;
   }
 
-  @Get('tasks')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.CROSSDOCK_ADMIN)
-  @ApiOperation({
-    summary: 'Get all tasks in the system',
-    description: 'Retrieve all tasks from the database with their complete details including locations, status, and dependencies.',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Successfully retrieved all tasks',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Found 150 tasks in the system' },
-        data: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              task_id: { type: 'number', example: 1 },
-              batch_id: { type: 'string', example: 'B1641234567' },
-              product_id: { type: 'string', example: 'PROD001' },
-              quantity: { type: 'number', example: 10 },
-              task_type: { type: 'string', example: 'GOODS_TO_PERSON' },
-              sequence_order: { type: 'number', example: 1 },
-              task_dependency: { type: 'number', example: null },
-              status: { type: 'string', example: 'COMPLETED' },
-              robot_id: { type: 'string', example: 'ROBOT_001' },
-              start_location: {
-                type: 'object',
-                properties: {
-                  location_id: { type: 'string', example: 'INV001' },
-                  location_type: { type: 'string', example: 'ZONE' },
-                  location_action: { type: 'string', example: 'PICK' },
-                  location_dimension: {
-                    type: 'object',
-                    properties: {
-                      length: { type: 'number', example: 1 },
-                      width: { type: 'number', example: 1 },
-                      height: { type: 'number', example: 1 }
-                    }
-                  },
-                  location_attribute: {
-                    type: 'object',
-                    properties: {
-                      attribute_name: { type: 'string', example: 'location_type' },
-                      attribute_value: { type: 'string', example: 'inventory' }
-                    }
-                  }
-                }
-              },
-              end_location: {
-                type: 'object',
-                properties: {
-                  location_id: { type: 'string', example: 'STA001' },
-                  location_type: { type: 'string', example: 'ZONE' },
-                  location_action: { type: 'string', example: 'WAIT' },
-                  location_dimension: {
-                    type: 'object',
-                    properties: {
-                      length: { type: 'number', example: 1 },
-                      width: { type: 'number', example: 1 },
-                      height: { type: 'number', example: 1 }
-                    }
-                  },
-                  location_attribute: {
-                    type: 'object',
-                    properties: {
-                      attribute_name: { type: 'string', example: 'location_type' },
-                      attribute_value: { type: 'string', example: 'station' }
-                    }
-                  }
-                }
-              },
-              wait: {
-                type: 'object',
-                properties: {
-                  wait_type: { type: 'string', example: 'TRIGGER' }
-                }
-              },
-              cargos: {
-                type: 'array',
-                items: {
+    @Get('tasks')
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.BASEOPS_ADMIN, Role.CROSSDOCK_ADMIN)
+    @ApiOperation({
+      summary: 'Get all tasks in the system',
+      description: 'Retrieve all tasks from the database with their complete details including locations, status, and dependencies.',
+    })
+    @ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Successfully retrieved all tasks',
+      schema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string', example: 'Found 150 tasks in the system' },
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                created_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:10.110Z' },
+                updated_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.651Z' },
+                task_id: { type: 'string', format: 'uuid', example: 'c95332ff-322d-4262-85b3-283ff9bc4a75' },
+                display_task_id: { type: 'string', example: '903' },
+                batch_id: { type: 'string', example: 'B6566210101' },
+                fms_batch_id: { type: 'string', nullable: true, example: 'Batch-20251224142010162' },
+                wms_task_id: { type: 'string', nullable: true, example: null },
+                origin_location: { type: 'string', example: 'R20X01' },
+                priority: { type: 'number', example: 1 },
+                task_type: { type: 'string', example: 'GoodsToPerson' },
+                status: { type: 'string', example: 'COMPLETED' },
+                move_type: { type: 'string', example: 'InventoryToStation' },
+                sequence_order: { type: 'number', example: 1 },
+                task_dependency: { type: 'string', example: 'c95332ff-322d-4262-85b3-283ff9bc4a75' },
+                robot_id: { type: 'string', format: 'uuid', example: '81b23183-8e23-48c8-9337-50e30f20ad45' },
+                start_location: {
                   type: 'object',
                   properties: {
-                    cargo_code: { type: 'string', example: 'PROD001' },
-                    cargo_type: { type: 'string', example: 'Pallet' },
-                    cargo_dimension: {
+                    location_id: { type: 'string', example: 'R20X01' },
+                    location_type: { type: 'string', example: 'PALLET' },
+                    location_action: { type: 'string', example: 'PICK' },
+                    location_attribute: {
                       type: 'object',
                       properties: {
-                        length: { type: 'number', example: 1 },
-                        width: { type: 'number', example: 1 },
-                        height: { type: 'number', example: 1 }
+                        attribute_name: { type: 'string', example: 'location_type' },
+                        attribute_value: { type: 'string', example: 'inventory' }
                       }
-                    },
-                    cargo_attributes: { type: 'object', example: null },
-                    cargo_weight: { type: 'number', example: 1 }
+                    }
                   }
-                }
-              },
-              created_at: { type: 'string', format: 'date-time' },
-              updated_at: { type: 'string', format: 'date-time' }
+                },
+                end_location: {
+                  type: 'object',
+                  properties: {
+                    location_id: { type: 'string', example: 'ST002' },
+                    location_type: { type: 'string', example: 'PALLET' },
+                    location_action: { type: 'string', example: 'NOP_PAUSE' },
+                    location_attribute: {
+                      type: 'object',
+                      properties: {
+                        attribute_name: { type: 'string', example: 'location_type' },
+                        attribute_value: { type: 'string', example: 'station' }
+                      }
+                    }
+                  }
+                },
+                wait: { type: 'object', nullable: true, example: null },
+                cargos: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      cargo_code: { type: 'string', example: '843920174600' },
+                      cargo_type: { type: 'string', example: 'PALLET' },
+                      cargo_dimension: {
+                        type: 'object',
+                        properties: {
+                          length: { type: 'number', example: 1 },
+                          width: { type: 'number', example: 1 },
+                          height: { type: 'number', example: 1 }
+                        }
+                      },
+                      cargo_weight: { type: 'number', example: 0 },
+                      cargo_attributes: { type: 'object', nullable: true, example: null }
+                    }
+                  }
+                },
+                pause_resume_logs: { type: 'array',  nullable: true, example: null },
+                task_acknowledged: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:10.432Z' },
+                inqueue: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:10.488Z' },
+                processing: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:11.533Z' },
+                completed: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.649Z' },
+                triggered: { type: 'string', nullable: true, example: null },
+                message: { type: 'string', nullable: true, example: null },
+                is_gtp_cancelled: { type: 'boolean', example: false },
+                is_paused: { type: 'boolean', example: false }
+              }
             }
           }
         }
-      }
-    }})
-  @ApiResponse({
-    status: HttpStatus.INTERNAL_SERVER_ERROR,
-    description: 'Internal server error',
-    schema: {
-      type: 'object',
-      properties: {
-        statusCode: { type: 'number', example: 500 },
-        message: { type: 'string', example: 'Failed to retrieve tasks: Database connection error' },
-        error: { type: 'string', example: 'Internal Server Error' }
-      }
-    }
-  })
-  async getAllTasks() {
-    return await this.orchestratorService.getAllTasks();
-  }
-
-  @Get('tasks/:taskId')
-  @ApiOperation({
-    summary: 'Get task by task ID',
-    description: 'Retrieve a specific task by its task_id with complete details including locations, status, and dependencies.',
-  })
-  @ApiParam({ name: 'taskId', description: 'Task ID', example: '123' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Successfully retrieved the task',
-    schema: {
-      type: 'object',
-      properties: {
-        success: { type: 'boolean', example: true },
-        message: { type: 'string', example: 'Task 123 retrieved successfully' },
-        data: {
-          type: 'object',
-          properties: {
-            task_id: { type: 'number', example: 123 },
-            batch_id: { type: 'string', example: 'B1641234567' },
-            product_id: { type: 'string', example: 'PROD001' },
-            quantity: { type: 'number', example: 10 },
-            task_type: { type: 'string', example: 'GOODS_TO_PERSON' },
-            sequence_order: { type: 'number', example: 1 },
-            task_dependency: { type: 'number', example: null },
-            status: { type: 'string', example: 'COMPLETED' },
-            robot_id: { type: 'string', example: 'ROBOT_001' },
-            start_location: { type: 'string', example: 'INV_LOC_001' },
-            end_location: { type: 'string', example: 'STATION_A' },
-            created_at: { type: 'string', example: '2024-01-15T10:30:00Z' },
-            updated_at: { type: 'string', example: '2024-01-15T11:00:00Z' }
-          }
+      }})
+    @ApiResponse({
+      status: HttpStatus.INTERNAL_SERVER_ERROR,
+      description: 'Internal server error',
+      schema: {
+        type: 'object',
+        properties: {
+          statusCode: { type: 'number', example: 500 },
+          message: { type: 'string', example: 'Failed to retrieve tasks: Database connection error' },
+          error: { type: 'string', example: 'Internal Server Error' }
         }
       }
+    })
+    async getAllTasks() {
+      return await this.orchestratorService.getAllTasks();
     }
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Task not found',
-    schema: {
-      type: 'object',
-      properties: {
-        message: { type: 'string', example: 'Task with ID 123 not found' },
-        error: { type: 'string', example: 'Not Found' },
-        statusCode: { type: 'number', example: 404 }
-      }
-    }
-  })
-  @ApiResponse({
-    status: HttpStatus.INTERNAL_SERVER_ERROR,
-    description: 'Internal server error',
-    schema: {
-      type: 'object',
-      properties: {
-        message: { type: 'string', example: 'Failed to retrieve task: Database connection error' },
-        error: { type: 'string', example: 'Internal Server Error' },
-        statusCode: { type: 'number', example: 500 }
-      }
-    }
-  })
 
-  @Get('tasks/:taskId')
-  @ApiOperation({
-    summary: 'Get task by task ID',
-    description: 'Retrieve detailed information about a specific task using its task ID.',
-  })
-  @ApiParam({
-    name: 'taskId',
-    type: 'string',
-    description: 'The unique identifier of the task',
-    example: '123'
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Task retrieved successfully',
-    schema: {
-      type: 'object',
-      properties: {
-        task_id: { type: 'number', example: 123 },
-        batch_id: { type: 'number', example: 1 },
-        product_id: { type: 'string', example: 'P001' },
-        from_location_id: { type: 'string', example: 'L001' },
-        to_location_id: { type: 'string', example: 'S001' },
-        quantity: { type: 'number', example: 5 },
-        status: { type: 'string', example: 'PENDING', enum: ['PENDING', 'IN_PROGRESS', 'COMPLETED'] },
-        priority: { type: 'number', example: 1 },
-        created_at: { type: 'string', format: 'date-time', example: '2024-01-01T00:00:00.000Z' },
-        updated_at: { type: 'string', format: 'date-time', example: '2024-01-01T00:00:00.000Z' }
+    @Get('tasks/:taskId')
+    @ApiOperation({
+      summary: 'Get task by task ID',
+      description: 'Retrieve a specific task by its task_id with complete details including locations, status, and dependencies.',
+    })
+    @ApiParam({ name: 'taskId', description: 'Task ID', example: 'c95332ff-322d-4262-85b3-283ff9bc4a75' })
+    @ApiResponse({
+      status: HttpStatus.OK,
+      description: 'Successfully retrieved the task',
+      schema: {
+        type: 'object',
+        properties: {
+          created_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:10.110Z' },
+          updated_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.651Z' },
+          task_id: { type: 'string', format: 'uuid', example: 'c95332ff-322d-4262-85b3-283ff9bc4a75' },
+          display_task_id: { type: 'string', example: '903' },
+          batch_id: { type: 'string', example: 'B6566210101' },
+          fms_batch_id: { type: 'string', nullable: true, example: 'Batch-20251224142010162' },
+          wms_task_id: { type: 'string', nullable: true, example: null },
+          origin_location: { type: 'string', example: 'R20X01' },
+          priority: { type: 'number', example: 1 },
+          task_type: { type: 'string', example: 'GoodsToPerson' },
+          status: { type: 'string', example: 'COMPLETED' },
+          move_type: { type: 'string', example: 'InventoryToStation' },
+          sequence_order: { type: 'number', example: 1 },
+          task_dependency: { type: 'string', example: 'c95332ff-322d-4262-85b3-283ff9bc4a75' },
+          robot_id: { type: 'string', format: 'uuid', example: '81b23183-8e23-48c8-9337-50e30f20ad45' },
+          start_location: {
+            type: 'object',
+            properties: {
+              location_id: { type: 'string', example: 'R20X01' },
+              location_type: { type: 'string', example: 'PALLET' },
+              location_action: { type: 'string', example: 'PICK' },
+              location_attribute: {
+                type: 'object',
+                properties: {
+                  attribute_name: { type: 'string', example: 'location_type' },
+                  attribute_value: { type: 'string', example: 'inventory' }
+                }
+              }
+            }
+          },
+          end_location: {
+            type: 'object',
+            properties: {
+              location_id: { type: 'string', example: 'ST002' },
+              location_type: { type: 'string', example: 'PALLET' },
+              location_action: { type: 'string', example: 'NOP_PAUSE' },
+              location_attribute: {
+                type: 'object',
+                properties: {
+                  attribute_name: { type: 'string', example: 'location_type' },
+                  attribute_value: { type: 'string', example: 'station' }
+                }
+              }
+            }
+          },
+          wait: { type: 'object', nullable: true, example: null },
+          cargos: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                cargo_code: { type: 'string', example: '843920174600' },
+                cargo_type: { type: 'string', example: 'PALLET' },
+                cargo_dimension: {
+                  type: 'object',
+                  properties: {
+                    length: { type: 'number', example: 1 },
+                    width: { type: 'number', example: 1 },
+                    height: { type: 'number', example: 1 }
+                  }
+                },
+                cargo_weight: { type: 'number', example: 0 },
+                cargo_attributes: { type: 'object', nullable: true, example: null }
+              }
+            }
+          },
+          pause_resume_logs: { type: 'array', nullable: true, example: null },
+          task_acknowledged: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:10.432Z' },
+          inqueue: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:10.488Z' },
+          processing: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:11.533Z' },
+          completed: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.649Z' },
+          triggered: { type: 'string', nullable: true, example: null },
+          message: { type: 'string', nullable: true, example: null },
+          is_gtp_cancelled: { type: 'boolean', example: false },
+          is_paused: { type: 'boolean', example: false }
+        }
       }
-    }
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Task not found',
-    schema: {
-      type: 'object',
-      properties: {
-        message: { type: 'string', example: 'Task with ID 123 not found' },
-        error: { type: 'string', example: 'Not Found' },
-        statusCode: { type: 'number', example: 404 }
+    })
+    @ApiResponse({
+      status: HttpStatus.NOT_FOUND,
+      description: 'Task not found',
+      schema: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', example: 'Task with ID c95332ff-322d-4262-85b3-283ff9bc4a75 not found' },
+          error: { type: 'string', example: 'Not Found' },
+          statusCode: { type: 'number', example: 404 }
+        }
       }
-    }
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid task ID format',
-    schema: {
-      type: 'object',
-      properties: {
-        message: { type: 'string', example: 'Invalid task ID format' },
-        error: { type: 'string', example: 'Bad Request' },
-        statusCode: { type: 'number', example: 400 }
+    })
+    @ApiResponse({
+      status: HttpStatus.INTERNAL_SERVER_ERROR,
+      description: 'Internal server error',
+      schema: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', example: 'Failed to retrieve task: Database connection error' },
+          error: { type: 'string', example: 'Internal Server Error' },
+          statusCode: { type: 'number', example: 500 }
+        }
       }
-    }
-  })
+    })
   async getTaskById(@Param('taskId') taskId: string) {
     return await this.orchestratorService.getTaskbyID(taskId);
   }
@@ -491,28 +483,98 @@ export class OrchestratorController {
     example: 'ROBOT_001' 
   })
   @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'List of tasks assigned to the robot',
-    schema: {
-      type: 'array',
-      items: {
+      status: HttpStatus.OK,
+      description: 'Successfully retrieved all tasks',
+      schema: {
         type: 'object',
         properties: {
-          task_id: { type: 'number', example: 123 },
-          batch_id: { type: 'string', example: 'B1641234567' },
-          product_id: { type: 'string', example: 'PROD001' },
-          quantity: { type: 'number', example: 10 },
-          task_type: { type: 'string', example: 'GOODS_TO_PERSON' },
-          sequence_order: { type: 'number', example: 1 },
-          status: { type: 'string', example: 'IN_PROGRESS' },
-          start_location: { type: 'string', example: 'INV_LOC_001' },
-          end_location: { type: 'string', example: 'STATION_A' },
-          created_at: { type: 'string', format: 'date-time' },
-          updated_at: { type: 'string', format: 'date-time' }
+          success: { type: 'boolean', example: true },
+          message: { type: 'string', example: 'Found 150 tasks in the system' },
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                created_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:10.110Z' },
+                updated_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.651Z' },
+                task_id: { type: 'string', format: 'uuid', example: 'c95332ff-322d-4262-85b3-283ff9bc4a75' },
+                display_task_id: { type: 'string', example: '903' },
+                batch_id: { type: 'string', example: 'B6566210101' },
+                fms_batch_id: { type: 'string', nullable: true, example: 'Batch-20251224142010162' },
+                wms_task_id: { type: 'string', nullable: true, example: null },
+                origin_location: { type: 'string', example: 'R20X01' },
+                priority: { type: 'number', example: 1 },
+                task_type: { type: 'string', example: 'GoodsToPerson' },
+                status: { type: 'string', example: 'COMPLETED' },
+                move_type: { type: 'string', example: 'InventoryToStation' },
+                sequence_order: { type: 'number', example: 1 },
+                task_dependency: { type: 'string', example: 'c95332ff-322d-4262-85b3-283ff9bc4a75' },
+                robot_id: { type: 'string', format: 'uuid', example: '81b23183-8e23-48c8-9337-50e30f20ad45' },
+                start_location: {
+                  type: 'object',
+                  properties: {
+                    location_id: { type: 'string', example: 'R20X01' },
+                    location_type: { type: 'string', example: 'PALLET' },
+                    location_action: { type: 'string', example: 'PICK' },
+                    location_attribute: {
+                      type: 'object',
+                      properties: {
+                        attribute_name: { type: 'string', example: 'location_type' },
+                        attribute_value: { type: 'string', example: 'inventory' }
+                      }
+                    }
+                  }
+                },
+                end_location: {
+                  type: 'object',
+                  properties: {
+                    location_id: { type: 'string', example: 'ST002' },
+                    location_type: { type: 'string', example: 'PALLET' },
+                    location_action: { type: 'string', example: 'NOP_PAUSE' },
+                    location_attribute: {
+                      type: 'object',
+                      properties: {
+                        attribute_name: { type: 'string', example: 'location_type' },
+                        attribute_value: { type: 'string', example: 'station' }
+                      }
+                    }
+                  }
+                },
+                wait: { type: 'object', nullable: true, example: null },
+                cargos: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      cargo_code: { type: 'string', example: '843920174600' },
+                      cargo_type: { type: 'string', example: 'PALLET' },
+                      cargo_dimension: {
+                        type: 'object',
+                        properties: {
+                          length: { type: 'number', example: 1 },
+                          width: { type: 'number', example: 1 },
+                          height: { type: 'number', example: 1 }
+                        }
+                      },
+                      cargo_weight: { type: 'number', example: 0 },
+                      cargo_attributes: { type: 'object', nullable: true, example: null }
+                    }
+                  }
+                },
+                pause_resume_logs: { type: 'array',  nullable: true, example: null },
+                task_acknowledged: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:10.432Z' },
+                inqueue: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:10.488Z' },
+                processing: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:11.533Z' },
+                completed: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.649Z' },
+                triggered: { type: 'string', nullable: true, example: null },
+                message: { type: 'string', nullable: true, example: null },
+                is_gtp_cancelled: { type: 'boolean', example: false },
+                is_paused: { type: 'boolean', example: false }
+              }
+            }
+          }
         }
-      }
-    }
-  })
+      }})
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'No tasks found for the robot',
@@ -968,6 +1030,11 @@ export class OrchestratorController {
     summary: 'Update total robots in system',
     description: 'Updates the total number of robots in the system configuration.',
   })
+  @ApiQuery({
+    name: 'module',
+    description: 'Operation module to update robots (FLOWOPS, BASEOPS or CROSSDOCK)',
+    example: 'FLOWOPS'
+  })
   @ApiBody({
     schema: {
       type: 'object',
@@ -1022,6 +1089,11 @@ export class OrchestratorController {
     summary: 'Get total number of robots in system',
     description: 'Retrieve the total number of robots configured in the system.',
   })
+  @ApiQuery({
+    name: 'module',
+    description: 'Operation module to get robots (FLOWOPS, BASEOPS or CROSSDOCK)',
+    example: 'FLOWOPS'
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Total robots retrieved successfully',
@@ -1049,6 +1121,11 @@ export class OrchestratorController {
   @ApiOperation({
     summary: 'Get robot status by robot ID',
     description: 'Retrieve the current status and details of a specific robot by its ID.',
+  })
+  @ApiQuery({
+    name: 'task_type',
+    description: 'Task type to get robot status (e.g. GoodsToPerson)',
+    example: 'GoodsToPerson'
   })
   @ApiParam({ name: 'robot_id', description: 'Robot ID', example: 'ROBOT_001' })
     @ApiResponse({
@@ -1221,9 +1298,9 @@ export class OrchestratorController {
   @Post('trigger-order/:orderId')
   @ApiOperation({
     summary: 'Trigger orchestrator process for a specific order',
-    description: 'Manually start the orchestrator process for the given order ID with provided source and GTP location.',
+    description: 'Manually start the orchestrator process for the given order ID with provided source and Pick Location.',
   })
-  @ApiParam({ name: 'orderId', description: 'Order ID', example: 'ORD123456' })
+  @ApiParam({ name: 'orderId', description: 'Order ID', example: '123456' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Orchestrator process triggered for order successfully',

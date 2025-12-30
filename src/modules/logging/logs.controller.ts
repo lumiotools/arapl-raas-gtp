@@ -23,6 +23,12 @@ export class LogsController {
     description: 'Maximum number of logs to return (optional - returns all logs if not specified)',
     example: 100
   })
+  @ApiQuery({
+    name: 'task_type',
+    required: false,
+    description: 'Filter logs by task type (optional)',
+    example: 'GoodsToPerson'
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Logs retrieved successfully',
@@ -68,7 +74,24 @@ export class LogsController {
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Search results retrieved successfully'
+    description: 'Search results retrieved successfully',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          created_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.656Z' },
+          updated_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.656Z' },
+          log_id: { type: 'number', example: 10612 },
+          message: { type: 'string', example: 'Task c95332ff-322d-4262-85b3-283ff9bc4a75: Marking station ST002 as OCCUPIED.' },
+          task_type: { type: 'string', example: 'GoodsToPerson' },
+          task_id: { type: 'string', example: 'c95332ff-322d-4262-85b3-283ff9bc4a75' },
+          order_batch_id: { type: 'string', nullable: true, example: null },
+          is_error: { type: 'boolean', example: false },
+          timestamp: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.661Z' },
+        }
+      }
+    }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
@@ -78,7 +101,6 @@ export class LogsController {
   ) {
     return await this.loggingService.searchLogs(searchTerm, limit || 100);
   }
-
   @Get('time-range')
   @ApiOperation({
     summary: 'Get logs by time range',
@@ -102,7 +124,24 @@ export class LogsController {
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Time range logs retrieved successfully'
+    description: 'Time range logs retrieved successfully',
+    schema: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          created_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.656Z' },
+          updated_at: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.656Z' },
+          log_id: { type: 'number', example: 10612 },
+          message: { type: 'string', example: 'Task c95332ff-322d-4262-85b3-283ff9bc4a75: Marking station ST002 as OCCUPIED.' },
+          task_type: { type: 'string', example: 'GoodsToPerson' },
+          task_id: { type: 'string', example: 'c95332ff-322d-4262-85b3-283ff9bc4a75' },
+          order_batch_id: { type: 'string', nullable: true, example: null },
+          is_error: { type: 'boolean', example: false },
+          timestamp: { type: 'string', format: 'date-time', example: '2025-12-24T08:50:51.661Z' },
+        }
+      }
+    }
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)

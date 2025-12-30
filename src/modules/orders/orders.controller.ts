@@ -69,7 +69,7 @@ export class OrdersController {
           type: 'string',
           format: 'binary',
           description:
-            'CSV or Excel file containing order data with columns: source_location, destionation_location',
+            'CSV or Excel file containing order data with columns: source_location, destination_location',
         },
       },
       required: ['file'],
@@ -202,12 +202,12 @@ export class OrdersController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR, Role.ADMIN)
   @ApiOperation({
-    summary: 'Get GTP location status',
-    description: 'Returns the status (boolean) for the specified GTP location.',
+    summary: 'Get Pick Location status',
+    description: 'Returns the status (boolean) for the specified Pick Location.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Successfully retrieved status for the GTP location',
+    description: 'Successfully retrieved status for the Pick Location',
     schema: {
       type: 'object',
       properties: {
@@ -217,7 +217,7 @@ export class OrdersController {
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid GTP location ID',
+    description: 'Invalid Pick Location ID',
     type: BadRequestDto,
   })
   async getGtpLocationStatus(
@@ -547,12 +547,12 @@ export class OrdersController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin', 'flowops.operator', 'flowops.admin')
   @ApiOperation({
-    summary: 'Get source by GTP location',
-    description: 'Retrieve all source associated with the specified GTP location ID.',
+    summary: 'Get source inventory by Pick Location',
+    description: 'Retrieve all source associated with the specified Pick Location ID.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Successfully retrieved source for the GTP location',
+    description: 'Successfully retrieved source inventory for the Pick Location',
     schema: {
       type: 'object',
       additionalProperties: {
@@ -619,14 +619,14 @@ export class OrdersController {
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid GTP location ID',
+    description: 'Invalid Pick Location ID',
     type: BadRequestDto,
   })
   async getSourceByGtpLocation(
     @Param('gtp_location_id') gtpLocationId: string
   ) {
     if (!gtpLocationId) {
-      throw new BadRequestException('GTP location ID is required');
+      throw new BadRequestException('Pick Location ID is required');
     }
     return await this.ordersService.getSourceByGtpLocation(gtpLocationId);
   }
@@ -780,8 +780,8 @@ export class OrdersController {
   @Patch('pre-cancel')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Cancel an order or task',
-    description: 'Cancel an order by task ID or order item ID. Optionally specify a quarantine location and reason for cancellation.',
+    summary: 'Cancellation check for an order or task',
+    description: 'Check cancellation conditions for an order by task ID or order item ID. Optionally specify a quarantine location and reason for cancellation.',
   })
   @ApiQuery({
     name: 'task_id',

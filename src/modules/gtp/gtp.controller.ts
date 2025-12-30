@@ -16,7 +16,7 @@ import { JwtAuthGuard } from '../auth/guard/auth.guard';
 import { RolesGuard } from '../auth/guard/roles.guard';
 import { Role } from 'src/entities/user.entity';
 
-@ApiTags('GTP Locations')
+@ApiTags('Pick Locations')
 @Controller('gtp')
 export class GtpController {
   constructor(private readonly gtpService: GtpService) {}
@@ -24,13 +24,13 @@ export class GtpController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ 
-    summary: 'Create a new GTP location',
-    description: 'Create a new Goods To Person location with the specified details. The GTP location ID must be unique.'
+    summary: 'Create a new Pick Location',
+    description: 'Create a new Goods To Person location with the specified details. The Pick Location ID must be unique.'
   })
   @ApiBody({ type: CreateGtpDto })
   @ApiResponse({ 
     status: HttpStatus.CREATED, 
-    description: 'GTP location created successfully',
+    description: 'Pick Location created successfully',
     type: GtpLocationResponseDto
   })
   @ApiResponse({ 
@@ -40,7 +40,7 @@ export class GtpController {
   })
   @ApiResponse({ 
     status: HttpStatus.CONFLICT, 
-    description: 'GTP location with this ID already exists',
+    description: 'Pick Location with this ID already exists',
     type: ConflictResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -51,12 +51,12 @@ export class GtpController {
 
   @Get()
   @ApiOperation({ 
-    summary: 'Get all GTP locations',
-    description: 'Retrieve a list of all Goods To Person locations in the system.'
+    summary: 'Get all Pick Locations',
+    description: 'Retrieve a list of all Pick Locations in the system.'
   })
   @ApiResponse({ 
     status: HttpStatus.OK, 
-    description: 'List of all GTP locations',
+    description: 'List of all Pick Locations',
     type: [GtpLocationResponseDto]
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -67,18 +67,18 @@ export class GtpController {
 
   @Get(':id')
   @ApiOperation({ 
-    summary: 'Get a GTP location by ID',
-    description: 'Retrieve a specific Goods To Person location by its unique identifier.'
+    summary: 'Get a Pick Location by ID',
+    description: 'Retrieve a specific Pick Location by its unique identifier.'
   })
-  @ApiParam({ name: 'id', description: 'GTP location ID', example: 'GTP001' })
+  @ApiParam({ name: 'id', description: 'Pick Location ID', example: 'GTP001' })
   @ApiResponse({ 
     status: HttpStatus.OK, 
-    description: 'GTP location found',
+    description: 'Pick Location found',
     type: GtpLocationResponseDto
   })
   @ApiResponse({ 
     status: HttpStatus.NOT_FOUND, 
-    description: 'GTP location not found',
+    description: 'Pick Location not found',
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -89,19 +89,19 @@ export class GtpController {
 
   @Patch(':id')
   @ApiOperation({ 
-    summary: 'Update a GTP location',
-    description: 'Update an existing Goods To Person location with new details. Only provided fields will be updated.'
+    summary: 'Update a Pick Location',
+    description: 'Update an existing Pick Location with new details. Only provided fields will be updated.'
   })
-  @ApiParam({ name: 'id', description: 'GTP location ID', example: 'GTP001' })
+  @ApiParam({ name: 'id', description: 'Pick Location ID', example: 'GTP001' })
   @ApiBody({ type: UpdateGtpDto })
   @ApiResponse({ 
     status: HttpStatus.OK, 
-    description: 'GTP location updated successfully',
+    description: 'Pick Location updated successfully',
     type: GtpLocationResponseDto
   })
   @ApiResponse({ 
     status: HttpStatus.NOT_FOUND, 
-    description: 'GTP location not found',
+    description: 'Pick Location not found',
     type: NotFoundResponseDto
   })
   @ApiResponse({ 
@@ -124,18 +124,18 @@ export class GtpController {
 
   @Delete(':id')
   @ApiOperation({ 
-    summary: 'Delete a GTP location',
-    description: 'Remove a Goods To Person location from the system. This action cannot be undone.'
+    summary: 'Delete a Pick Location',
+    description: 'Remove a Pick Location from the system. This action cannot be undone.'
   })
-  @ApiParam({ name: 'id', description: 'GTP location ID', example: 'GTP001' })
+  @ApiParam({ name: 'id', description: 'Pick Location ID', example: 'GTP001' })
   @ApiResponse({ 
     status: HttpStatus.OK, 
-    description: 'GTP location deleted successfully',
+    description: 'Pick Location deleted successfully',
     type: SuccessResponseDto
   })
   @ApiResponse({ 
     status: HttpStatus.NOT_FOUND, 
-    description: 'GTP location not found',
+    description: 'Pick Location not found',
     type: NotFoundResponseDto
   })
   @UseGuards(JwtAuthGuard, RolesGuard)

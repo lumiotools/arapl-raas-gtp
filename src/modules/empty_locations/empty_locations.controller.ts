@@ -23,11 +23,6 @@ import { ApiBody, ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
 export class EmptyLocationsController {
   constructor(private readonly emptyLocationsService: EmptyLocationsService) {}
 
-  @Post()
-  create(@Body() createEmptyLocationDto: {location_id: string, location_name: string, is_active: boolean, priority: number}) {
-    return this.emptyLocationsService.create(createEmptyLocationDto);
-  }
-
   @Get()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -116,11 +111,6 @@ export class EmptyLocationsController {
     return await this.emptyLocationsService.update(id, updateEmptyLocationDto);
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.emptyLocationsService.remove(id);
-  }
-
   @Patch('/update-allocation/:allocation_type')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.FLOWOPS_ADMIN, Role.FLOWOPS_OPERATOR)
@@ -181,25 +171,14 @@ export class EmptyLocationsController {
     status: 200,
     description: 'The active robot at the specified empty location. If no active robot, only robot_id (null) is returned.',
     schema: {
-      oneOf: [
-        {
-          type: 'object',
+      type: 'object',
           properties: {
-            robot_id: { type: 'string' },
-            source: { type: 'string', nullable: true },
-            status: { type: 'string' },
-            completed_time: { type: 'string', format: 'date-time', nullable: true }
-          },
-          required: ['robot_id', 'source', 'status', 'completed_time']
+          robot_id: { type: 'string' },
+          source: { type: 'string', nullable: true },
+          status: { type: 'string' },
+          completed_time: { type: 'string', format: 'date-time', nullable: true }
         },
-        {
-          type: 'object',
-          properties: {
-            robot_id: { type: 'null' }
-          },
-          required: ['robot_id']
-        }
-      ]
+        required: ['robot_id', 'source', 'status', 'completed_time']
     }
   })
   async getActiveRobot(@Param('id') id: string) {
