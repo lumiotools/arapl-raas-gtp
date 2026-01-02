@@ -36,6 +36,9 @@ export class OrderItem extends BaseEntity {
   @Column({type: 'varchar', length: 100})
   destination_pallet_slot_id: string;
 
+  @Column({ type: 'timestamptz', nullable: true})
+  order_start_time: Date
+
   @Column({
     type: 'enum',
     enum: OrderItemStatus,

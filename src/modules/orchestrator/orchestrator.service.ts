@@ -1373,7 +1373,9 @@ export class OrchestratorService {
     //   orderItem.status = OrderItemStatus.IN_PROGRESS;
     //   await this.orderItemRepository.save(orderItem);
     // }
+    const currTime = new Date();
     assignedOrderItem.status = OrderItemStatus.IN_PROGRESS;
+    assignedOrderItem.order_start_time = currTime;
     await this.orderItemRepository.save(assignedOrderItem);
     const existingOrderItems = await this.orderItemRepository.find({
       where: {
@@ -1385,6 +1387,7 @@ export class OrchestratorService {
     });
     for (const existingOrderItem of existingOrderItems) {
       existingOrderItem.status = OrderItemStatus.IN_PROGRESS;
+      existingOrderItem.order_start_time = currTime;
       this.loggingService.log(`Orders started for OrderID: ${existingOrderItem.order_item_id}, source location ${existingOrderItem.source_location_id}, GTP location ${existingOrderItem.destination_pallet_slot_id}`, TaskType.GOODS_TO_PERSON, null, existingOrderItem.order_batch_id);
       await this.orderItemRepository.save(existingOrderItem);
     }

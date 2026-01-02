@@ -4553,6 +4553,29 @@
         ]
       }
     },
+    "/crossdock-task/{id}/retry": {
+      "post": {
+        "operationId": "CrossdockTaskController_retryTask",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CrossdockTask"
+        ]
+      }
+    },
     "/crossdock-task/set-configuration": {
       "post": {
         "operationId": "CrossdockTaskController_setConfiguration",

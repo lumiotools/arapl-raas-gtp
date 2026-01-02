@@ -433,7 +433,7 @@ export class WebhookService {
 
   private async handleWaitingLocationStatusUpdates(task: Task, newStatus: TaskStatus): Promise<void> {
     // When task status becomes PROCESSING and source location is waiting_location - mark waiting location as AVAILABLE
-    if (newStatus === TaskStatus.PROCESSING && 
+    if ([TaskStatus.PROCESSING, TaskStatus.IN_PROGRESS].includes(newStatus) && 
         task.start_location?.location_attribute?.attribute_value === 'waiting_location'
         && task.start_location.location_id !== task.end_location.location_id
       ) {

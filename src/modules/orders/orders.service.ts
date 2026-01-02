@@ -38,6 +38,8 @@ export interface OrderItemDetails{
   status: OrderItemStatus;
   start_time: Date | undefined;
   end_time: Date | undefined;
+  order_start_time?:Date;
+  robot_movement_start_time?:Date;
   created_at ?: Date;
   updated_at ?: Date;
   completedTasks?: Task[];
@@ -153,7 +155,7 @@ export class OrdersService {
       );
     }
     // console.log(`calling save to db`);
-
+    const currTime = new Date();
     for (const order of data) {
       try {
           const orderItem = this.orderItemRepository.create({
@@ -174,6 +176,7 @@ export class OrdersService {
             if (existingOrderItem){
               if (existingOrderItem.status === OrderItemStatus.IN_PROGRESS){
                 orderItem.status = OrderItemStatus.IN_PROGRESS;
+                orderItem.order_start_time = currTime;
               }
               orderItem.merged_order_item_id = existingOrderItem.merged_order_item_id ? existingOrderItem.merged_order_item_id : existingOrderItem.order_item_id;
             }
@@ -311,12 +314,23 @@ export class OrdersService {
       let totalUnloadingTime = 0;
       let wait_time = 0;
       let pallet_picking_time: Date | undefined;
-      for (const task of completedTasks){
-        if (task.move_type === MOVE_TYPE.INVENTORY_TO_STATION){
-          if (task.processing){
-            pallet_picking_time = task.processing ? new Date(task.processing) : undefined;
+      let robot_movement_start_time: Date | undefined;
+      if (completedTasks.length > 0){
+        const firstTask = await this.taskRepository.findOne({
+          where: { batch_id: completedTasks[0].batch_id, sequence_order: 1 }
+        })
+        if (firstTask){
+          if (firstTask.move_type === MOVE_TYPE.INVENTORY_TO_STATION){
+            if (firstTask.processing){
+              pallet_picking_time = firstTask.processing ? new Date(firstTask.processing) : undefined;
+            }
+            if (firstTask.in_progress) robot_movement_start_time = firstTask.in_progress ? new Date(firstTask.in_progress): undefined;
           }
         }
+      }
+      
+      for (const task of completedTasks){
+        
         if (!task.triggered || !task.completed) continue;
         let unloading_time = (Math.floor(task.triggered.getTime()/1000) - Math.floor(new Date(task.completed).getTime()/1000));
         totalUnloadingTime += unloading_time;
@@ -349,7 +363,9 @@ export class OrdersService {
         end_time: end_time,
         created_at: order.created_at,
         updated_at: order.updated_at,
-        completedTasks: order.completedTasks
+        completedTasks: order.completedTasks,
+        order_start_time: order.order_start_time ? new Date(order.order_start_time): undefined,
+        robot_movement_start_time: robot_movement_start_time
       });
     }
     return results;
