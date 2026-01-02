@@ -85,6 +85,7 @@ export interface TaskDetails {
   orderItems: OrderItem[];
   sequence_order?: number;
   inqueue?: Date;
+  in_progress?: Date;
   processing?: Date;
   completed?: Date;
   pause_time?: number;
@@ -365,7 +366,7 @@ export class OrchestratorService {
 
     if (databaseRequirement.length > 0) {
       const taskToWaitingLocation = await this.taskRepository.findOne({
-        where: { origin_location: inventoryID, status: In([TaskStatus.PROCESSING]), move_type: In([MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION]) }
+        where: { origin_location: inventoryID, status: In([TaskStatus.PROCESSING, TaskStatus.IN_PROGRESS]), move_type: In([MOVE_TYPE.INVENTORY_TO_WAITING_LOCATION]) }
       });
       if (taskToWaitingLocation && taskToWaitingLocation.robot_id) {
         // If a task is found, we can use it
@@ -1883,7 +1884,7 @@ export class OrchestratorService {
    */
   async handleTaskProcessing(processingTask: Task): Promise<void> {
     // Safety check: Only process tasks that are actually in PROCESSING status
-    if (processingTask.status !== TaskStatus.PROCESSING) {
+    if (processingTask.status !== TaskStatus.PROCESSING && processingTask.status !== TaskStatus.IN_PROGRESS) {
       this.logger.warn(`Task ${processingTask.task_id} processing handler called but task status is ${processingTask.status} - skipping`);
       return;
     }
@@ -1925,7 +1926,7 @@ export class OrchestratorService {
 
   async handleStationToWaitToEmptyCancel() {
     const stationToWaitTasks = await this.taskRepository.find({
-      where: { status: In([TaskStatus.PROCESSING]), move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION }
+      where: { status: In([TaskStatus.PROCESSING, TaskStatus.IN_PROGRESS]), move_type: MOVE_TYPE.STATION_TO_WAITING_LOCATION }
     });
     for (const task of stationToWaitTasks) {
       const inventoryId = task.origin_location;
@@ -2629,7 +2630,7 @@ export class OrchestratorService {
     }
     if (statusList.includes('processing')) {
       TaskItems.push(...await this.taskRepository.find({
-        where: { ...whereCondition, status: TaskStatus.PROCESSING },
+        where: { ...whereCondition, status: In([TaskStatus.PROCESSING, TaskStatus.IN_PROGRESS]) },
         order: { created_at: 'DESC', updated_at: 'DESC' },
         relations: ['batch', 'orderItems']
       }));
@@ -2691,6 +2692,7 @@ export class OrchestratorService {
         orderItems: task.orderItems || [],
         sequence_order: task.sequence_order,
         inqueue: task.inqueue,
+        in_progress: task.in_progress,
         processing: task.processing,
         completed: task.completed,
         pause_time: pause_time,

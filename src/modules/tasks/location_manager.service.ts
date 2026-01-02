@@ -139,7 +139,7 @@ export class LocationManagerService {
         return true;
     }
 
-    async findOptimalDropLocation(zone_id: string, zone_pair_id?: string, count: number = 1): Promise<string[] | null> {
+    async findOptimalDropLocation(zone_id: string, zone_pair_id?: string, count: number = 1, ignoreReserved: boolean = false): Promise<string[] | null> {
         const zone = await this.locationRepository.findOne({ where: { location_id: zone_id, location_type: LocationType.ZONE } });
         if (!zone) {
             console.log(`Zone with ID ${zone_id} not found.`);
@@ -156,7 +156,10 @@ export class LocationManagerService {
         });
 
         // Available locations only (candidates)
-        const available = allZoneLocations.filter(l => l.location_status === LocationStatus.AVAILABLE);
+        // If ignoreReserved is true, treat RESERVED as available too
+        const available = ignoreReserved 
+            ? allZoneLocations.filter(l => l.location_status === LocationStatus.AVAILABLE || l.location_status === LocationStatus.RESERVED)
+            : allZoneLocations.filter(l => l.location_status === LocationStatus.AVAILABLE);
         if (available.length === 0) {
             await this.loggingService.log(`No available drop locations in zone ${zone_id}`, this.taskType, null, null);
             return null;
@@ -174,7 +177,7 @@ export class LocationManagerService {
             // Collect multiple locations if count > 1
             const selectedLocations: string[] = [];
             for (const candidate of sorted) {
-                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, false, shouldReverseDrop);
+                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, ignoreReserved, shouldReverseDrop);
                 if (isDependencyAvailable) {
                     await this.loggingService.log(
                         `Selected drop location ${candidate.location_id} in zone ${zone_id} with priority ${candidate.drop_priority} (all direct access)`, 
@@ -203,7 +206,7 @@ export class LocationManagerService {
             ? [...withPriority].sort((a, b) => (a.drop_priority! - b.drop_priority!))
             : [...withPriority].sort((a, b) => (b.drop_priority! - a.drop_priority!));
             
-        const firstBlockedIdx = entranceOrder.findIndex(l => l.location_status !== LocationStatus.AVAILABLE);
+        const firstBlockedIdx = entranceOrder.findIndex(l => ignoreReserved ? l.location_status === LocationStatus.OCCUPIED : l.location_status !== LocationStatus.AVAILABLE);
 
         if (firstBlockedIdx === -1) {
             // No blockers: choose the smallest or largest drop_priority depending on reversal
@@ -214,7 +217,7 @@ export class LocationManagerService {
             // Collect multiple locations if count > 1
             const selectedLocations: string[] = [];
             for (const candidate of sortedNoBlock) {
-                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, false, shouldReverseDrop);
+                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, ignoreReserved, shouldReverseDrop);
                 if (isDependencyAvailable) {
                     await this.loggingService.log(
                         `Selected drop location ${candidate.location_id} in zone ${zone_id} with priority ${candidate.drop_priority} (no blockers)`, 
@@ -245,8 +248,8 @@ export class LocationManagerService {
         const selectedLocations: string[] = [];
         for (let i = firstBlockedIdx - 1; i >= 0; i--) {
             const candidate = entranceOrder[i];
-            if (candidate && candidate.location_status === LocationStatus.AVAILABLE) {
-                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, false, shouldReverseDrop);
+            if (candidate && ignoreReserved ? candidate.location_status !== LocationStatus.OCCUPIED : candidate.location_status === LocationStatus.AVAILABLE) {
+                const isDependencyAvailable = await this.isDependentLocationAvailable(candidate, ignoreReserved, shouldReverseDrop);
                 if (isDependencyAvailable) {
                     await this.loggingService.log(
                         `Selected drop location ${candidate.location_id} in zone ${zone_id} (before nearest block at priority ${entranceOrder[firstBlockedIdx].drop_priority})`, 
@@ -462,7 +465,7 @@ export class LocationManagerService {
 
         if (allDirect) {
             const allBlockingLocations = new Set<string>();
-            const results = await Promise.all(location_ids.map(async id => {
+            const results = await Promise.all(location_ids.map(async (id, currentIndex) => {
                 const loc = candidateById.get(id);
                 if (!loc || loc.location_type !== LocationType.PALLET || loc.parent_id !== zoneId) {
                     return { accessible: false };
@@ -470,25 +473,44 @@ export class LocationManagerService {
                 // Check if dependent location is available
                 const isDependencyAvailable = await this.isDependentLocationAvailable(loc, !!ignoreReserved, shouldReversePick);
                 if (!isDependencyAvailable) {
-                    // Add blocking location to the list
+                    // Check if dependent location is in input and comes prior
+                    let isAccessibleDespiteDependency = false;
+                    
                     if (shouldReversePick) {
-                        // In reversed mode, locations that depend on this one are blocking
+                        // In reversed mode, check if any dependent location is in input and comes prior
                         const dependents = await this.locationRepository.find({
                             where: { dependent_location: loc.location_id }
                         });
                         for (const dep of dependents) {
-                            if (!inputLocationSet.has(dep.location_id)) {
-                                allBlockingLocations.add(dep.location_id);
+                            const depIndex = location_ids.indexOf(dep.location_id);
+                            if (depIndex !== -1 && depIndex < currentIndex) {
+                                isAccessibleDespiteDependency = true;
+                                break;
+                            }
+                        }
+                        // Add blocking locations only if dependency is not resolved
+                        if (!isAccessibleDespiteDependency) {
+                            for (const dep of dependents) {
+                                if (!inputLocationSet.has(dep.location_id)) {
+                                    allBlockingLocations.add(dep.location_id);
+                                }
                             }
                         }
                     } else {
-                        // In normal mode, the dependent location is blocking
-                        if (loc.dependent_location && !inputLocationSet.has(loc.dependent_location)) {
-                            allBlockingLocations.add(loc.dependent_location);
+                        // In normal mode, check if the dependent location is in input and comes prior
+                        if (loc.dependent_location) {
+                            const depIndex = location_ids.indexOf(loc.dependent_location);
+                            if (depIndex !== -1 && depIndex < currentIndex) {
+                                isAccessibleDespiteDependency = true;
+                            } else if (!inputLocationSet.has(loc.dependent_location)) {
+                                allBlockingLocations.add(loc.dependent_location);
+                            }
                         }
                     }
+                    
+                    return { accessible: isAccessibleDespiteDependency };
                 }
-                return { accessible: isDependencyAvailable };
+                return { accessible: true };
             }));
             await this.loggingService.log(`Pick accessibility check (all-direct): computed availability for ${location_ids.length} locations`, this.taskType, null, null);
             return {
@@ -522,7 +544,8 @@ export class LocationManagerService {
         const accessibleResults: boolean[] = [];
         const allBlockingLocations = new Set<string>();
 
-        for (const id of location_ids) {
+        for (let currentIndex = 0; currentIndex < location_ids.length; currentIndex++) {
+            const id = location_ids[currentIndex];
             const loc = candidateById.get(id);
             // Default false for unknown, wrong type, wrong zone, or no pick_priority
             if (!loc || loc.location_type !== LocationType.PALLET || loc.parent_id !== zoneId || loc.pick_priority == null) {
@@ -550,23 +573,45 @@ export class LocationManagerService {
             
             // Add blocking location to the list if dependency check failed
             if (!isDependencyAvailable) {
+                // Check if dependent location is in input and comes prior
+                let isAccessibleDespiteDependency = false;
+                
                 if (shouldReversePick) {
-                    // In reversed mode, locations that depend on this one are blocking
+                    // In reversed mode, check if any dependent location is in input and comes prior
                     const dependents = await this.locationRepository.find({
                         where: { dependent_location: loc.location_id }
                     });
                     for (const dep of dependents) {
-                        if (!inputLocationSet.has(dep.location_id)) {
-                            allBlockingLocations.add(dep.location_id);
+                        const depIndex = location_ids.indexOf(dep.location_id);
+                        if (depIndex !== -1 && depIndex < currentIndex) {
+                            isAccessibleDespiteDependency = true;
+                            break;
+                        }
+                    }
+                    // Add blocking locations only if dependency is not resolved
+                    if (!isAccessibleDespiteDependency) {
+                        for (const dep of dependents) {
+                            if (!inputLocationSet.has(dep.location_id)) {
+                                allBlockingLocations.add(dep.location_id);
+                            }
                         }
                     }
                 } else {
-                    // In normal mode, the dependent location is blocking
-                    if (loc.dependent_location && !inputLocationSet.has(loc.dependent_location)) {
-                        allBlockingLocations.add(loc.dependent_location);
+                    // In normal mode, check if the dependent location is in input and comes prior
+                    if (loc.dependent_location) {
+                        const depIndex = location_ids.indexOf(loc.dependent_location);
+                        if (depIndex !== -1 && depIndex < currentIndex) {
+                            isAccessibleDespiteDependency = true;
+                        } else if (!inputLocationSet.has(loc.dependent_location)) {
+                            allBlockingLocations.add(loc.dependent_location);
+                        }
                     }
                 }
-                hasBlockers = true;
+                
+                // Only mark as blocked if dependency is not resolved by prior input location
+                if (!isAccessibleDespiteDependency) {
+                    hasBlockers = true;
+                }
             }
             
             accessibleResults.push(!hasBlockers);
@@ -656,7 +701,7 @@ export class LocationManagerService {
         return endLocation;
     }
 
-    async getOptimalWaitLocation(required_location_id: string, zone_pair_id: string): Promise<string | null> {
+    async getOptimalWaitLocation(required_location_id: string, start_zone_id: string): Promise<string | null> {
         console.log("Finding optimal wait location...");
 
         const requiredLocation = await this.locationRepository.findOne({ where: { location_id: required_location_id } });
@@ -743,7 +788,7 @@ export class LocationManagerService {
             console.log(`Checking wait zone: ${waitZone.location_id}`);
             
             // Get zone pair for movement: requiredLocationZone -> waitZone
-            const waitZonePairId = await this.getZonePairId(requiredLocationZoneId, waitZone.location_id);
+            const waitZonePairId = await this.getZonePairId(start_zone_id, waitZone.location_id);
             
             // Use findOptimalDropLocation which handles all the priority logic and dependency checks
             const optimalWaitLocations = await this.findOptimalDropLocation(
@@ -996,7 +1041,7 @@ export class LocationManagerService {
         const fmsLocations = await this.fetchFMSLocations();
         console.log("Fetched FMS locations");
 
-        for (const { zone_id, locations, entry_point } of fmsLocations) {
+        for (const { zone_id, locations, entry_points } of fmsLocations) {
             const existing_zone = await this.locationRepository.findOne({ where: { location_id: zone_id, location_type: LocationType.ZONE } });
             if (!existing_zone) {
                 const zoneRecord = this.locationRepository.create({
@@ -1039,22 +1084,27 @@ export class LocationManagerService {
                 }
             }
 
-            if (entry_point) {
-                const existingEntry = await this.locationRepository.findOne({ where: { parent_id: zone_id, location_type: LocationType.ENTRY } });
-                if (!existingEntry) {
-                    const entryRecord = this.locationRepository.create({
-                        location_id: String(entry_point.location_id).trim(),
-                        parent_id: zone_id,
-                        display_name: entry_point.display_name ?? String(entry_point.location_id).trim(),
-                        location_type: LocationType.ENTRY,
-                    });
-                    await this.locationRepository.save(entryRecord);
-                    console.log(`Created new entry point ${entry_point.location_id} under zone ${zone_id}`);
-                    await this.loggingService.log(`Created new entry point ${entry_point.location_id} under zone ${zone_id} from FMS sync`, this.taskType, null, null);
-                } else {
-                    existingEntry.location_status = entry_point.location_attribute?.attribute_value === "Empty" ? LocationStatus.AVAILABLE : LocationStatus.OCCUPIED;
-                    await this.locationRepository.save(existingEntry);
-                    console.log(`Updated entry point ${entry_point.location_id} under zone ${zone_id}`);
+            if (entry_points && entry_points.length > 0) {
+                const existingEntries = await this.locationRepository.find({ where: { parent_id: zone_id, location_type: LocationType.ENTRY } });
+                
+                for (const entry_point of entry_points) {
+                    const existingEntry = existingEntries.find(e => e.location_id === String(entry_point.location_id).trim());
+                    
+                    if (!existingEntry) {
+                        const entryRecord = this.locationRepository.create({
+                            location_id: String(entry_point.location_id).trim(),
+                            parent_id: zone_id,
+                            display_name: entry_point.customer_location_id ?? String(entry_point.location_id).trim(),
+                            location_type: LocationType.ENTRY,
+                        });
+                        await this.locationRepository.save(entryRecord);
+                        console.log(`Created new entry point ${entry_point.location_id} under zone ${zone_id}`);
+                        await this.loggingService.log(`Created new entry point ${entry_point.location_id} under zone ${zone_id} from FMS sync`, this.taskType, null, null);
+                    } else {
+                        existingEntry.location_status = entry_point.location_attribute?.attribute_value === "Empty" ? LocationStatus.AVAILABLE : LocationStatus.OCCUPIED;
+                        await this.locationRepository.save(existingEntry);
+                        console.log(`Updated entry point ${entry_point.location_id} under zone ${zone_id}`);
+                    }
                 }
             }
         }
@@ -1069,7 +1119,7 @@ export class LocationManagerService {
         const wms_base_url = process.env.WMS_BASE_URL || 'http://localhost:3000/robot-job';
         console.log(`Fetching WMS locations from ${wms_base_url}`);
         const zones = Array.isArray(fms_zones) && fms_zones.length ? fms_zones : [];
-        const entries = await Promise.all(zones.map(async (zone_type: { zone: string; type: string }) => {
+        const entries = await Promise.all(zones.map(async (zone_type: { zone: string; type: string, entry_type: string }) => {
             const locationsUrl = `${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=${encodeURIComponent(zone_type.zone)}&location_type=${encodeURIComponent(zone_type.type)}`;
             console.log(`Fetching locations for zone ${zone_type.zone} from ${locationsUrl}`);
             const locationsResponse = await fetch(locationsUrl, {
@@ -1086,7 +1136,7 @@ export class LocationManagerService {
             }
             locationsData.available_location_types.sort((a, b)=> a.location_id.localeCompare(b.location_id));
 
-            const entryPointUrl = `${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=${encodeURIComponent(zone_type.zone)}&location_type=entry`;
+            const entryPointUrl = `${wms_base_url}/robot-job/${warehouse_name}/locations?location_zone=${encodeURIComponent(zone_type.zone)}&location_type=${encodeURIComponent(zone_type.entry_type)}`;
             console.log(`Fetching locations for zone ${zone_type.zone} from ${entryPointUrl}`);
             const entryPointResponse = await fetch(entryPointUrl, {
             method: 'GET',
@@ -1104,7 +1154,7 @@ export class LocationManagerService {
             return {
                 zone_id: zone_type.zone,
                 locations: locationsData.available_location_types,
-                entry_point: entryPointData.available_location_types[0]
+                entry_points: entryPointData.available_location_types
             };
         }));
 

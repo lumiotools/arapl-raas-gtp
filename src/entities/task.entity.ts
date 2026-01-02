@@ -56,6 +56,7 @@ export enum TaskStatus {
   PENDING = 'PENDING',
   ASSIGNED = 'ASSIGNED',
   INQUEUE = 'INQUEUE',
+  IN_PROGRESS = 'IN_PROGRESS',
   PROCESSING = 'PROCESSING',
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
@@ -160,6 +161,9 @@ export class Task extends BaseEntity {
 
   @Column({ type: 'timestamptz', precision: 3, nullable: true })
   processing: Date;
+
+  @Column({ type: 'timestamp', precision: 3, nullable: true })
+  in_progress: Date;
 
   @Column({ type: 'timestamptz', precision: 3, nullable: true })
   completed: Date;

@@ -77,12 +77,16 @@ export class CrossdockTaskService {
         } else {
           palletEndLocationIds.add(endLocationId);
         }
+      } else if (endLocationType === 'ZONE') {
+        if(!endZoneId) {
+          validationErrors.push(`End Location Zone for '${task['end_location_location_id']}' could not be determined`);
+        }
       }
 
       // 7. Check if the start and end location ids exist in the system and they are available
       const startLocationValid = await this.taskService.LocationManagerService.isValidLocationId(startLocationId, true);
       if (!startLocationValid) {
-        validationErrors.push(`Start Location '${startLocation?.display_name}' is not available or does not exist in the system`);
+        validationErrors.push(`Start Location '${startLocationId}' is not available or does not exist in the system`);
       }
       const OtherTaskWithStartLocation = await this.taskService.LocationManagerService.otherTaskWithStartLocation(startLocationId);
       if (OtherTaskWithStartLocation){
@@ -189,13 +193,23 @@ export class CrossdockTaskService {
     if (startPalletIds.length > 0) {
       const pickAccessibility = await this.taskService.LocationManagerService.checkPickLocationsDirectAccessibility(startPalletIds, false, zonePairId);
       const blockedPickIds = startPalletIds.filter((id, idx) => !pickAccessibility.accessible[idx]);
-      if (blockedPickIds.length > 0) {
+      const blockedDisplayNames: string[] = [];
+      const blockingDisplayNames: string[] = [];
+      for (const id of blockedPickIds) {
+        const blockedDisplayName = (await this.taskService.LocationManagerService.getLocation(id))?.display_name || id;
+        blockedDisplayNames.push(blockedDisplayName);
+      }
+      for (const id of pickAccessibility.blockingLocations) {
+        const blockingDisplayName = (await this.taskService.LocationManagerService.getLocation(id))?.display_name || id;
+        blockingDisplayNames.push(blockingDisplayName);
+      }
+      if (blockedDisplayNames.length > 0) {
         // Only throw error if partial pick is not allowed
         if (!allowPartialPick) {
           // Build detailed error message with all blocking locations
-          const errorMessage = pickAccessibility.blockingLocations.length > 0
-            ? `Pick locations not directly accessible: ${blockedPickIds.join(', ')} (blocked by: ${pickAccessibility.blockingLocations.join(', ')})`
-            : `Pick locations not directly accessible: ${blockedPickIds.join(', ')}`;
+          const errorMessage = blockingDisplayNames.length > 0
+            ? `Pick locations not directly accessible: ${blockedDisplayNames.join(', ')} (blocked by: ${blockingDisplayNames.join(', ')})`
+            : `Pick locations not directly accessible: ${blockedDisplayNames.join(', ')}`;
           
           // clean up temporary fields before throwing
           tasks.forEach(t => {
@@ -223,7 +237,7 @@ export class CrossdockTaskService {
           for (const blockingLocation of validBlockingLocations) {
             const waitLocationId = await this.taskService.LocationManagerService.getOptimalWaitLocation(
               blockingLocation.location_id,
-              zonePairId!
+              startZoneId!
             );
             
             if (!waitLocationId) {
@@ -365,6 +379,10 @@ export class CrossdockTaskService {
     return await this.taskService.resumeTask(task_id);
   }
 
+  async retryTask(task_id: string): Promise<any> {
+    return await this.taskService.retryTask(task_id);
+  }
+
   async createWMSBatchJob(batch_job: WMSBatchJob): Promise<string> {
     // Collect all unique location IDs to fetch in parallel
     const locationIdsToFetch = new Set<string>();
@@ -441,7 +459,8 @@ export class CrossdockTaskService {
       let task_status = WMSBatchJobTaskStatus.TASK_ACKNOWLEDGED;
 
       if(task.robot_id) task_status = WMSBatchJobTaskStatus.TASK_ACKNOWLEDGED;
-      if(task.status === TaskStatus.PROCESSING) task_status = WMSBatchJobTaskStatus.PICKUP_SUCCESSFUL;
+      if(task.status === TaskStatus.PROCESSING || task.status === TaskStatus.IN_PROGRESS) task_status = WMSBatchJobTaskStatus.PICKUP_SUCCESSFUL;
+      if(task.status === TaskStatus.IN_PROGRESS) task_status = WMSBatchJobTaskStatus.ROBOT_ASSIGNED;
       if(task.status === TaskStatus.ASSIGNED) task_status = WMSBatchJobTaskStatus.ROBOT_ASSIGNED;
       if(task.status === TaskStatus.COMPLETED && task.end_location?.location_attribute?.attribute_pending_next_intermediate_task) task_status = WMSBatchJobTaskStatus.DROP_SUCCESSFUL;
       if(task.status === TaskStatus.COMPLETED && !task.end_location?.location_attribute?.attribute_pending_next_intermediate_task) task_status = WMSBatchJobTaskStatus.TASK_COMPLETED;

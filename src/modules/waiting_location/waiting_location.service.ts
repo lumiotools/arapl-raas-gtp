@@ -206,7 +206,7 @@ export class WaitingLocationService {
 
   async getActiveRobotAtWaiting(waiting_location_id: string){
     const tasks = await this.taskRepository.find({
-      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.INQUEUE]) },
+      where: { status: In([TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.IN_PROGRESS, TaskStatus.INQUEUE]) },
       order: { created_at: 'DESC' }
     });
 
@@ -239,7 +239,7 @@ export class WaitingLocationService {
     let status: TaskStatus | null | string = null;
     if (robot_task) {
       status = robot_task.status;
-      if (status === TaskStatus.PROCESSING) {
+      if (status === TaskStatus.PROCESSING || status === TaskStatus.IN_PROGRESS) {
         status = "COMING";
       }
       else if (status === TaskStatus.COMPLETED) {
