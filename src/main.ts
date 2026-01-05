@@ -59,6 +59,9 @@ async function bootstrap() {
     .addTag('Stations', 'Station management and Pallet Slot assignments')
     .addTag('Inventory', 'Inventory tracking, management, and bulk operations')
     .addTag('Orchestrator', 'Task orchestration and batch processing for warehouse operations')
+    .addTag('BaseOps Tasks', 'BaseOps task management, batch operations, and task processing')
+    .addTag('CrossDock Tasks', 'CrossDock task management, batch operations, pause/resume/retry, and task processing')
+    .addTag('WMS Integration Wrapper', 'WMS integration endpoints for creating and retrieving batch jobs')
     .addTag('Webhook', 'Webhook endpoints for receiving status updates from WMS API layer')
     .build();
   

@@ -4067,50 +4067,89 @@
     },
     "/baseops-task/batch-tasks": {
       "get": {
+        "description": "Retrieve a list of all BaseOps task batches ordered by creation date (newest first) with their status and task counts.",
         "operationId": "BaseopsTaskController_findAllBatches",
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "List of all BaseOps batches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BatchResponseDto"
+                  }
+                }
+              }
+            }
           }
         },
+        "summary": "Get all BaseOps batches",
         "tags": [
-          "BaseopsTask"
+          "BaseOps Tasks"
         ]
       }
     },
     "/baseops-task/batch-tasks/{batch_id}": {
       "get": {
+        "description": "Retrieve all tasks associated with a specific BaseOps batch ID.",
         "operationId": "BaseopsTaskController_findBatchTasks",
         "parameters": [
           {
             "name": "batch_id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the batch",
             "schema": {
+              "example": "BO_19122025_4",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "List of tasks in the batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Batch not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundResponseDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Get tasks for a specific batch",
         "tags": [
-          "BaseopsTask"
+          "BaseOps Tasks"
         ]
       }
     },
     "/baseops-task/batch-tasks/{batch_id}/{task_id}": {
       "get": {
+        "description": "Retrieve all activities (movements and waiting periods) associated with a specific task in a batch.",
         "operationId": "BaseopsTaskController_findBatchTasksActivities",
         "parameters": [
           {
             "name": "batch_id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the batch",
             "schema": {
+              "example": "BO_19122025_4",
               "type": "string"
             }
           },
@@ -4118,97 +4157,221 @@
             "name": "task_id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the task",
             "schema": {
+              "example": "81134147-4221-423a-bd5c-dbb13c0ade05",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "List of activities for the task. Can contain both MOVEMENT activities (with move_type, robot_id, robot_name, start_time, end_time) and WAITING activities (with activity_reason, created_at, updated_at, inqueue, processing, completed, triggered).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/MovementActivityDto"
+                      },
+                      {
+                        "$ref": "#/components/schemas/WaitingActivityDto"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Batch or task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundResponseDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Get activities for a specific task",
         "tags": [
-          "BaseopsTask"
+          "BaseOps Tasks"
         ]
       }
     },
     "/baseops-task/{id}/cancel": {
       "post": {
+        "description": "Cancel a specific BaseOps task by its task ID. The task must be in a cancellable state.",
         "operationId": "BaseopsTaskController_cancelTask",
         "parameters": [
           {
             "name": "id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the task to be cancelled",
             "schema": {
+              "example": "c95332ff-322d-4262-85b3-283ff9bc4a75",
               "type": "string"
             }
           }
         ],
         "responses": {
-          "201": {
-            "description": ""
+          "200": {
+            "description": "Task cancelled successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelTaskResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Task not found or cannot be cancelled in its current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundResponseDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Cancel a BaseOps task",
         "tags": [
-          "BaseopsTask"
+          "BaseOps Tasks"
         ]
       }
     },
     "/baseops-task/set-configuration": {
       "post": {
+        "description": "Initialize the BaseOps module configuration including robot counters and system settings. This should be called once during system setup.",
         "operationId": "BaseopsTaskController_setConfiguration",
         "parameters": [],
         "responses": {
-          "201": {
-            "description": ""
+          "200": {
+            "description": "Configuration set successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
           }
         },
+        "summary": "Set initial BaseOps configuration",
         "tags": [
-          "BaseopsTask"
+          "BaseOps Tasks"
         ]
       }
     },
     "/baseops-task/tasks/upload": {
       "post": {
+        "description": "Upload an array of BaseOps tasks to be processed. Each task must have valid start and end locations. Tasks are validated before processing, and duplicates are not allowed.",
         "operationId": "BaseopsTaskController_scheduleTasks",
         "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadTasksDto"
+              }
+            }
           }
         },
+        "responses": {
+          "201": {
+            "description": "Tasks processed and created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadTasksResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation errors in task data (duplicate locations, invalid location types, etc.)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Upload and process BaseOps tasks",
         "tags": [
-          "BaseopsTask"
+          "BaseOps Tasks"
         ]
       }
     },
     "/baseops-task/manual-task/start-location": {
       "get": {
+        "description": "Retrieve a list of available start locations (PALLET type) that can be used for creating manual BaseOps tasks.",
         "operationId": "BaseopsTaskController_getManualTaskStartLocation",
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "List of available start locations with parent relation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LocationEntityResponseDto"
+                  }
+                }
+              }
+            }
           }
         },
+        "summary": "Get available start locations for manual tasks",
         "tags": [
-          "BaseopsTask"
+          "BaseOps Tasks"
         ]
       }
     },
     "/baseops-task/manual-task/end-location": {
       "get": {
+        "description": "Retrieve a list of available end locations (PALLET type) that can be used for creating manual BaseOps tasks.",
         "operationId": "BaseopsTaskController_getManualTaskEndLocation",
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "List of available end locations with parent relation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LocationEntityResponseDto"
+                  }
+                }
+              }
+            }
           }
         },
+        "summary": "Get available end locations for manual tasks",
         "tags": [
-          "BaseopsTask"
+          "BaseOps Tasks"
         ]
       }
     },
@@ -4418,50 +4581,89 @@
     },
     "/crossdock-task/batch-tasks": {
       "get": {
+        "description": "Retrieve a list of all CrossDock task batches ordered by creation date (newest first) with their status and task counts.",
         "operationId": "CrossdockTaskController_findAllBatches",
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "List of all CrossDock batches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BatchResponseDto"
+                  }
+                }
+              }
+            }
           }
         },
+        "summary": "Get all CrossDock batches",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
     "/crossdock-task/batch-tasks/{batch_id}": {
       "get": {
+        "description": "Retrieve all tasks associated with a specific CrossDock batch ID.",
         "operationId": "CrossdockTaskController_findBatchTasks",
         "parameters": [
           {
             "name": "batch_id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the batch",
             "schema": {
+              "example": "BO_19122025_4",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "List of tasks in the batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Batch not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundResponseDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Get tasks for a specific batch",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
     "/crossdock-task/batch-tasks/{batch_id}/{task_id}": {
       "get": {
+        "description": "Retrieve all activities (movements and waiting periods) associated with a specific task in a batch.",
         "operationId": "CrossdockTaskController_findBatchTasksActivities",
         "parameters": [
           {
             "name": "batch_id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the batch",
             "schema": {
+              "example": "BO_19122025_4",
               "type": "string"
             }
           },
@@ -4469,166 +4671,383 @@
             "name": "task_id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the task",
             "schema": {
+              "example": "81134147-4221-423a-bd5c-dbb13c0ade05",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "List of activities for the task. Can contain both MOVEMENT activities (with move_type, robot_id, robot_name, start_time, end_time) and WAITING activities (with activity_reason, created_at, updated_at, inqueue, processing, completed, triggered).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/MovementActivityDto"
+                      },
+                      {
+                        "$ref": "#/components/schemas/WaitingActivityDto"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Batch or task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundResponseDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Get activities for a specific task",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
     "/crossdock-task/{id}/cancel": {
       "post": {
+        "description": "Cancel a specific CrossDock task by its task ID. The task must be in a cancellable state.",
         "operationId": "CrossdockTaskController_cancelTask",
         "parameters": [
           {
             "name": "id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the task to be cancelled",
             "schema": {
+              "example": "c95332ff-322d-4262-85b3-283ff9bc4a75",
               "type": "string"
             }
           }
         ],
         "responses": {
-          "201": {
-            "description": ""
+          "200": {
+            "description": "Task cancelled successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelTaskResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Task not found or cannot be cancelled in its current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundResponseDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Cancel a CrossDock task",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
     "/crossdock-task/{id}/pause": {
       "post": {
+        "description": "Pause a specific CrossDock task by its task ID. The task must be in PROCESSING or IN_PROGRESS status.",
         "operationId": "CrossdockTaskController_pauseTask",
         "parameters": [
           {
             "name": "id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the task to be paused",
             "schema": {
+              "example": "ae46809c-1802-401f-9f0f-377632bdc758",
               "type": "string"
             }
           }
         ],
         "responses": {
-          "201": {
-            "description": ""
+          "200": {
+            "description": "Task paused successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PauseTaskResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Task cannot be paused in its current state or is already paused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundResponseDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Pause a CrossDock task",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
     "/crossdock-task/{id}/resume": {
       "post": {
+        "description": "Resume a paused CrossDock task by its task ID. The task must be in a paused state.",
         "operationId": "CrossdockTaskController_resumeTask",
         "parameters": [
           {
             "name": "id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the task to be resumed",
             "schema": {
+              "example": "ae46809c-1802-401f-9f0f-377632bdc758",
               "type": "string"
             }
           }
         ],
         "responses": {
-          "201": {
-            "description": ""
+          "200": {
+            "description": "Task resumed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumeTaskResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Task is not paused or cannot be resumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundResponseDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Resume a paused CrossDock task",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
     "/crossdock-task/{id}/retry": {
       "post": {
+        "description": "Create a new task as a retry of the specified task. The original task will be cancelled and a new task with a new task_id will be created.",
         "operationId": "CrossdockTaskController_retryTask",
         "parameters": [
           {
             "name": "id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the task to be retried",
             "schema": {
+              "example": "ae46809c-1802-401f-9f0f-377632bdc758",
               "type": "string"
             }
           }
         ],
         "responses": {
-          "201": {
-            "description": ""
+          "200": {
+            "description": "Retry task created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetryTaskResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Task cannot be retried",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundResponseDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Retry a CrossDock task",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
     "/crossdock-task/set-configuration": {
       "post": {
+        "description": "Initialize the CrossDock module configuration including robot counters and system settings. This should be called once during system setup.",
         "operationId": "CrossdockTaskController_setConfiguration",
         "parameters": [],
         "responses": {
-          "201": {
-            "description": ""
+          "200": {
+            "description": "Configuration set successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
           }
         },
+        "summary": "Set initial CrossDock configuration",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
     "/crossdock-task/tasks/upload": {
       "post": {
+        "description": "Upload an array of CrossDock tasks to be processed. Each task must have valid start and end locations. Tasks are validated before processing, and duplicates are not allowed. Supports partial pick scenarios with automatic wait location assignment.",
         "operationId": "CrossdockTaskController_scheduleTasks",
         "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadTasksDto"
+              }
+            }
           }
         },
+        "responses": {
+          "201": {
+            "description": "Tasks processed and created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadTasksResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation errors in task data (duplicate locations, invalid location types, zone pair issues, etc.)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Upload and process CrossDock tasks",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
     "/crossdock-task/manual-task/start-location": {
       "get": {
+        "description": "Retrieve a list of available start locations (PALLET type) that can be used for creating manual CrossDock tasks.",
         "operationId": "CrossdockTaskController_getManualTaskStartLocation",
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "List of available start locations with parent relation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LocationEntityResponseDto"
+                  }
+                }
+              }
+            }
           }
         },
+        "summary": "Get available start locations for manual tasks",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
     "/crossdock-task/manual-task/end-location": {
       "get": {
+        "description": "Retrieve a list of available end locations (PALLET type) that can be used for creating manual CrossDock tasks.",
         "operationId": "CrossdockTaskController_getManualTaskEndLocation",
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "List of available end locations with parent relation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LocationEntityResponseDto"
+                  }
+                }
+              }
+            }
           }
         },
+        "summary": "Get available end locations for manual tasks",
         "tags": [
-          "CrossdockTask"
+          "CrossDock Tasks"
         ]
       }
     },
@@ -6667,48 +7086,120 @@
     },
     "/wms-integration-wrapper/{warehouse_id}/tasks": {
       "post": {
+        "description": "Create a new batch job with tasks for WMS integration. The batch job will be processed by the CrossDock task service.",
         "operationId": "WMSIntegrationWrapperController_createBatchJob",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "warehouse_id",
+            "required": true,
+            "in": "path",
+            "description": "The unique identifier of the warehouse",
+            "schema": {
+              "example": "WH001",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
+          "description": "Batch job data containing tasks, locations, and cargo information",
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/WMSBatchJob"
+                "$ref": "#/components/schemas/WMSBatchJobDto"
               }
             }
           }
         },
         "responses": {
           "201": {
-            "description": ""
+            "description": "Batch job created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateBatchJobResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid batch job data or validation errors",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Create a new WMS batch job",
         "tags": [
-          "WMSIntegrationWrapper"
+          "WMS Integration Wrapper"
         ]
       }
     },
     "/wms-integration-wrapper/{warehouse_id}/tasks/{batch_id}": {
       "get": {
+        "description": "Retrieve the details of a specific WMS batch job including all tasks, their status, locations, and cargo information.",
         "operationId": "WMSIntegrationWrapperController_getBatchJob",
         "parameters": [
+          {
+            "name": "warehouse_id",
+            "required": true,
+            "in": "path",
+            "description": "The unique identifier of the warehouse",
+            "schema": {
+              "example": "WH001",
+              "type": "string"
+            }
+          },
           {
             "name": "batch_id",
             "required": true,
             "in": "path",
+            "description": "The unique identifier of the batch job",
             "schema": {
+              "example": "B6566210101",
               "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "Batch job details retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WMSBatchJobDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid batch ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Batch job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundResponseDto"
+                }
+              }
+            }
           }
         },
+        "summary": "Get WMS batch job details",
         "tags": [
-          "WMSIntegrationWrapper"
+          "WMS Integration Wrapper"
         ]
       }
     }
@@ -6739,6 +7230,18 @@
     {
       "name": "Orchestrator",
       "description": "Task orchestration and batch processing for warehouse operations"
+    },
+    {
+      "name": "BaseOps Tasks",
+      "description": "BaseOps task management, batch operations, and task processing"
+    },
+    {
+      "name": "CrossDock Tasks",
+      "description": "CrossDock task management, batch operations, pause/resume/retry, and task processing"
+    },
+    {
+      "name": "WMS Integration Wrapper",
+      "description": "WMS integration endpoints for creating and retrieving batch jobs"
     },
     {
       "name": "Webhook",
@@ -6891,6 +7394,648 @@
           "error"
         ]
       },
+      "BatchResponseDto": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "batch_id": {
+            "type": "string",
+            "example": "BO_19122025_4"
+          },
+          "wms_batch_id": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "task_type": {
+            "type": "string",
+            "example": "BASEOPS"
+          },
+          "priority": {
+            "type": "number",
+            "example": 3
+          },
+          "status": {
+            "type": "string",
+            "example": "COMPLETED"
+          },
+          "total_tasks": {
+            "type": "number",
+            "example": 2
+          },
+          "completed_tasks": {
+            "type": "number",
+            "example": 2
+          },
+          "cancelled_tasks": {
+            "type": "number",
+            "example": 0
+          },
+          "alert": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          }
+        },
+        "required": [
+          "created_at",
+          "updated_at",
+          "batch_id",
+          "wms_batch_id",
+          "task_type",
+          "priority",
+          "status",
+          "total_tasks",
+          "completed_tasks",
+          "cancelled_tasks",
+          "alert"
+        ]
+      },
+      "BatchInfoDto": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "batch_id": {
+            "type": "string",
+            "example": "BO_19122025_4"
+          },
+          "wms_batch_id": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "task_type": {
+            "type": "string",
+            "example": "BASEOPS"
+          },
+          "priority": {
+            "type": "number",
+            "example": 3
+          },
+          "description": {
+            "type": "string",
+            "example": "BASEOPS Batch"
+          },
+          "status": {
+            "type": "string",
+            "example": "COMPLETED"
+          },
+          "total_tasks": {
+            "type": "number",
+            "example": 2
+          },
+          "completed_tasks": {
+            "type": "number",
+            "example": 2
+          },
+          "cancelled_tasks": {
+            "type": "number",
+            "example": 0
+          },
+          "dependency": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          }
+        },
+        "required": [
+          "created_at",
+          "updated_at",
+          "batch_id",
+          "wms_batch_id",
+          "task_type",
+          "priority",
+          "description",
+          "status",
+          "total_tasks",
+          "completed_tasks",
+          "cancelled_tasks",
+          "dependency"
+        ]
+      },
+      "LocationDimensionDto": {
+        "type": "object",
+        "properties": {
+          "length": {
+            "type": "number",
+            "example": 1
+          },
+          "width": {
+            "type": "number",
+            "example": 1
+          },
+          "height": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "length",
+          "width",
+          "height"
+        ]
+      },
+      "LocationAttributeDto": {
+        "type": "object",
+        "properties": {
+          "attribute_name": {
+            "type": "string",
+            "example": "Pallet"
+          },
+          "attribute_value": {
+            "type": "string",
+            "example": "ap1517"
+          },
+          "attribute_zone_pair_id": {
+            "type": "object",
+            "nullable": true,
+            "example": "9b27d4c3-2e5f-4a91-8c3e-7f04dbe61b2a"
+          }
+        },
+        "required": [
+          "attribute_name",
+          "attribute_value",
+          "attribute_zone_pair_id"
+        ]
+      },
+      "LocationDto": {
+        "type": "object",
+        "properties": {
+          "location_id": {
+            "type": "string",
+            "example": "ap1517"
+          },
+          "location_type": {
+            "type": "string",
+            "example": "PALLET"
+          },
+          "location_action": {
+            "type": "string",
+            "example": "PICK"
+          },
+          "location_dimension": {
+            "$ref": "#/components/schemas/LocationDimensionDto"
+          },
+          "location_attribute": {
+            "$ref": "#/components/schemas/LocationAttributeDto"
+          },
+          "display_name": {
+            "type": "string",
+            "example": "182",
+            "nullable": true
+          }
+        },
+        "required": [
+          "location_id",
+          "location_type",
+          "location_action",
+          "location_dimension",
+          "location_attribute",
+          "display_name"
+        ]
+      },
+      "TaskResponseDto": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "task_id": {
+            "type": "string",
+            "example": "81134147-4221-423a-bd5c-dbb13c0ade05"
+          },
+          "display_task_id": {
+            "type": "string",
+            "example": "577"
+          },
+          "batch_id": {
+            "type": "string",
+            "example": "BO_19122025_4"
+          },
+          "fms_batch_id": {
+            "type": "object",
+            "nullable": true,
+            "example": "Batch-2025121913233560"
+          },
+          "wms_task_id": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "origin_location": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "priority": {
+            "type": "number",
+            "example": 2
+          },
+          "task_type": {
+            "type": "string",
+            "example": "BASEOPS"
+          },
+          "status": {
+            "type": "string",
+            "example": "COMPLETED"
+          },
+          "move_type": {
+            "type": "string",
+            "example": "ZoneToWait"
+          },
+          "sequence_order": {
+            "type": "number",
+            "example": 1
+          },
+          "task_dependency": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "robot_id": {
+            "type": "object",
+            "nullable": true,
+            "example": "ROBOT-003"
+          },
+          "batch": {
+            "$ref": "#/components/schemas/BatchInfoDto"
+          },
+          "start_location": {
+            "$ref": "#/components/schemas/LocationDto"
+          },
+          "end_location": {
+            "$ref": "#/components/schemas/LocationDto"
+          },
+          "wait": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "cargos": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "pause_resume_logs": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "task_acknowledged": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "inqueue": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "processing": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "in_progress": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "completed": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "triggered": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "message": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "is_gtp_cancelled": {
+            "type": "boolean",
+            "example": false
+          },
+          "is_paused": {
+            "type": "boolean",
+            "example": false
+          },
+          "start_time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "end_time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "final_end_location": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LocationDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "created_at",
+          "updated_at",
+          "task_id",
+          "display_task_id",
+          "batch_id",
+          "fms_batch_id",
+          "wms_task_id",
+          "origin_location",
+          "priority",
+          "task_type",
+          "status",
+          "move_type",
+          "sequence_order",
+          "task_dependency",
+          "robot_id",
+          "batch",
+          "start_location",
+          "end_location",
+          "wait",
+          "cargos",
+          "pause_resume_logs",
+          "task_acknowledged",
+          "inqueue",
+          "processing",
+          "in_progress",
+          "completed",
+          "triggered",
+          "message",
+          "is_gtp_cancelled",
+          "is_paused",
+          "start_time",
+          "end_time",
+          "final_end_location"
+        ]
+      },
+      "CancelTaskResponseDto": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "example": "c95332ff-322d-4262-85b3-283ff9bc4a75"
+          },
+          "status": {
+            "type": "string",
+            "example": "CANCELLED"
+          }
+        },
+        "required": [
+          "task_id",
+          "status"
+        ]
+      },
+      "TaskItemDto": {
+        "type": "object",
+        "properties": {
+          "start_location_location_id": {
+            "type": "string",
+            "description": "Start location ID (must be a PALLET location)",
+            "example": "R10X02"
+          },
+          "start_location_location_type": {
+            "type": "string",
+            "description": "Start location type (must be PALLET)",
+            "enum": [
+              "PALLET",
+              "ZONE"
+            ],
+            "example": "PALLET"
+          },
+          "end_location_location_id": {
+            "type": "string",
+            "description": "End location ID",
+            "example": "R20X01"
+          },
+          "end_location_location_type": {
+            "type": "string",
+            "description": "End location type (must be PALLET or ZONE)",
+            "enum": [
+              "PALLET",
+              "ZONE"
+            ],
+            "example": "PALLET"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Task priority (HIGH, MEDIUM, or LOW)",
+            "enum": [
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ],
+            "example": "HIGH"
+          },
+          "wms_task_id": {
+            "type": "string",
+            "description": "WMS task ID (optional)",
+            "example": "WMS-TASK-12345"
+          }
+        },
+        "required": [
+          "start_location_location_id",
+          "start_location_location_type",
+          "end_location_location_id",
+          "end_location_location_type",
+          "priority"
+        ]
+      },
+      "UploadTasksDto": {
+        "type": "object",
+        "properties": {
+          "tasks": {
+            "description": "Array of tasks to be processed",
+            "example": [
+              {
+                "start_location_location_id": "R10X02",
+                "start_location_location_type": "PALLET",
+                "end_location_location_id": "R20X01",
+                "end_location_location_type": "PALLET",
+                "priority": "HIGH",
+                "wms_task_id": "WMS-TASK-12345",
+                "barcode_number": "1234567890123"
+              }
+            ],
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskItemDto"
+            }
+          },
+          "priority": {
+            "type": "number",
+            "description": "Batch priority (1 = HIGH, 2 = MEDIUM, 3 = LOW)",
+            "example": 1,
+            "minimum": 1,
+            "maximum": 3
+          }
+        },
+        "required": [
+          "tasks",
+          "priority"
+        ]
+      },
+      "UploadTasksResponseDto": {
+        "type": "object",
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "example": "B6566210101"
+          }
+        },
+        "required": [
+          "batch_id"
+        ]
+      },
+      "LocationEntityResponseDto": {
+        "type": "object",
+        "properties": {
+          "location_id": {
+            "type": "string",
+            "example": "ap1588"
+          },
+          "display_name": {
+            "type": "string",
+            "example": "ap1588"
+          },
+          "parent_id": {
+            "type": "object",
+            "nullable": true,
+            "example": "dropping"
+          },
+          "location_type": {
+            "type": "string",
+            "enum": [
+              "PALLET"
+            ],
+            "example": "PALLET"
+          },
+          "row": {
+            "type": "object",
+            "nullable": true,
+            "example": 5
+          },
+          "column": {
+            "type": "object",
+            "nullable": true,
+            "example": 5
+          },
+          "pick_priority": {
+            "type": "object",
+            "nullable": true,
+            "example": 1
+          },
+          "drop_priority": {
+            "type": "object",
+            "nullable": true,
+            "example": 5
+          },
+          "dependent_location": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "location_status": {
+            "type": "string",
+            "example": "AVAILABLE"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2025-11-20T07:00:17.400Z"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2025-11-20T07:00:17.400Z"
+          },
+          "parent": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true,
+            "description": "Parent location object with same structure as LocationEntityResponseDto",
+            "example": {
+              "location_id": "dropping",
+              "display_name": "dropping",
+              "parent_id": null,
+              "location_type": "Zone",
+              "row": null,
+              "column": null,
+              "pick_priority": null,
+              "drop_priority": null,
+              "dependent_location": null,
+              "location_status": "AVAILABLE",
+              "created_at": "2025-11-20T07:00:17.306Z",
+              "updated_at": "2025-11-20T07:00:17.306Z",
+              "attributes": null
+            }
+          }
+        },
+        "required": [
+          "location_id",
+          "display_name",
+          "parent_id",
+          "location_type",
+          "row",
+          "column",
+          "pick_priority",
+          "drop_priority",
+          "dependent_location",
+          "location_status",
+          "created_at",
+          "updated_at",
+          "parent"
+        ]
+      },
       "UpdateLocationDto": {
         "type": "object",
         "properties": {}
@@ -6922,50 +8067,6 @@
           "current_page",
           "total_pages",
           "total_records"
-        ]
-      },
-      "LocationDto": {
-        "type": "object",
-        "properties": {
-          "location_id": {
-            "type": "string",
-            "description": "Location ID",
-            "example": "INV015"
-          },
-          "location_type": {
-            "type": "string",
-            "description": "Location type",
-            "example": "Zone"
-          },
-          "location_action": {
-            "type": "string",
-            "description": "Location action",
-            "example": "Pick"
-          },
-          "location_dimension": {
-            "type": "object",
-            "description": "Location dimensions",
-            "example": {
-              "length": 0,
-              "height": 0,
-              "width": 0
-            }
-          },
-          "location_attribute": {
-            "type": "object",
-            "description": "Location attributes",
-            "example": {
-              "attribute_name": "location_type",
-              "attribute_value": "inventory"
-            }
-          }
-        },
-        "required": [
-          "location_id",
-          "location_type",
-          "location_action",
-          "location_dimension",
-          "location_attribute"
         ]
       },
       "CargoDto": {
@@ -7129,6 +8230,238 @@
           "batch_job_status",
           "timestamp",
           "tasks"
+        ]
+      },
+      "MovementActivityDto": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "string",
+            "example": "81134147-4221-423a-bd5c-dbb13c0ade05"
+          },
+          "display_activity_id": {
+            "type": "string",
+            "example": "577"
+          },
+          "activity_type": {
+            "type": "string",
+            "enum": [
+              "MOVEMENT"
+            ],
+            "example": "MOVEMENT"
+          },
+          "status": {
+            "type": "string",
+            "example": "COMPLETED"
+          },
+          "move_type": {
+            "type": "string",
+            "example": "ZoneToWait"
+          },
+          "robot_id": {
+            "type": "object",
+            "nullable": true,
+            "example": "ROBOT-003"
+          },
+          "robot_name": {
+            "type": "object",
+            "nullable": true,
+            "example": "ROBOT-003"
+          },
+          "start_time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "end_time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "cargos": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "start_location": {
+            "$ref": "#/components/schemas/LocationDto"
+          },
+          "end_location": {
+            "$ref": "#/components/schemas/LocationDto"
+          }
+        },
+        "required": [
+          "activity_id",
+          "display_activity_id",
+          "activity_type",
+          "status",
+          "move_type",
+          "robot_id",
+          "robot_name",
+          "start_time",
+          "end_time",
+          "cargos",
+          "start_location",
+          "end_location"
+        ]
+      },
+      "WaitingActivityDto": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "string",
+            "example": "WAIT-81134147-4221-423a-bd5c-dbb13c0ade05"
+          },
+          "display_activity_id": {
+            "type": "string",
+            "example": "w577"
+          },
+          "activity_type": {
+            "type": "string",
+            "enum": [
+              "WAITING"
+            ],
+            "example": "WAITING"
+          },
+          "status": {
+            "type": "string",
+            "example": "COMPLETED"
+          },
+          "activity_reason": {
+            "type": "object",
+            "nullable": true,
+            "example": "Waiting for location L11 to be available"
+          },
+          "robot_id": {
+            "type": "string",
+            "example": "-"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "inqueue": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "processing": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "completed": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "triggered": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "example": null
+          },
+          "start_location": {
+            "$ref": "#/components/schemas/LocationDto"
+          },
+          "end_location": {
+            "$ref": "#/components/schemas/LocationDto"
+          }
+        },
+        "required": [
+          "activity_id",
+          "display_activity_id",
+          "activity_type",
+          "status",
+          "activity_reason",
+          "robot_id",
+          "created_at",
+          "updated_at",
+          "inqueue",
+          "processing",
+          "completed",
+          "triggered",
+          "start_location",
+          "end_location"
+        ]
+      },
+      "PauseTaskResponseDto": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "example": "ae46809c-1802-401f-9f0f-377632bdc758"
+          },
+          "status": {
+            "type": "string",
+            "example": "paused"
+          },
+          "message": {
+            "type": "string",
+            "example": "Task paused successfully"
+          }
+        },
+        "required": [
+          "task_id",
+          "status",
+          "message"
+        ]
+      },
+      "ResumeTaskResponseDto": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "example": "ae46809c-1802-401f-9f0f-377632bdc758"
+          },
+          "status": {
+            "type": "string",
+            "example": "resumed"
+          },
+          "message": {
+            "type": "string",
+            "example": "Task resumed successfully"
+          }
+        },
+        "required": [
+          "task_id",
+          "status",
+          "message"
+        ]
+      },
+      "RetryTaskResponseDto": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "example": "ae46809c-1802-401f-9f0f-377632bdc758"
+          },
+          "status": {
+            "type": "string",
+            "example": "retry_task_created"
+          },
+          "message": {
+            "type": "string",
+            "example": "Retry task created successfully"
+          }
+        },
+        "required": [
+          "task_id",
+          "status",
+          "message"
         ]
       },
       "CreateStationDto": {
@@ -7490,9 +8823,218 @@
           }
         }
       },
-      "WMSBatchJob": {
+      "WMSBatchJobTaskLocationDimensionsDto": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "length": {
+            "type": "number",
+            "example": 1,
+            "description": "Length of the location"
+          },
+          "width": {
+            "type": "number",
+            "example": 1,
+            "description": "Width of the location"
+          },
+          "height": {
+            "type": "number",
+            "example": 1,
+            "description": "Height of the location"
+          }
+        },
+        "required": [
+          "length",
+          "width",
+          "height"
+        ]
+      },
+      "WMSBatchJobTaskLocationDto": {
+        "type": "object",
+        "properties": {
+          "location_id": {
+            "type": "string",
+            "example": "ap1517",
+            "description": "Location identifier"
+          },
+          "location_type": {
+            "type": "string",
+            "enum": [
+              "PALLET",
+              "ZONE"
+            ],
+            "example": "PALLET",
+            "description": "Type of location (PALLET or ZONE)"
+          },
+          "location_action": {
+            "type": "string",
+            "enum": [
+              "PICK",
+              "DROP"
+            ],
+            "example": "PICK",
+            "description": "Action to perform at this location (PICK or DROP)"
+          },
+          "location_dimension": {
+            "description": "Dimensions of the location",
+            "example": {
+              "length": 1,
+              "width": 1,
+              "height": 1
+            },
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WMSBatchJobTaskLocationDimensionsDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "location_id",
+          "location_type",
+          "location_action"
+        ]
+      },
+      "WMSBatchJobTaskCargoDto": {
+        "type": "object",
+        "properties": {
+          "cargo_code": {
+            "type": "string",
+            "example": "PRD001",
+            "description": "Cargo identifier code"
+          }
+        },
+        "required": [
+          "cargo_code"
+        ]
+      },
+      "WMSBatchJobTaskDto": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "example": "TASK-12345",
+            "description": "Unique identifier for the task"
+          },
+          "task_type": {
+            "type": "string",
+            "enum": [
+              "CROSSDOCK"
+            ],
+            "example": "CROSSDOCK",
+            "description": "Type of task"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "task_acknowledged",
+              "robot_assigned",
+              "pickup_successful",
+              "drop_successful",
+              "task_cancelled",
+              "task_completed"
+            ],
+            "example": "task_acknowledged",
+            "description": "Current status of the task"
+          },
+          "start_location": {
+            "description": "Start location for the task",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WMSBatchJobTaskLocationDto"
+              }
+            ]
+          },
+          "end_location": {
+            "description": "End location for the task",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WMSBatchJobTaskLocationDto"
+              }
+            ]
+          },
+          "cargos": {
+            "description": "Array of cargo items associated with this task",
+            "example": [
+              {
+                "cargo_code": "PRD001"
+              }
+            ],
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WMSBatchJobTaskCargoDto"
+            }
+          }
+        },
+        "required": [
+          "task_id",
+          "task_type",
+          "start_location",
+          "end_location",
+          "cargos"
+        ]
+      },
+      "WMSBatchJobDto": {
+        "type": "object",
+        "properties": {
+          "batch_job_id": {
+            "type": "string",
+            "example": "BATCH-12345",
+            "description": "Unique identifier for the batch job"
+          },
+          "batch_job_status": {
+            "type": "string",
+            "enum": [
+              "task_acknowledged",
+              "robot_assigned",
+              "task_in_progress",
+              "task_cancelled",
+              "task_completed"
+            ],
+            "example": "task_acknowledged",
+            "description": "Current status of the batch job"
+          },
+          "batch_priority": {
+            "type": "number",
+            "example": 1,
+            "description": "Priority of the batch (1 = HIGH, 2 = MEDIUM, 3 = LOW)",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "batch_type": {
+            "type": "string",
+            "example": "CROSSDOCK",
+            "description": "Type of batch"
+          },
+          "tasks": {
+            "description": "Array of tasks in this batch",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WMSBatchJobTaskDto"
+            }
+          }
+        },
+        "required": [
+          "tasks"
+        ]
+      },
+      "CreateBatchJobResponseDto": {
+        "type": "object",
+        "properties": {
+          "batch_job_id": {
+            "type": "string",
+            "example": "B6566210101",
+            "description": "Unique identifier of the created batch job"
+          },
+          "status": {
+            "type": "string",
+            "example": "Batch job created successfully",
+            "description": "Status message"
+          }
+        },
+        "required": [
+          "batch_job_id",
+          "status"
+        ]
       }
     }
   }
